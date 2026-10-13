@@ -1,0 +1,20 @@
+{
+  "name": "arbol-estructuras",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Plataforma de gestión de estructuras jerárquicas: cabezas, líderes, personas e invitaciones.",
+  "type": "module",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "dev:server": "node --disable-warning=ExperimentalWarning --watch server/index.js",
+    "dev:client": "npm --prefix client run dev",
+    "build": "npm --prefix client install && npm --prefix client run build",
+    "seed": "node --disable-warning=ExperimentalWarning scripts/seed.js",
+    "seed:large": "node --disable-warning=ExperimentalWarning scripts/seed-large.js",
+    "test": "node --disable-warning=ExperimentalWarning --test \"tests/**/*.test.js\""
+  },
+  "dependencies": {
+    "express": "4.21.2"
+  }
+}

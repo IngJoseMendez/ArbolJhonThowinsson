@@ -1,0 +1,88 @@
+// Datos de demostración con el ejemplo del enunciado (Cabeza Norte) y dos cabezas más.
+// Uso: npm run seed   (sólo si la base de datos está vacía; FORCE=1 para añadir igualmente)
+import { openDb, q } from '../server/db.js';
+import { hashPassword } from '../server/auth.js';
+import { createPerson, registerViaInvite } from '../server/services/people.js';
+
+openDb();
+if (q('SELECT COUNT(*) n FROM people').get().n > 0 && !process.env.FORCE) {
+  console.log('La base de datos ya tiene personas; no se cargan datos de ejemplo (use FORCE=1 para forzar).');
+  process.exit(0);
+}
+
+function ensureUser(username, display, role, password, { personId = null, heads = [] } = {}) {
+  let u = q('SELECT * FROM users WHERE username = ?').get(username);
+  if (!u) {
+    const r = q('INSERT INTO users (username, display_name, password_hash, role, person_id) VALUES (?,?,?,?,?)')
+      .run(username, display, hashPassword(password), role, personId);
+    u = { id: Number(r.lastInsertRowid) };
+    for (const h of heads) q('INSERT INTO user_head_scopes (user_id, head_id) VALUES (?,?)').run(u.id, h);
+  }
+  return q('SELECT * FROM users WHERE id = ?').get(u.id);
+}
+
+const admin = ensureUser('admin', 'Administrador general', 'super_admin', process.env.ADMIN_PASSWORD || 'Admin1234!');
+
+function head(name, color, region, description) {
+  const r = q(`INSERT INTO heads (name, slug, color, region, description, created_by) VALUES (?,?,?,?,?,?)`)
+    .run(name, name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-'), color, region, description, admin.id);
+  return Number(r.lastInsertRowid);
+}
+
+let phoneSeq = 3001000000;
+const day = (n) => new Date(Date.now() - n * 864e5).toISOString();
+const manual = (headId, name, inviterId, opts = {}) => createPerson({
+  data: { full_name: name, phone: String(phoneSeq++), city: opts.city || '' },
+  headId, inviterId, isLeader: !!opts.leader, method: 'manual', user: admin, status: 'active', createdAt: opts.at,
+}).id;
+const viaLink = (ownerId, name, at) => {
+  const link = q(`SELECT token FROM invite_links WHERE owner_person_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1`).get(ownerId);
+  const { person } = registerViaInvite(link.token, { full_name: name, phone: String(phoneSeq++), consent: true }, '127.0.0.1');
+  if (at) q('UPDATE people SET created_at = ? WHERE id = ?').run(at, person.id);
+  return person.id;
+};
+
+// --- Cabeza Norte (ejemplo literal del enunciado) ---
+const norte = head('Cabeza Norte', '#4f46e5', 'Zona Norte', 'Estructura de ejemplo del enunciado.');
+const juan = manual(norte, 'Juan Pérez', null, { leader: true, at: day(80) });
+const maria = viaLink(juan, 'María Gómez', day(70));
+const pedro = viaLink(maria, 'Pedro Ramírez', day(60));
+viaLink(pedro, 'Carlos Rodríguez', day(40));
+viaLink(pedro, 'Andrea López', day(35));
+viaLink(maria, 'Laura Martínez', day(55));
+const jose = manual(norte, 'José Hernández', juan, { leader: true, at: day(65) });
+const ricardo = viaLink(jose, 'Ricardo Torres', day(45));
+viaLink(ricardo, 'Sofía Castro', day(20));
+const ana = manual(norte, 'Ana Morales', null, { leader: true, at: day(75) });
+viaLink(ana, 'Camilo Vargas', day(30));
+
+// --- Otras cabezas con algo de volumen ---
+const first = ['Luis', 'Diana', 'Andrés', 'Paula', 'Jorge', 'Carolina', 'Felipe', 'Valentina', 'Santiago', 'Natalia', 'Mateo', 'Isabela', 'Daniel', 'Gabriela', 'Julián', 'Mariana'];
+const last = ['García', 'Rojas', 'Díaz', 'Moreno', 'Jiménez', 'Ruiz', 'Álvarez', 'Romero', 'Suárez', 'Ortiz', 'Silva', 'Mendoza'];
+let k = 0;
+const nm = () => `${first[k % first.length]} ${last[Math.floor(k++ / first.length) % last.length]} ${last[(k * 7) % last.length]}`;
+
+for (const [name, color, region] of [['Cabeza Sur', '#0d9488', 'Zona Sur'], ['Cabeza Centro', '#d97706', 'Zona Centro']]) {
+  const h = head(name, color, region, `Estructura territorial ${region}.`);
+  for (let L = 0; L < 3; L++) {
+    const leader = manual(h, nm(), null, { leader: true, at: day(88 - L * 5) });
+    const level1 = [];
+    for (let i = 0; i < 4; i++) level1.push(viaLink(leader, nm(), day(80 - L * 5 - i * 3)));
+    for (const p1 of level1) {
+      for (let j = 0; j < 2; j++) {
+        const p2 = viaLink(p1, nm(), day(60 - j * 9 - L * 3));
+        if ((p2 + j) % 3 === 0) viaLink(p2, nm(), day(25 - j * 4));
+      }
+    }
+  }
+}
+
+// Cuentas de ejemplo para probar permisos.
+const sur = q(`SELECT id FROM heads WHERE name = 'Cabeza Sur'`).get().id;
+ensureUser('admin.norte', 'Admin Cabeza Norte', 'head_admin', 'Norte1234!', { heads: [norte] });
+ensureUser('admin.sur', 'Admin Cabeza Sur', 'head_admin', 'Sur12345!', { heads: [sur] });
+ensureUser('juan', 'Juan Pérez', 'leader', 'Juan1234!', { personId: juan });
+ensureUser('maria', 'María Gómez', 'member', 'Maria1234!', { personId: maria });
+
+console.log('Datos de ejemplo cargados.');
+console.log('Usuarios: admin/Admin1234!  admin.norte/Norte1234!  admin.sur/Sur12345!  juan/Juan1234! (líder)  maria/Maria1234! (persona)');
