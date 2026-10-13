@@ -34,6 +34,21 @@ export function createApp() {
     res.setHeader('Cache-Control', 'no-store');
     next();
   });
+  // En Vercel, los "helpers" de Node pueden haber leído ya el cuerpo y exponerlo como req.body
+  // (propiedad perezosa). Si existe se reutiliza y express.json no vuelve a leer el flujo.
+  app.use((req, _res, next) => {
+    const d = Object.getOwnPropertyDescriptor(req, 'body');
+    if (!d) return next();
+    if (Number(req.headers['content-length'] || 0) > 50 * 1024) return next(new AppError(413, 'TOO_LARGE', 'Petición demasiado grande.'));
+    try {
+      const b = req.body;
+      req.body = b && typeof b === 'object' && !Buffer.isBuffer(b) ? b : {};
+      req._body = true;
+    } catch {
+      return next(new AppError(400, 'BAD_JSON', 'JSON no válido.'));
+    }
+    next();
+  });
   app.use(express.json({ limit: '50kb' }));
   // Inicialización perezosa (una vez por proceso): conexión, esquema y administrador inicial.
   let ready = null;
@@ -46,7 +61,7 @@ export function createApp() {
   app.use('/api', api);
   app.use('/api', (_req, _res, next) => next(new AppError(404, 'NOT_FOUND', 'Ruta no encontrada.')));
 
-  const dist = path.resolve(__dirname, '..', 'client', 'dist');
+  const dist = path.resolve(__dirname, '..', 'dist');
   if (fs.existsSync(dist)) {
     app.use(express.static(dist, { index: false, maxAge: '1h' }));
     app.get('/{*splat}', (_req, res) => res.sendFile(path.join(dist, 'index.html')));

@@ -25,7 +25,7 @@ y quién la invitó directamente.
 ## Despliegue en Vercel
 
 1. Importe el repositorio en Vercel (*Add New → Project*). `vercel.json` ya define la instalación, la compilación
-   (`client/dist`) y la función `api/index.js`, así que no hay que cambiar *Framework*, *Build* ni *Output*.
+   (`dist/`) y la función `api/index.js`, así que no hay que cambiar *Framework*, *Build* ni *Output*.
 2. En el proyecto, vaya a *Storage → Create Database → Neon (Postgres)*, elija la **misma región** que sus
    funciones (por ejemplo `us-east-1` / `iad1`) y conéctela al proyecto. Vercel añadirá automáticamente
    `DATABASE_URL` (también `POSTGRES_URL`). No hay que crear tablas: el esquema se crea solo en la primera petición.
@@ -55,7 +55,7 @@ Requiere PostgreSQL 13 o superior:
 createdb arbol                                         # o use la URL de Neon
 export DATABASE_URL=postgres://usuario:clave@localhost:5432/arbol
 npm install            # dependencias del servidor
-npm run build          # instala y compila el cliente (client/dist)
+npm run build          # instala y compila el cliente (dist/)
 npm run seed           # datos de ejemplo (sólo si la BD está vacía)
 npm start              # http://localhost:3000
 ```
