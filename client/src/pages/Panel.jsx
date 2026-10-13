@@ -88,6 +88,7 @@ export default function Panel() {
           <div className="panel-stat"><b className="tnum">{fmtNum(stats.direct)}</b><span>invitadas por ti</span></div>
           <div className="panel-stat"><b className="tnum">{fmtNum(stats.last7)}</b><span>últimos 7 días</span></div>
           <div className="panel-stat"><b className="tnum">{fmtNum(stats.last30)}</b><span>últimos 30 días</span></div>
+          <div className="panel-stat"><b className="tnum">{fmtNum(stats.secure_votes)}</b><span>votos seguros</span></div>
           <div className="panel-stat"><b className="tnum">{fmtNum(stats.supports_yes)}</b><span>dicen «cuenten conmigo»</span></div>
         </div>
         {data.invite_token && (

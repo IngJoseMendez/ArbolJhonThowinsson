@@ -3,7 +3,18 @@ import GeoSelect, { emptyGeo, geoToApi } from './GeoSelect.jsx';
 import { cedulaError, formatCedula, formatMobile, formatName, mobileError, normalizeCedula, normalizeMobile } from '../lib/validators.js';
 
 export { normalizeMobile };
-export const emptyPerson = { first_names: '', last_names: '', document_id: '', address: '', phone: '', geo: emptyGeo, supports: '' };
+export const emptyPerson = { first_names: '', last_names: '', document_id: '', address: '', phone: '', geo: emptyGeo, supports: '', secure_vote: '' };
+
+/**
+ * Pregunta final del formulario:
+ * - registro por enlace: la persona responde «¿Contamos contigo en este camino?» (supports);
+ * - registro manual: quien registra (administrador, político) valora «¿Es voto seguro?» (secure_vote).
+ */
+const QUESTION = {
+  supports: { label: '¿Contamos contigo en este camino?', error: 'Elija Sí o No.' },
+  secure_vote: { label: '¿Es voto seguro?', error: 'Indique si es voto seguro.' },
+};
+const questionKey = (assessment) => (assessment ? 'secure_vote' : 'supports');
 
 const nameError = (v, what) => {
   const x = String(v || '').trim();
@@ -13,7 +24,7 @@ const nameError = (v, what) => {
 };
 
 /** Validación en el cliente con las mismas reglas que el servidor. Devuelve { campo: mensaje }. */
-export function validatePerson(v) {
+export function validatePerson(v, { assessment = false } = {}) {
   const e = {};
   const fn = nameError(v.first_names, 'los nombres'); if (fn) e.first_names = fn;
   const ln = nameError(v.last_names, 'los apellidos'); if (ln) e.last_names = ln;
@@ -23,7 +34,8 @@ export function validatePerson(v) {
   const g = v.geo || emptyGeo;
   if (!g.localidad || (g.localidad.manual !== undefined && !g.localidad.manual.trim())) e.localidad = 'Seleccione o escriba la localidad.';
   if (g.barrio?.manual !== undefined && !g.barrio.manual.trim() && g.localidad?.manual === undefined) e.barrio = 'Escriba el barrio o vuelva al listado.';
-  if (v.supports !== 'yes' && v.supports !== 'no') e.supports = 'Elija Sí o No.';
+  const qk = questionKey(assessment);
+  if (v[qk] !== 'yes' && v[qk] !== 'no') e[qk] = QUESTION[qk].error;
   return e;
 }
 
@@ -32,7 +44,8 @@ export const personName = (v) => `${formatName(v.first_names)} ${formatName(v.la
 export function personPayload(v) {
   return {
     first_names: formatName(v.first_names), last_names: formatName(v.last_names), document_id: normalizeCedula(v.document_id),
-    address: v.address.trim().replace(/\s+/g, ' '), phone: normalizeMobile(v.phone), location: geoToApi(v.geo), supports: v.supports,
+    address: v.address.trim().replace(/\s+/g, ' '), phone: normalizeMobile(v.phone), location: geoToApi(v.geo),
+    ...(v.supports ? { supports: v.supports } : {}), ...(v.secure_vote ? { secure_vote: v.secure_vote } : {}),
   };
 }
 
@@ -48,8 +61,10 @@ export const serverFieldError = (err) => {
  * Formatean automáticamente lo que se escribe o pega: celular "300 555 0123", cédula "1.082.345.678",
  * nombres y apellidos con mayúscula inicial. Teclado numérico en celular y cédula.
  * slogan: muestra el eslogan bajo la pregunta final (formulario público).
+ * assessment: registro manual; la pregunta final es «¿Es voto seguro?» (la responde quien registra).
  */
-export default function PersonFields({ value, onChange, errors = {}, onBlurField, size, idPrefix = 'pf', slogan }) {
+export default function PersonFields({ value, onChange, errors = {}, onBlurField, size, idPrefix = 'pf', slogan, assessment }) {
+  const qk = questionKey(assessment);
   const setRaw = (k, v) => onChange({ ...value, [k]: v });
   const blur = (k) => () => {
     if ((k === 'first_names' || k === 'last_names') && value[k]) setRaw(k, formatName(value[k]));
@@ -113,18 +128,18 @@ export default function PersonFields({ value, onChange, errors = {}, onBlurField
           autoComplete="street-address" placeholder="Calle 10 # 5-20, apto 3" maxLength={200} />,
       })}
       <GeoSelect simple idPrefix={`${idPrefix}-geo`} value={value.geo} onChange={(geo) => onChange({ ...value, geo })} errors={errors} />
-      <fieldset className={`supports ${errors.supports ? 'invalid' : ''}`} aria-describedby={errors.supports ? `${idPrefix}-supports-err` : undefined}>
-        <legend>¿Contamos contigo en este camino?<span className="req"> *</span></legend>
+      <fieldset className={`supports ${errors[qk] ? 'invalid' : ''}`} aria-describedby={errors[qk] ? `${idPrefix}-${qk}-err` : undefined}>
+        <legend>{QUESTION[qk].label}<span className="req"> *</span></legend>
         <div className="supports-options" role="radiogroup">
           {[['yes', 'Sí'], ['no', 'No']].map(([v, l]) => (
-            <label key={v} className={`supports-option ${value.supports === v ? 'active' : ''}`}>
-              <input type="radio" name={`${idPrefix}-supports`} id={`${idPrefix}-supports-${v}`} value={v} checked={value.supports === v}
-                onChange={() => setRaw('supports', v)} />
+            <label key={v} className={`supports-option ${value[qk] === v ? 'active' : ''}`}>
+              <input type="radio" name={`${idPrefix}-${qk}`} id={`${idPrefix}-${qk}-${v}`} value={v} checked={value[qk] === v}
+                onChange={() => setRaw(qk, v)} />
               {l}
             </label>
           ))}
         </div>
-        {errors.supports && <span className="err" id={`${idPrefix}-supports-err`} role="alert">{errors.supports}</span>}
+        {errors[qk] && <span className="err" id={`${idPrefix}-${qk}-err`} role="alert">{errors[qk]}</span>}
         {slogan && <p className="slogan">En tus manos tienes el poder del cambio</p>}
       </fieldset>
     </div>

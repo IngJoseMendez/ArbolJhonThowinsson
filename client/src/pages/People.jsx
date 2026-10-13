@@ -48,7 +48,7 @@ export default function People() {
   const setFilter = (k) => (e) => setParams({ [k]: e.target.value, page: null });
   const sortBy = (k) => setParams({ sort: k, dir: query.sort === k && query.dir === 'desc' ? 'asc' : 'desc', page: null });
   const pages = data ? Math.max(1, Math.ceil(data.total / query.pageSize)) : 1;
-  const filtersOn = ['head_id', 'leader_id', 'inviter_id', 'status', 'type', 'method', 'from', 'to', 'q', 'localidad_id', 'geo_status', 'supports', 'reg_type_id'].some((k) => params[k]);
+  const filtersOn = ['head_id', 'leader_id', 'inviter_id', 'status', 'type', 'method', 'from', 'to', 'q', 'localidad_id', 'geo_status', 'supports', 'secure_vote', 'reg_type_id'].some((k) => params[k]);
 
   return (
     <div className="page">
@@ -91,6 +91,10 @@ export default function People() {
           </select>
           <select className="select" style={{ width: 180 }} value={params.reg_type_id || ''} onChange={setFilter('reg_type_id')} aria-label="Tipo de registro">
             <option value="">Cualquier tipo</option>{types.list.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          <select className="select" style={{ width: 180 }} value={params.secure_vote || ''} onChange={setFilter('secure_vote')} aria-label="Voto seguro">
+            <option value="">Voto seguro: todos</option><option value="yes">Voto seguro: Sí</option>
+            <option value="no">Voto seguro: No</option><option value="unknown">Sin valorar</option>
           </select>
           <select className="select" style={{ width: 200 }} value={params.supports || ''} onChange={setFilter('supports')} aria-label="¿Contamos contigo?">
             <option value="">¿Contamos contigo?: todos</option><option value="yes">Contamos contigo: Sí</option>

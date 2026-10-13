@@ -109,14 +109,14 @@ function validateNames(data) {
   return { full_name: `${first_names} ${last_names}`, first_names, last_names };
 }
 
-/** «¿Contamos contigo en este camino?»: 'yes' | 'no' | null. */
-function validateSupports(v, { required = false } = {}) {
+/** Respuesta Sí/No: 'yes' | 'no' | null. */
+function validateYesNo(v, field, { required = false, message } = {}) {
   if (v === undefined || v === null || v === '') {
-    if (required) throw badRequest('VALIDATION', 'Responda si contamos contigo en este camino.', { field: 'supports' });
+    if (required) throw badRequest('VALIDATION', message, { field });
     return null;
   }
   const x = v === true || v === 'yes' || v === 'si' || v === 'sí' ? 'yes' : v === false || v === 'no' ? 'no' : null;
-  if (!x) throw badRequest('VALIDATION', 'Respuesta no válida.', { field: 'supports' });
+  if (!x) throw badRequest('VALIDATION', 'Respuesta no válida.', { field });
   return x;
 }
 
@@ -132,7 +132,10 @@ function validatePersonData(data, { legacy = null } = {}) {
     email: validateEmail(data.email),
     city: str(data.city, { field: 'ciudad / municipio', max: 80 }),
     notes: str(data.notes, { field: 'observaciones', max: 500 }),
-    supports: validateSupports(data.supports, { required: !!data.requireSupports }),
+    // «¿Contamos contigo?» la responde la propia persona (registro por enlace).
+    supports: validateYesNo(data.supports, 'supports', { required: !!data.requireSupports, message: 'Responda si contamos contigo en este camino.' }),
+    // «¿Es voto seguro?» la valora quien registra (registro manual o edición en la ficha).
+    secure_vote: validateYesNo(data.secure_vote, 'secure_vote', { required: !!data.requireSecureVote, message: 'Indique si es voto seguro.' }),
   };
 }
 
@@ -356,14 +359,14 @@ export async function createPerson(opts) {
                    leader_id, leader_mode, is_leader, leader_code, leader_since, registration_method, registered_by_user_id,
                    invite_link_id, status, path, depth, consent_at, registration_ip, created_at, updated_at,
                    address, geo_localidad_id, geo_comuna_id, geo_barrio_id, geo_localidad_text, geo_comuna_text, geo_barrio_text, geo_status,
-                   first_names, last_names, supports, reg_type_id)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+                   first_names, last_names, supports, reg_type_id, secure_vote)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
       code, data.full_name, normalizeText(data.full_name), data.phone, data.email, data.document_id, data.city, data.notes,
       head.id, inviter?.id ?? null, leaderId, leaderMode, isLeader ? 1 : 0, leaderCode, isLeader ? ts : null,
       method, method === 'manual' ? user?.id ?? null : null, linkId, status, '/', inviter ? inviter.depth + 1 : 0,
       opts.consent ? ts : null, ip, opts.createdAt || ts, opts.createdAt || ts,
       data.address, geo.geo_localidad_id, geo.geo_comuna_id, geo.geo_barrio_id, geo.geo_localidad_text, geo.geo_comuna_text,
-      geo.geo_barrio_text, geo.geo_status, data.first_names, data.last_names, data.supports, regType.id,
+      geo.geo_barrio_text, geo.geo_status, data.first_names, data.last_names, data.supports, regType.id, data.secure_vote,
     );
     const id = Number(r.lastInsertRowid);
     const path = `${inviter ? inviter.path : '/'}${id}/`;
@@ -665,6 +668,7 @@ export async function updatePersonData(personId, body, user, ip) {
     const merged = {
       ...nameParts,
       supports: body.supports !== undefined ? body.supports : p.supports,
+      secure_vote: body.secure_vote !== undefined ? body.secure_vote : p.secure_vote,
       phone: body.phone ?? p.phone,
       email: body.email !== undefined ? body.email : p.email,
       document_id: body.document_id !== undefined ? body.document_id : p.document_id,
@@ -684,9 +688,9 @@ export async function updatePersonData(personId, body, user, ip) {
     }
     if (!Object.keys(changes).length) return p;
     await q(`UPDATE people SET full_name = ?, name_key = ?, phone = ?, email = ?, document_id = ?, address = ?, city = ?, notes = ?,
-        first_names = ?, last_names = ?, supports = ?, reg_type_id = ?, updated_at = ? WHERE id = ?`).run(data.full_name, normalizeText(data.full_name),
-      data.phone, data.email, data.document_id, data.address, data.city, data.notes, data.first_names, data.last_names, data.supports,
-      data.reg_type_id, now(), p.id);
+        first_names = ?, last_names = ?, supports = ?, reg_type_id = ?, secure_vote = ?, updated_at = ? WHERE id = ?`).run(data.full_name,
+      normalizeText(data.full_name), data.phone, data.email, data.document_id, data.address, data.city, data.notes, data.first_names, data.last_names, data.supports,
+      data.reg_type_id, data.secure_vote, now(), p.id);
     await history(p.id, 'data_updated', { fields: changes }, user?.id, body.reason || null);
     await audit(user, 'person.update', 'person', p.id, { fields: Object.keys(changes) }, ip);
     return await getPerson(p.id);

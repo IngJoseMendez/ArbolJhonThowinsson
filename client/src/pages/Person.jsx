@@ -37,7 +37,7 @@ const HISTORY = {
   location_verified: 'Ubicación verificada',
 };
 const SUPPORTS = { yes: 'Sí', no: 'No' };
-const FIELD = { reg_type_id: 'Tipo de registro', full_name: 'Nombre', first_names: 'Nombres', last_names: 'Apellidos', supports: '¿Contamos contigo?', phone: 'Celular', email: 'Correo', document_id: 'Cédula', address: 'Dirección', city: 'Municipio', notes: 'Observaciones' };
+const FIELD = { reg_type_id: 'Tipo de registro', full_name: 'Nombre', first_names: 'Nombres', last_names: 'Apellidos', supports: '¿Contamos contigo?', secure_vote: '¿Es voto seguro?', phone: 'Celular', email: 'Correo', document_id: 'Cédula', address: 'Dirección', city: 'Municipio', notes: 'Observaciones' };
 
 function HistoryDetail({ h, names }) {
   const d = h.details;
@@ -56,7 +56,7 @@ function HistoryDetail({ h, names }) {
       return <>{d.to?.geo_status === 'pending' ? 'Ubicación escrita a mano (pendiente)' : 'Ubicación del catálogo asignada'}</>;
     case 'data_updated':
       return <>{Object.entries(d.fields || {}).map(([k, v]) => {
-        const fmt = (x) => (k === 'supports' ? SUPPORTS[x] : x) || '—';
+        const fmt = (x) => (k === 'supports' || k === 'secure_vote' ? SUPPORTS[x] : x) || '—';
         return <div key={k}>{FIELD[k] || k}: <s className="muted">{fmt(v.from)}</s> → {fmt(v.to)}</div>;
       })}</>;
     default: return null;
@@ -74,7 +74,7 @@ function EditModal({ p, types = [], onClose, onDone }) {
   const names = p.first_names || p.last_names ? { first_names: p.first_names || '', last_names: p.last_names || '' } : splitName(p.full_name);
   const [f, setF] = useState({
     ...names, phone: p.phone || '', document_id: p.document_id || '', address: p.address || '',
-    supports: p.supports || '', reg_type_id: p.reg_type_id ? String(p.reg_type_id) : '', notes: p.notes || '', reason: '',
+    supports: p.supports || '', secure_vote: p.secure_vote || '', reg_type_id: p.reg_type_id ? String(p.reg_type_id) : '', notes: p.notes || '', reason: '',
   });
   const typeOptions = types.filter((t) => (t.active || t.id === p.reg_type_id) && (p.is_leader ? t.role !== 'person' : t.role === 'person'));
   const [err, setErr] = useState(null);
@@ -91,7 +91,7 @@ function EditModal({ p, types = [], onClose, onDone }) {
     try {
       await api.patch(`/people/${p.id}`, {
         ...f, first_names: formatName(f.first_names), last_names: formatName(f.last_names), phone: normalizeMobile(f.phone),
-        document_id: normalizeCedula(f.document_id) || null, supports: f.supports || null, reg_type_id: f.reg_type_id || undefined,
+        document_id: normalizeCedula(f.document_id) || null, supports: f.supports || null, secure_vote: f.secure_vote || null, reg_type_id: f.reg_type_id || undefined,
       });
       onDone('Datos actualizados'); onClose();
     } catch (ex) { setErr(ex); if (ex.body?.error?.field) setErrors({ [ex.body.error.field]: ex.message }); }
@@ -116,12 +116,20 @@ function EditModal({ p, types = [], onClose, onDone }) {
               {typeOptions.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select></div>
         )}
-        <div className="field"><label>¿Contamos contigo en este camino?</label>
-          <div className="seg">
-            {[['yes', 'Sí'], ['no', 'No'], ['', 'Sin respuesta']].map(([v, l]) => (
-              <button key={v} type="button" className={f.supports === v ? 'active' : ''} onClick={() => setF({ ...f, supports: v })}>{l}</button>
-            ))}
-          </div></div>
+        <div className="grid g-2">
+          <div className="field"><label>¿Es voto seguro?</label>
+            <div className="seg">
+              {[['yes', 'Sí'], ['no', 'No'], ['', 'Sin valorar']].map(([v, l]) => (
+                <button key={v} type="button" className={f.secure_vote === v ? 'active' : ''} onClick={() => setF({ ...f, secure_vote: v })}>{l}</button>
+              ))}
+            </div><span className="hint">Valoración de quien registra.</span></div>
+          <div className="field"><label>¿Contamos contigo? <span className="muted">(respuesta de la persona)</span></label>
+            <div className="seg">
+              {[['yes', 'Sí'], ['no', 'No'], ['', 'Sin respuesta']].map(([v, l]) => (
+                <button key={v} type="button" className={f.supports === v ? 'active' : ''} onClick={() => setF({ ...f, supports: v })}>{l}</button>
+              ))}
+            </div></div>
+        </div>
         <div className="field"><label>Observaciones</label><textarea className="textarea" value={f.notes} onChange={set('notes')} /></div>
         <div className="field"><label>Motivo del cambio (opcional)</label><input className="input" value={f.reason} onChange={set('reason')} /></div>
         <ErrorBox error={err} />
@@ -434,6 +442,7 @@ export default function Person() {
               {perm.contact && <><dt>Cédula</dt><dd>{p.document_id ? formatCedula(p.document_id) : <span className="muted">Sin registrar</span>}</dd>
                 <dt>Dirección</dt><dd>{p.address || <span className="muted">Sin registrar</span>}</dd>
                 {p.email && <><dt>Correo</dt><dd>{p.email}</dd></>}</>}
+              <dt>¿Es voto seguro?</dt><dd>{p.secure_vote ? <span className={`badge ${p.secure_vote === 'yes' ? 'badge-good' : 'badge-outline'}`}>{SUPPORTS[p.secure_vote]}</span> : <span className="muted">Sin valorar</span>}</dd>
               <dt>¿Contamos contigo?</dt><dd>{p.supports ? <span className={`badge ${p.supports === 'yes' ? 'badge-good' : 'badge-outline'}`}>{SUPPORTS[p.supports]}</span> : <span className="muted">Sin respuesta</span>}</dd>
               <dt>Ubicación</dt><dd><LocationText loc={data.location} />
                 {perm.manage && <div><button className="btn btn-sm btn-ghost" style={{ paddingLeft: 0 }} onClick={() => setModal('location')}><MapPin size={13} />{data.location?.status === 'pending' ? 'Verificar / corregir' : 'Corregir ubicación'}</button></div>}</dd>

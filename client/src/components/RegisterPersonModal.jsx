@@ -56,7 +56,7 @@ export default function RegisterPersonModal({ onClose, onCreated, defaultHeadId,
   const submit = async (e) => {
     e.preventDefault();
     setSubmitted(true);
-    const v = validatePerson(f);
+    const v = validatePerson(f, { assessment: true });
     setFieldErrors(v);
     if (Object.keys(v).length) { setErr({ message: 'Revise los campos marcados.' }); return; }
     setErr(null); setBusy(true);
@@ -140,8 +140,8 @@ export default function RegisterPersonModal({ onClose, onCreated, defaultHeadId,
         </div>
 
         <div className="divider" />
-        <PersonFields idPrefix="r" value={f} errors={fieldErrors}
-          onChange={(v) => { setF(v); if (submitted) { const e2 = validatePerson(v); setFieldErrors(e2); if (!Object.keys(e2).length) setErr(null); } }}
+        <PersonFields idPrefix="r" assessment value={f} errors={fieldErrors}
+          onChange={(v) => { setF(v); if (submitted) { const e2 = validatePerson(v, { assessment: true }); setFieldErrors(e2); if (!Object.keys(e2).length) setErr(null); } }}
           onBlurField={(k) => { if (k === 'phone' || k === 'document_id') checkDup(); }} />
         <div className="field">
           <label htmlFor="r-notes">Observaciones internas <span className="muted">(opcional)</span></label>

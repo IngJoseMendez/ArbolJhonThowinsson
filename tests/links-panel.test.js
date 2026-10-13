@@ -180,3 +180,22 @@ test('Panel del líder: enlace secreto + PIN, sólo lectura, contactos enmascara
   const luisId = (await admin.get('/api/people?q=luis votante')).data.rows[0].id;
   assert.equal((await admin.post(`/api/people/${luisId}/panel`)).data.error.code, 'NOT_LEADER');
 });
+
+test('«¿Es voto seguro?» la valora quien registra; el registro público no puede fijarla', async () => {
+  const base = { first_names: 'Rosa', last_names: 'Valorada', document_id: nextDoc(), address: 'Calle 3 # 4-5', phone: nextPhone(), location: loc };
+  const m = await admin.post('/api/people', { ...base, head_id: ids.head, inviter_id: ids.anaId, secure_vote: 'yes' });
+  assert.equal(m.status, 201, JSON.stringify(m.data));
+  assert.equal(m.data.secure_vote, 'yes');
+  assert.equal(m.data.supports, null, 'la respuesta propia queda sin responder');
+  assert.equal((await admin.post('/api/people', { ...base, document_id: nextDoc(), phone: nextPhone(), head_id: ids.head, inviter_id: ids.anaId, secure_vote: 'tal vez' })).data.error.field, 'secure_vote');
+  // Por enlace: se ignora aunque se envíe
+  const pub = await anon.post(`/api/public/register/${ids.ana.invite}`, form('Tomás', 'Publico', { secure_vote: 'yes' }));
+  assert.equal(pub.status, 201, JSON.stringify(pub.data));
+  const t = (await admin.get('/api/people?q=tomas publico')).data.rows[0];
+  assert.equal(t.secure_vote, null);
+  assert.equal(t.supports, 'yes');
+  // Se valora después desde la ficha y se filtra
+  assert.equal((await admin.patch(`/api/people/${t.id}`, { secure_vote: 'no' })).data.secure_vote, 'no');
+  assert.equal((await admin.get('/api/people?secure_vote=yes&q=rosa valorada')).data.total, 1);
+  assert.equal((await admin.get('/api/people?secure_vote=no&q=tomas publico')).data.total, 1);
+});

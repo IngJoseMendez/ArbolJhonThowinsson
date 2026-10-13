@@ -278,6 +278,14 @@ UPDATE people SET reg_type_id = (SELECT id FROM reg_types WHERE builtin = 1 AND 
  WHERE reg_type_id IS NULL;
 `;
 
+// v5: «¿Es voto seguro?», la valoración de quien registra (distinta de la respuesta propia «¿Contamos contigo?»).
+const MIGRATION_5 = `
+ALTER TABLE people ADD COLUMN IF NOT EXISTS secure_vote VARCHAR(3);
+DO $$ BEGIN
+  ALTER TABLE people ADD CONSTRAINT ck_people_secure_vote CHECK (secure_vote IS NULL OR secure_vote IN ('yes','no'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+`;
+
 const nameKey = (s) => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 /** Carga inicial del catálogo de Santa Marta (sólo si el catálogo está vacío). */
@@ -302,6 +310,7 @@ const MIGRATIONS = [
   { version: 2, sql: MIGRATION_2, after: seedGeo },
   { version: 3, sql: MIGRATION_3 },
   { version: 4, sql: MIGRATION_4 },
+  { version: 5, sql: MIGRATION_5 },
 ];
 
 let pool = null;

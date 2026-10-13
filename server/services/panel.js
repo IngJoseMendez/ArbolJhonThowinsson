@@ -42,6 +42,7 @@ export async function panelData(token, pin, { q: term = '', page = 1 } = {}) {
       SUM(CASE WHEN x.created_at >= ? THEN 1 ELSE 0 END) AS last7,
       SUM(CASE WHEN x.created_at >= ? THEN 1 ELSE 0 END) AS last30,
       SUM(CASE WHEN x.supports = 'yes' THEN 1 ELSE 0 END) AS supports_yes,
+      SUM(CASE WHEN x.secure_vote = 'yes' THEN 1 ELSE 0 END) AS secure_votes,
       SUM(CASE WHEN x.status = 'pending' THEN 1 ELSE 0 END) AS pending ${branch}`).get(p.id, since(7), since(30), lo, hi);
 
   const pageSize = 50;
@@ -70,7 +71,7 @@ export async function panelData(token, pin, { q: term = '', page = 1 } = {}) {
     type, head, invite_token: link?.token ?? null,
     stats: {
       total: s.total || 0, direct: s.direct || 0, last7: s.last7 || 0, last30: s.last30 || 0,
-      supports_yes: s.supports_yes || 0, pending: s.pending || 0,
+      supports_yes: s.supports_yes || 0, secure_votes: s.secure_votes || 0, pending: s.pending || 0,
     },
     people: {
       total, page: pg, pageSize,
