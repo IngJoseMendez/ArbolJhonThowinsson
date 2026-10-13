@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowDown, ArrowUp, Crown, GitBranch, Search, Users, X, MapPin } from 'lucide-react';
 import GeoSelect, { emptyGeo, geoFromIds } from '../components/GeoSelect.jsx';
+import LeaderPicker from '../components/LeaderPicker.jsx';
 import { api, qs } from '../api.js';
 import { fmtDate, fmtNum, phoneDisplay } from '../lib/format.js';
 import { useQueryState } from '../lib/useParams.js';
@@ -62,10 +63,10 @@ export default function People() {
             <option value="">Todas las cabezas</option>
             {heads.data?.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
           </select>
-          <select className="select" style={{ width: 190 }} value={params.leader_id || ''} onChange={setFilter('leader_id')} aria-label="Líder">
-            <option value="">Cualquier líder</option>
-            {leaders.data?.map((l) => <option key={l.id} value={l.id}>{l.full_name}</option>)}
-          </select>
+          <div style={{ width: 230, maxWidth: '100%' }}>
+            <LeaderPicker id="df-leader" leaders={leaders.data} loading={leaders.loading} compact placeholder="Cualquier líder"
+              showHead={!params.head_id} value={params.leader_id || ''} onChange={(id) => setParams({ leader_id: id || null, page: null })} />
+          </div>
           <select className="select" style={{ width: 140 }} value={params.type || ''} onChange={setFilter('type')} aria-label="Tipo">
             <option value="">Líderes y personas</option><option value="leader">Sólo líderes</option><option value="person">Sólo personas</option>
           </select>

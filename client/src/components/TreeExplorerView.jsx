@@ -11,6 +11,7 @@ import TreeList from './TreeList.jsx';
 import NodePanel from './NodePanel.jsx';
 import RegisterPersonModal from './RegisterPersonModal.jsx';
 import GeoSelect, { emptyGeo } from './GeoSelect.jsx';
+import LeaderPicker from './LeaderPicker.jsx';
 import { PersonPicker, Loading, ErrorBox, useToast } from './ui.jsx';
 
 const emptyFilters = { status: '', from: '', to: '', geo: emptyGeo, geoPending: false };
@@ -269,11 +270,10 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead })
         <div style={{ width: 240, maxWidth: '100%' }}>
           <PersonPicker headId={a.isSuper ? undefined : headId} value={null} onChange={onSearchPick} placeholder="Buscar y localizar…" />
         </div>
-        <select className="select" style={{ width: 170 }} value={focusNode?.is_leader ? focusNode.id : ''} aria-label="Filtrar por líder"
-          onChange={(e) => setParams({ foco: e.target.value || null, persona: null })}>
-          <option value="">Todos los líderes</option>
-          {leaders.map((l) => <option key={l.id} value={l.id}>{l.full_name}</option>)}
-        </select>
+        <div style={{ width: 220, maxWidth: '100%' }}>
+          <LeaderPicker id="tree-leader" leaders={leaders} compact placeholder="Todos los líderes"
+            value={focusNode?.is_leader ? focusNode.id : ''} onChange={(id) => setParams({ foco: id || null, persona: null })} />
+        </div>
         <button className={`btn ${activeFilters ? 'btn-primary' : ''}`} onClick={() => setShowFilters((x) => !x)}>
           <Filter size={15} />Filtros{activeFilters ? ` (${activeFilters})` : ''}
         </button>

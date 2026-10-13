@@ -10,6 +10,7 @@ import { fmtDate, fmtDateTime, fmtNum, METHOD, phoneDisplay, relTime } from '../
 import { BarList } from '../components/Charts.jsx';
 import RegisterPersonModal from '../components/RegisterPersonModal.jsx';
 import GeoSelect, { geoFromPerson, geoToApi } from '../components/GeoSelect.jsx';
+import LeaderPicker from '../components/LeaderPicker.jsx';
 import {
   cedulaError, emailError, emailSuggestion, formatCedula, formatMobile, formatName, mobileError, normalizeCedula, normalizeEmail, normalizeMobile,
 } from '../lib/validators.js';
@@ -177,11 +178,9 @@ function LeaderModal({ p, onClose, onDone }) {
     <Modal title="Líder responsable" subtitle="La responsabilidad organizativa es independiente de quién invitó a la persona." onClose={onClose}
       footer={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn btn-primary" onClick={save}>Guardar</button></>}>
       <div className="stack">
-        <div className="field"><label>Líder</label>
-          <select className="select" value={leaderId} onChange={(e) => setLeaderId(e.target.value)}>
-            <option value="">Automático (líder más cercano en su cadena de invitación)</option>
-            {leaders.data?.filter((l) => l.id !== p.id).map((l) => <option key={l.id} value={l.id}>{l.full_name} · {l.leader_code}</option>)}
-          </select></div>
+        <LeaderPicker id="lm-leader" label="Líder" leaders={leaders.data} loading={leaders.loading} exclude={p.id}
+          value={leaderId} onChange={setLeaderId}
+          hint={leaderId ? 'Quite la selección (×) para volver al modo automático.' : 'Vacío = automático: el líder más cercano en su cadena de invitación.'} />
         <div className="field"><label>Motivo</label><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} /></div>
         <ErrorBox error={err} />
       </div>

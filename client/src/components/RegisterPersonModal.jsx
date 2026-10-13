@@ -3,6 +3,7 @@ import { AlertCircle, Crown, Info, User } from 'lucide-react';
 import { api, qs } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { Modal, PersonPicker, useToast } from './ui.jsx';
+import LeaderPicker from './LeaderPicker.jsx';
 import PersonFields, { emptyPerson, validatePerson, personPayload, serverFieldError, normalizeMobile } from './PersonFields.jsx';
 
 /** Registro manual por un administrador. Conserva quién registra y la rama asignada. */
@@ -108,10 +109,9 @@ export default function RegisterPersonModal({ onClose, onCreated, defaultHeadId,
               <button type="button" className={leaderMode === 'manual' ? 'active' : ''} onClick={() => setLeaderMode('manual')}>Asignar manualmente</button>
             </div>
             {leaderMode === 'manual' && (
-              <select className="select" style={{ width: 260 }} value={leaderId} onChange={(e) => setLeaderId(e.target.value)}>
-                <option value="">Seleccione un líder…</option>
-                {leaders.map((l) => <option key={l.id} value={l.id}>{l.full_name} · {l.leader_code}</option>)}
-              </select>
+              <div style={{ width: 300, maxWidth: '100%' }}>
+                <LeaderPicker id="r-leader" leaders={leaders} value={leaderId} onChange={setLeaderId} compact />
+              </div>
             )}
           </div>
           <span className="hint">
