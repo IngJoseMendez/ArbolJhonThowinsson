@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { api } from './api.js';
+import { clearTreeCaches } from './lib/treeStore.js';
 
 const AuthCtx = createContext(null);
 
@@ -10,11 +11,11 @@ export function AuthProvider({ children }) {
   }, []);
   useEffect(() => {
     refresh();
-    const onExpired = () => setState({ loading: false, me: null });
+    const onExpired = () => { clearTreeCaches(); setState({ loading: false, me: null }); };
     window.addEventListener('auth:expired', onExpired);
     return () => window.removeEventListener('auth:expired', onExpired);
   }, [refresh]);
-  const logout = async () => { await api.post('/auth/logout'); setState({ loading: false, me: null }); };
+  const logout = async () => { await api.post('/auth/logout'); clearTreeCaches(); setState({ loading: false, me: null }); };
   return <AuthCtx.Provider value={{ ...state, refresh, logout }}>{children}</AuthCtx.Provider>;
 }
 

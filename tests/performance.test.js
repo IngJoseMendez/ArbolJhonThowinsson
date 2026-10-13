@@ -41,6 +41,27 @@ test(`12. Respuestas rápidas con ${N} personas`, async () => {
   await timed('ficha de líder raíz', `/api/people/${big.id}`, 500);
   await timed('directorio paginado', `/api/people?head_id=${headId}&page=50&pageSize=50`, 500);
   await timed('dashboard', '/api/stats/dashboard?days=365', 1000);
+  // «Expandir todo» sobre la cabeza completa: bloques de 2000 por ruta
+  const t0 = performance.now();
+  let after = null; let loaded = 0; let pages = 0;
+  do {
+    const r = (await admin.get(`/api/tree/${headId}/subtree?limit=2000${after ? `&after=${encodeURIComponent(after)}` : ''}`)).data;
+    loaded += r.nodes.length; after = r.next; pages++;
+  } while (after);
+  const ms = performance.now() - t0;
+  console.log(`# expandir todo (${loaded} personas en ${pages} bloques): ${ms.toFixed(0)} ms`);
+  assert.equal(loaded, N, 'la rama completa incluye a todas las personas');
+  assert.ok(ms < 8000, `expandir todo tardó ${ms.toFixed(0)} ms`);
+  // Filtros geográficos y conteos por ubicación
+  const loc = (await admin.get('/api/geo/areas?level=localidad')).data[1];
+  const filtered = await timed('directorio filtrado por localidad', `/api/people?head_id=${headId}&localidad_id=${loc.id}&pageSize=50`, 600);
+  assert.ok(filtered.total > 0 && filtered.rows.every((r) => r.geo_localidad_id === loc.id));
+  const stats = await timed('conteos por ubicación', `/api/geo/stats?head_id=${headId}`, 1500);
+  // Toda persona tiene localidad de catálogo o escrita a mano: la suma por localidad + las escritas a mano = total.
+  const byLoc = stats.areas.filter((a) => a.level === 'localidad').reduce((x, a) => x + a.people, 0);
+  assert.equal(stats.totals.total, N);
+  assert.equal(byLoc, N, 'la carga de prueba asigna siempre una localidad del catálogo');
+  await timed('búsqueda por barrio escrito a mano', '/api/people?q=villa betel&pageSize=10', 800);
   const integ = await timed('integridad (incluye recálculo de contadores)', '/api/admin/integrity', 5000);
   assert.equal(integ.ok, true, `contadores/estructura inconsistentes: ${JSON.stringify(integ.issues.slice(0, 5))}`);
 });

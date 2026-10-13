@@ -3,21 +3,33 @@ import { useParams } from 'react-router-dom';
 import { AlertCircle, CheckCircle2, Clock, Crown, Lock, Network, UserPlus } from 'lucide-react';
 import { api } from '../api.js';
 import { Avatar, Loading, ShareLink, useAsync } from '../components/ui.jsx';
+import PersonFields, { emptyPerson, validatePerson, personPayload, serverFieldError } from '../components/PersonFields.jsx';
 
 /** Formulario público de registro mediante enlace (pensado para celular). */
 export default function Register() {
   const { token } = useParams();
   const { data: inv, loading, error } = useAsync(() => api.get(`/public/invite/${encodeURIComponent(token)}`), [token]);
-  const [f, setF] = useState({ full_name: '', phone: '', city: '', email: '', consent: false, website: '' });
+  const [f, setF] = useState(emptyPerson);
+  const [consent, setConsent] = useState(false);
+  const [website, setWebsite] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [submitted, setSubmitted] = useState(false);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
-  const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
-
   const submit = async (e) => {
-    e.preventDefault(); setErr(null); setBusy(true);
-    try { setDone(await api.post(`/public/register/${encodeURIComponent(token)}`, f)); }
-    catch (ex) { setErr(ex); } finally { setBusy(false); }
+    e.preventDefault();
+    setSubmitted(true);
+    const v = validatePerson(f);
+    setFieldErrors(v);
+    if (Object.keys(v).length) {
+      setErr({ message: 'Revise los campos marcados en rojo.' });
+      document.getElementById(`reg-${Object.keys(v)[0] === 'localidad' ? 'geo-localidad' : Object.keys(v)[0]}`)?.focus();
+      return;
+    }
+    setErr(null); setBusy(true);
+    try { setDone(await api.post(`/public/register/${encodeURIComponent(token)}`, { ...personPayload(f), consent, website })); }
+    catch (ex) { setErr(ex); setFieldErrors((x) => ({ ...x, ...serverFieldError(ex.body?.error) })); } finally { setBusy(false); }
   };
 
   return (
@@ -53,35 +65,24 @@ export default function Register() {
             </div>
             <form className="card card-pad stack" onSubmit={submit} style={{ gap: 14 }}>
               <h2>Complete sus datos</h2>
-              <div className="field">
-                <label htmlFor="n">Nombre completo</label>
-                <input id="n" className="input" value={f.full_name} onChange={set('full_name')} required minLength={3} maxLength={120} autoComplete="name" />
-              </div>
-              <div className="field">
-                <label htmlFor="t">Celular / WhatsApp</label>
-                <input id="t" className={`input ${err?.field === 'phone' ? 'invalid' : ''}`} value={f.phone} onChange={set('phone')} required inputMode="tel" autoComplete="tel" placeholder="300 123 4567" />
-              </div>
-              <div className="field">
-                <label htmlFor="c">Municipio o barrio <span className="muted">(opcional)</span></label>
-                <input id="c" className="input" value={f.city} onChange={set('city')} maxLength={80} autoComplete="address-level2" />
-              </div>
-              <div className="field">
-                <label htmlFor="e">Correo <span className="muted">(opcional)</span></label>
-                <input id="e" type="email" className="input" value={f.email} onChange={set('email')} autoComplete="email" />
-              </div>
+              <PersonFields idPrefix="reg" size="lg" value={f} errors={fieldErrors}
+                onChange={(v) => {
+                  setF(v);
+                  if (submitted) { const e2 = validatePerson(v); setFieldErrors(e2); if (!Object.keys(e2).length) setErr(null); }
+                }} />
               {/* Campo trampa para bots: invisible para personas */}
               <div aria-hidden="true" style={{ position: 'absolute', left: -5000 }}>
-                <label>Sitio web<input tabIndex={-1} autoComplete="off" value={f.website} onChange={set('website')} /></label>
+                <label>Sitio web<input tabIndex={-1} autoComplete="off" value={website} onChange={(e) => setWebsite(e.target.value)} /></label>
               </div>
               <label className="check">
-                <input type="checkbox" checked={f.consent} onChange={set('consent')} required />
+                <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} required />
                 <span className="small text-2">
-                  Autorizo el tratamiento de mis datos (nombre y contacto) con la única finalidad de organizar y contactar a los integrantes de
+                  Autorizo el tratamiento de mis datos (nombre, cédula, contacto, dirección y ubicación) con la única finalidad de organizar y contactar a los integrantes de
                   esta estructura. Sólo los responsables autorizados podrán consultarlos y puedo solicitar su corrección o eliminación.
                 </span>
               </label>
               {err && <div className="alert alert-error"><AlertCircle size={16} />{err.message}</div>}
-              <button className="btn btn-primary" disabled={busy || !f.consent}>{busy ? <span className="spinner" /> : <UserPlus size={18} />}Registrarme</button>
+              <button className="btn btn-primary" disabled={busy || !consent}>{busy ? <span className="spinner" /> : <UserPlus size={18} />}Registrarme</button>
               <p className="small muted row" style={{ margin: 0, justifyContent: 'center' }}><Lock size={12} />Sus datos se envían de forma segura.</p>
             </form>
           </>

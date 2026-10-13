@@ -14,6 +14,7 @@ import Links from './pages/Links.jsx';
 import Register from './pages/Register.jsx';
 import Users from './pages/Users.jsx';
 import Audit from './pages/Audit.jsx';
+import Locations from './pages/Locations.jsx';
 
 function Protected({ children, admin, superOnly }) {
   const a = useAuth();
@@ -46,6 +47,7 @@ export default function App() {
           <Route path="personas" element={<People />} />
           <Route path="personas/:id" element={<Person />} />
           <Route path="enlaces" element={<Links />} />
+          <Route path="ubicaciones" element={<Locations />} />
           <Route path="usuarios" element={<Protected admin><Users /></Protected>} />
           <Route path="auditoria" element={<Protected superOnly><Audit /></Protected>} />
           <Route path="*" element={<Navigate to="/" replace />} />

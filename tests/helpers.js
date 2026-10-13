@@ -64,7 +64,7 @@ export class Client {
   }
 }
 
-let phone = 3100000000;
+let phone = 3105550000;
 export const nextPhone = () => String(phone++);
 let doc = 70000000;
 export const nextDoc = () => String(doc++);

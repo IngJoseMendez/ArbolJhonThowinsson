@@ -109,7 +109,7 @@ export async function search(user, term, { headId = null, limit = 20 } = {}) {
 
 const SORTS = {
   full_name: 'p.name_key', created_at: 'p.created_at', head: 'h.name', leader: 'l.name_key', inviter: 'i.name_key',
-  status: 'p.status', descendants: 'p.descendant_count',
+  status: 'p.status', descendants: 'p.descendant_count', location: "COALESCE(gl.name, p.geo_localidad_text, '~')",
 };
 
 export async function directory(user, f) {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowDown, ArrowUp, Crown, GitBranch, Search, Users, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Crown, GitBranch, Search, Users, X, MapPin } from 'lucide-react';
+import GeoSelect, { emptyGeo, geoFromIds } from '../components/GeoSelect.jsx';
 import { api, qs } from '../api.js';
 import { fmtDate, fmtNum, phoneDisplay } from '../lib/format.js';
 import { useQueryState } from '../lib/useParams.js';
@@ -11,6 +12,7 @@ const COLS = [
   { key: 'head', label: 'Cabeza', sort: true },
   { key: 'leader', label: 'Líder responsable', sort: true },
   { key: 'inviter', label: 'Invitado por', sort: true },
+  { key: 'location', label: 'Ubicación', sort: true },
   { key: 'descendants', label: 'Rama', sort: true },
   { key: 'created_at', label: 'Registro', sort: true },
   { key: 'status', label: 'Estado', sort: true },
@@ -25,6 +27,16 @@ export default function People() {
   const query = { sort: 'created_at', dir: 'desc', page: 1, pageSize: 25, ...params };
   const { data, loading, error } = useAsync(() => api.get(`/people${qs(query)}`), [JSON.stringify(query)]);
 
+  // Filtro geográfico dependiente, sincronizado con la URL (localidad_id, comuna_id, barrio_id).
+  const [geo, setGeo] = useState(emptyGeo);
+  useEffect(() => {
+    geoFromIds(params).then(setGeo).catch(() => setGeo(emptyGeo));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const onGeo = (g) => {
+    setGeo(g);
+    setParams({ localidad_id: g.localidad?.id, comuna_id: g.comuna?.id, barrio_id: g.barrio?.id, page: null });
+  };
+
   useEffect(() => {
     const t = setTimeout(() => { if ((params.q || '') !== term) setParams({ q: term, page: null }, true); }, 300);
     return () => clearTimeout(t);
@@ -33,7 +45,7 @@ export default function People() {
   const setFilter = (k) => (e) => setParams({ [k]: e.target.value, page: null });
   const sortBy = (k) => setParams({ sort: k, dir: query.sort === k && query.dir === 'desc' ? 'asc' : 'desc', page: null });
   const pages = data ? Math.max(1, Math.ceil(data.total / query.pageSize)) : 1;
-  const filtersOn = ['head_id', 'leader_id', 'inviter_id', 'status', 'type', 'method', 'from', 'to', 'q'].some((k) => params[k]);
+  const filtersOn = ['head_id', 'leader_id', 'inviter_id', 'status', 'type', 'method', 'from', 'to', 'q', 'localidad_id', 'geo_status'].some((k) => params[k]);
 
   return (
     <div className="page">
@@ -42,9 +54,9 @@ export default function People() {
       </div>
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-pad row-wrap" style={{ gap: 10 }}>
-          <div className="search-input" style={{ width: 280, maxWidth: '100%' }}>
+          <div className="search-input" style={{ width: 300, maxWidth: '100%' }}>
             <Search size={16} />
-            <input className="input" placeholder="Nombre, identificador o teléfono" value={term} onChange={(e) => setTerm(e.target.value)} />
+            <input className="input" placeholder="Nombre, cédula, celular, dirección o barrio" value={term} onChange={(e) => setTerm(e.target.value)} />
           </div>
           <select className="select" style={{ width: 170 }} value={params.head_id || ''} onChange={setFilter('head_id')} aria-label="Cabeza">
             <option value="">Todas las cabezas</option>
@@ -65,7 +77,16 @@ export default function People() {
           </select>
           <label className="row small muted">Desde<input type="date" className="input" style={{ width: 150 }} value={params.from || ''} onChange={setFilter('from')} /></label>
           <label className="row small muted">Hasta<input type="date" className="input" style={{ width: 150 }} value={params.to || ''} onChange={setFilter('to')} /></label>
-          {filtersOn && <button className="btn btn-ghost btn-sm" onClick={() => { setTerm(''); setParams(Object.fromEntries(Object.keys(params).map((k) => [k, null]))); }}><X size={14} />Limpiar</button>}
+          {filtersOn && <button className="btn btn-ghost btn-sm" onClick={() => { setTerm(''); setGeo(emptyGeo); setParams(Object.fromEntries(Object.keys(params).map((k) => [k, null]))); }}><X size={14} />Limpiar</button>}
+        </div>
+        <div className="card-pad row-wrap" style={{ gap: 10, paddingTop: 0 }}>
+          <span className="row small muted" style={{ gap: 6 }}><MapPin size={14} />Ubicación</span>
+          <div style={{ flex: '3 1 520px' }}><GeoSelect mode="filter" idPrefix="df" value={geo} onChange={onGeo} /></div>
+          <select className="select" style={{ width: 210 }} value={params.geo_status || ''} onChange={setFilter('geo_status')} aria-label="Verificación de ubicación">
+            <option value="">Cualquier verificación</option><option value="pending">Pendientes de verificación</option>
+            <option value="verified">Ubicación verificada</option><option value="none">Sin ubicación</option>
+          </select>
+          {data && <span className="badge badge-outline tnum" role="status"><b>{fmtNum(data.total)}</b>&nbsp;personas coinciden</span>}
         </div>
       </div>
       <div className="card">
@@ -101,6 +122,17 @@ export default function People() {
                     <td><span className="row nowrap"><span className="dot" style={{ background: r.head_color }} />{r.head_name}</span></td>
                     <td><PersonLink id={r.leader_id} name={r.leader_name} isLeader /></td>
                     <td>{r.inviter_id ? <PersonLink id={r.inviter_id} name={r.inviter_name} /> : <span className="muted small">Cabeza</span>}</td>
+                    <td className="small">
+                      {r.localidad_name ? (
+                        <>
+                          <div className="ellipsis" style={{ maxWidth: 200 }} title={[r.localidad_name, r.comuna_name, r.barrio_name].filter(Boolean).join(' › ')}>
+                            {r.barrio_name || r.comuna_name || r.localidad_name}
+                          </div>
+                          <div className="muted ellipsis" style={{ maxWidth: 200 }}>{[r.localidad_name, r.barrio_name ? r.comuna_name : null].filter(Boolean).join(' · ')}</div>
+                          {r.geo_status === 'pending' && <span className="badge badge-geo-pending">Por verificar</span>}
+                        </>
+                      ) : <span className="muted">—</span>}
+                    </td>
                     <td className="tnum">{fmtNum(r.descendant_count)}</td>
                     <td className="nowrap small">{fmtDate(r.created_at)}<div className="muted">{r.registration_method === 'manual' ? 'Manual' : 'Enlace'}</div></td>
                     <td><StatusBadge status={r.status} /></td>

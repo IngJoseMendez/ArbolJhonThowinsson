@@ -6,7 +6,7 @@ export const PAGE = 50;
 export const NODE_W = 236;
 export const NODE_H = 66;
 export const HEAD_H = 76;
-const GAP_X = 64;
+const GAP_X = 100; // deja sitio a los controles de expansión del nodo
 const GAP_Y = 14;
 const MORE_H = 36;
 
@@ -104,9 +104,133 @@ export class TreeStore {
     }
   }
 
-  collapseAll() {
-    for (const n of this.nodes.values()) n.expanded = false;
-    this.nodes.get(this.rootKey).expanded = true;
+  /** Contraer todo: cierra el nodo y todos sus descendientes cargados (la raíz del árbol queda mostrando su primer nivel). */
+  collapseBranch(key = this.rootKey) {
+    const stack = [key];
+    while (stack.length) {
+      const k = stack.pop();
+      const n = this.nodes.get(k);
+      if (!n) continue;
+      n.expanded = false;
+      if (n.children) stack.push(...n.children);
+    }
+    if (key === this.rootKey) this.nodes.get(key).expanded = true;
+    this.emit();
+  }
+
+  collapseAll() { this.collapseBranch(this.rootKey); }
+
+  /** Orden de hermanos igual al del servidor: líderes primero, luego por fecha de registro. */
+  static sortKeys(nodes) {
+    return nodes.sort((a, b) => (b.is_leader - a.is_leader) || (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id - b.id));
+  }
+
+  /**
+   * Expandir todo: descarga la rama completa por bloques ordenados por ruta y abre todos los niveles,
+   * incluidos los que nunca se habían abierto. Informa del progreso en this.progress.
+   */
+  async expandAll(key = this.rootKey, { chunk = 2000 } = {}) {
+    const root = this.nodes.get(key);
+    if (!root) return;
+    if (root.kind === 'person' && !(root.data.child_count > 0)) return;
+    const expected = root.kind === 'head' ? (root.data.people ?? null) : root.data.descendant_count;
+    const token = (this.loadToken = {});
+    this.progress = { key, loaded: 0, total: expected, label: root.kind === 'head' ? root.data.name : root.data.full_name };
+    this.emit();
+    const kids = new Map(); // id padre (o 'root') -> [datos]
+    const all = [];
+    let after = null;
+    try {
+      do {
+        const r = await api.get(`/tree/${this.head.id}/subtree${qs({ root: root.kind === 'person' ? root.data.id : undefined, after, limit: chunk })}`);
+        if (this.loadToken !== token) return; // cancelado
+        for (const d of r.nodes) {
+          all.push(d);
+          const k = this.personKey(d.id);
+          const existing = this.nodes.get(k);
+          if (existing) { existing.data = d; existing.total = d.child_count; existing.extra = false; }
+          else this.nodes.set(k, { key: k, kind: 'person', data: d, children: null, total: d.child_count, expanded: false, loading: false, extra: false });
+        }
+        after = r.next;
+        this.progress = { ...this.progress, loaded: all.length };
+        this.emit();
+      } while (after);
+      // Reconstruye las listas completas de hijos y abre todos los niveles.
+      const inBranch = new Set(all.map((d) => d.id));
+      const rootPersonId = root.kind === 'person' ? root.data.id : null;
+      for (const d of all) {
+        // Cuelga de su invitador si está en la rama (o es la raíz); si no, de la raíz visible.
+        const parentKey = d.inviter_id && (inBranch.has(d.inviter_id) || d.inviter_id === rootPersonId) ? this.personKey(d.inviter_id) : key;
+        this.nodes.get(this.personKey(d.id)).parent = parentKey;
+        if (!kids.has(parentKey)) kids.set(parentKey, []);
+        kids.get(parentKey).push(d);
+      }
+      for (const [pk, list] of kids) {
+        const n = this.nodes.get(pk);
+        if (!n) continue;
+        n.children = TreeStore.sortKeys(list).map((d) => this.personKey(d.id));
+        n.total = list.length;
+        n.expanded = true;
+      }
+      for (const d of all) {
+        const n = this.nodes.get(this.personKey(d.id));
+        if (!kids.has(n.key)) { n.children = []; n.total = 0; }
+      }
+      root.expanded = true;
+    } finally {
+      if (this.loadToken === token) { this.progress = null; this.loadToken = null; this.emit(); }
+    }
+  }
+
+  cancelLoad() {
+    this.loadToken = null;
+    this.progress = null;
+    this.emit();
+  }
+
+  /** Identificadores de los nodos expandidos (para persistir el estado). */
+  snapshot() {
+    const expanded = [];
+    for (const n of this.nodes.values()) if (n.expanded && n.kind === 'person') expanded.push(n.data.id);
+    return { rootExpanded: !!this.nodes.get(this.rootKey)?.expanded, expanded };
+  }
+
+  /**
+   * Restaura un estado guardado: carga por niveles (una petición por cada 2000 ramas abiertas)
+   * los hijos de los nodos que estaban expandidos.
+   */
+  async restore(saved) {
+    const want = new Set(saved.expanded || []);
+    const root = this.nodes.get(this.rootKey);
+    if (saved.rootExpanded && !root.children) await this.loadChildren(this.rootKey);
+    root.expanded = !!saved.rootExpanded;
+    let frontier = root.children || [];
+    for (let guard = 0; frontier.length && guard < 500; guard++) {
+      const toLoad = frontier.map((k) => this.nodes.get(k)).filter((n) => n && n.kind === 'person' && want.has(n.data.id));
+      const next = [];
+      for (let i = 0; i < toLoad.length; i += 2000) {
+        const part = toLoad.slice(i, i + 2000);
+        const r = await api.post(`/tree/${this.head.id}/children-batch`, { parents: part.map((n) => n.data.id) });
+        const byParent = new Map();
+        for (const d of r.nodes) {
+          const k = this.personKey(d.id);
+          if (!this.nodes.has(k)) this.nodes.set(k, { key: k, kind: 'person', data: d, children: null, total: d.child_count, expanded: false, loading: false });
+          else this.nodes.get(k).data = d;
+          if (!byParent.has(d.inviter_id)) byParent.set(d.inviter_id, []);
+          byParent.get(d.inviter_id).push(k);
+        }
+        for (const n of part) {
+          if (!r.parents.includes(n.data.id)) continue;
+          n.children = byParent.get(n.data.id) || [];
+          for (const c of n.children) this.nodes.get(c).parent = n.key;
+          n.total = n.children.length;
+          n.expanded = true;
+          next.push(...n.children);
+        }
+      }
+      frontier = next;
+      this.emit();
+    }
     this.emit();
   }
 
@@ -196,4 +320,35 @@ export class TreeStore {
     for (const it of items) { minY = Math.min(minY, it.y); maxY = Math.max(maxY, it.y + it.h); maxX = Math.max(maxX, it.x + NODE_W); }
     return { items, edges, bounds: { x: 0, y: minY, w: maxX, h: maxY - minY } };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Persistencia del estado del árbol
+// - En memoria: al ir a una ficha y volver, el árbol reaparece exactamente igual (mismo objeto).
+// - sessionStorage: al recargar la pestaña se restauran ramas abiertas, zoom, selección y filtros.
+// ---------------------------------------------------------------------------
+const memory = new Map();
+const MAX_CACHED = 8;
+const SS_PREFIX = 'arbol:tree:';
+
+export function getCachedTree(key) { return memory.get(key) || null; }
+export function putCachedTree(key, store) {
+  memory.delete(key);
+  memory.set(key, store);
+  while (memory.size > MAX_CACHED) memory.delete(memory.keys().next().value);
+}
+export function loadTreeState(key) {
+  try { return JSON.parse(sessionStorage.getItem(SS_PREFIX + key) || 'null'); } catch { return null; }
+}
+export function saveTreeState(key, state) {
+  try { sessionStorage.setItem(SS_PREFIX + key, JSON.stringify(state)); } catch { /* sin almacenamiento disponible */ }
+}
+export function clearTreeCaches() {
+  memory.clear();
+  try {
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+      const k = sessionStorage.key(i);
+      if (k && k.startsWith(SS_PREFIX)) sessionStorage.removeItem(k);
+    }
+  } catch { /* */ }
 }

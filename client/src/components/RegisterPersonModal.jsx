@@ -3,6 +3,7 @@ import { AlertCircle, Crown, Info, User } from 'lucide-react';
 import { api, qs } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { Modal, PersonPicker, useToast } from './ui.jsx';
+import PersonFields, { emptyPerson, validatePerson, personPayload, serverFieldError, normalizeMobile } from './PersonFields.jsx';
 
 /** Registro manual por un administrador. Conserva quién registra y la rama asignada. */
 export default function RegisterPersonModal({ onClose, onCreated, defaultHeadId, defaultInviter }) {
@@ -15,7 +16,11 @@ export default function RegisterPersonModal({ onClose, onCreated, defaultHeadId,
   const [leaders, setLeaders] = useState([]);
   const [leaderMode, setLeaderMode] = useState('auto');
   const [leaderId, setLeaderId] = useState('');
-  const [f, setF] = useState({ full_name: '', phone: '', email: '', document_id: '', city: '', notes: '', consent: false });
+  const [f, setF] = useState(emptyPerson);
+  const [notes, setNotes] = useState('');
+  const [consent, setConsent] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [submitted, setSubmitted] = useState(false);
   const [dup, setDup] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -33,10 +38,9 @@ export default function RegisterPersonModal({ onClose, onCreated, defaultHeadId,
     if (inviter && inviter.head_id !== Number(headId)) setInviter(null);
   }, [headId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
   const checkDup = async () => {
-    if (f.phone.replace(/\D/g, '').length < 7 && !f.document_id) return setDup(null);
-    const r = await api.get(`/people/check-duplicate${qs({ phone: f.phone, document_id: f.document_id })}`).catch(() => null);
+    if (normalizeMobile(f.phone).length < 10 && String(f.document_id).replace(/\D/g, '').length < 5) return setDup(null);
+    const r = await api.get(`/people/check-duplicate${qs({ phone: normalizeMobile(f.phone), document_id: f.document_id })}`).catch(() => null);
     setDup(r?.duplicate || null);
   };
 
@@ -44,19 +48,23 @@ export default function RegisterPersonModal({ onClose, onCreated, defaultHeadId,
 
   const submit = async (e) => {
     e.preventDefault();
+    setSubmitted(true);
+    const v = validatePerson(f);
+    setFieldErrors(v);
+    if (Object.keys(v).length) { setErr({ message: 'Revise los campos marcados.' }); return; }
     setErr(null); setBusy(true);
     try {
       const p = await api.post('/people', {
-        ...f, head_id: Number(headId), is_leader: isLeader, inviter_id: inviter?.id ?? null,
+        ...personPayload(f), notes, consent, head_id: Number(headId), is_leader: isLeader, inviter_id: inviter?.id ?? null,
         leader_id: leaderMode === 'manual' && leaderId ? Number(leaderId) : null,
       });
       toast(`${p.full_name} registrado correctamente`);
       onCreated?.(p);
       onClose();
-    } catch (ex) { setErr(ex); } finally { setBusy(false); }
+    } catch (ex) { setErr(ex); setFieldErrors((x) => ({ ...x, ...serverFieldError(ex.body?.error) })); } finally { setBusy(false); }
   };
 
-  const canSubmit = headId && f.full_name.trim().length >= 3 && f.phone && (isLeader || inviter) && !busy;
+  const canSubmit = headId && (isLeader || inviter) && !busy;
 
   return (
     <Modal wide title="Registrar persona" subtitle={`Registro manual realizado por ${a.user.display_name}. Quedará constancia en el historial.`} onClose={onClose}
@@ -114,40 +122,21 @@ export default function RegisterPersonModal({ onClose, onCreated, defaultHeadId,
         </div>
 
         <div className="divider" />
-        <div className="grid g-2">
-          <div className="field span-2">
-            <label htmlFor="r-name">Nombre completo</label>
-            <input id="r-name" className="input" value={f.full_name} onChange={set('full_name')} required minLength={3} maxLength={120} autoComplete="off" />
-          </div>
-          <div className="field">
-            <label htmlFor="r-phone">Teléfono (WhatsApp)</label>
-            <input id="r-phone" className={`input ${dup?.field === 'phone' ? 'invalid' : ''}`} value={f.phone} onChange={set('phone')} onBlur={checkDup} inputMode="tel" required />
-          </div>
-          <div className="field">
-            <label htmlFor="r-doc">Documento <span className="muted">(opcional)</span></label>
-            <input id="r-doc" className={`input ${dup?.field === 'document_id' ? 'invalid' : ''}`} value={f.document_id} onChange={set('document_id')} onBlur={checkDup} />
-          </div>
-          <div className="field">
-            <label htmlFor="r-email">Correo <span className="muted">(opcional)</span></label>
-            <input id="r-email" type="email" className="input" value={f.email} onChange={set('email')} />
-          </div>
-          <div className="field">
-            <label htmlFor="r-city">Municipio / barrio <span className="muted">(opcional)</span></label>
-            <input id="r-city" className="input" value={f.city} onChange={set('city')} maxLength={80} />
-          </div>
-          <div className="field span-2">
-            <label htmlFor="r-notes">Observaciones internas <span className="muted">(opcional)</span></label>
-            <textarea id="r-notes" className="textarea" value={f.notes} onChange={set('notes')} maxLength={500} />
-          </div>
+        <PersonFields idPrefix="r" value={f} errors={fieldErrors}
+          onChange={(v) => { setF(v); if (submitted) { const e2 = validatePerson(v); setFieldErrors(e2); if (!Object.keys(e2).length) setErr(null); } }}
+          onBlurField={(k) => { if (k === 'phone' || k === 'document_id') checkDup(); }} />
+        <div className="field">
+          <label htmlFor="r-notes">Observaciones internas <span className="muted">(opcional)</span></label>
+          <textarea id="r-notes" className="textarea" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={500} />
         </div>
         {dup && (
           <div className="alert alert-warn"><AlertCircle size={16} />
-            <span>Ya existe una persona con ese {dup.field === 'phone' ? 'teléfono' : 'documento'}
+            <span>Ya existe una persona con {dup.field === 'phone' ? 'ese celular' : 'esa cédula'}
               {dup.full_name ? <> : <a href={`/personas/${dup.id}`}>{dup.full_name}</a> ({dup.code})</> : ' (en una cabeza fuera de su alcance)'}. No se permiten registros duplicados.</span>
           </div>
         )}
         <label className="check">
-          <input type="checkbox" checked={f.consent} onChange={set('consent')} />
+          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
           <span className="small text-2">La persona autorizó el tratamiento de sus datos para la gestión de la estructura organizativa.</span>
         </label>
         <div className="alert alert-info"><Info size={16} /><span>Registrar a alguien como persona no le da liderazgo. Un líder sólo existe por designación expresa de un administrador.</span></div>

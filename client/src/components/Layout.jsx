@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Network, GitBranch, Crown, Users, Link2, ShieldCheck, ScrollText, LogOut, Menu, Moon, Sun, UserPlus, UserCircle,
+  LayoutDashboard, Network, GitBranch, Crown, Users, Link2, ShieldCheck, ScrollText, LogOut, Menu, Moon, Sun, UserPlus, UserCircle, MapPin,
 } from 'lucide-react';
 import { useAuth } from '../auth.jsx';
 import { api } from '../api.js';
@@ -14,6 +14,7 @@ export default function Layout() {
   const loc = useLocation();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(0);
+  const [geoPending, setGeoPending] = useState(0);
   const [registering, setRegistering] = useState(false);
   const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || '');
 
@@ -21,6 +22,7 @@ export default function Layout() {
   useEffect(() => {
     if (!a.isAdmin) return;
     api.get('/pending').then((r) => setPending(r.length)).catch(() => {});
+    api.get('/geo/pending').then((r) => setGeoPending(r.reduce((n, g) => n + g.people, 0))).catch(() => {});
   }, [a.isAdmin, loc.pathname]);
 
   const isDark = theme ? theme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -54,6 +56,7 @@ export default function Layout() {
               <NavLink to="/cabezas"><Network size={18} />Cabezas</NavLink>
               <NavLink to="/lideres"><Crown size={18} />Líderes</NavLink>
               <NavLink to="/personas"><Users size={18} />Personas</NavLink>
+              <NavLink to={geoPending ? '/ubicaciones?tab=verificar' : '/ubicaciones'}><MapPin size={18} />Ubicaciones{geoPending > 0 && <span className="count" title="Ubicaciones por verificar">{geoPending}</span>}</NavLink>
               <NavLink to="/enlaces"><Link2 size={18} />Enlaces e invitaciones{pending > 0 && <span className="count">{pending}</span>}</NavLink>
               {role === 'leader' && a.person && <NavLink to={`/personas/${a.person.id}`}><UserCircle size={18} />Mi ficha</NavLink>}
             </>

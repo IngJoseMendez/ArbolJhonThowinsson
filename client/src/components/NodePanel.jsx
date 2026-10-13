@@ -1,11 +1,11 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, Focus, GitBranch, Route, UserPlus, X, Crown } from 'lucide-react';
+import { ArrowRight, Focus, GitBranch, Route, UserPlus, X, Crown, ChevronDown, ChevronsDown, ChevronsUp } from 'lucide-react';
 import { api } from '../api.js';
 import { fmtDate, fmtNum, METHOD } from '../lib/format.js';
-import { Avatar, Loading, RoleBadge, StatusBadge, ShareLink, PersonLink, useAsync, ErrorBox } from './ui.jsx';
+import { Avatar, Loading, RoleBadge, StatusBadge, ShareLink, PersonLink, useAsync, ErrorBox, LocationText } from './ui.jsx';
 
 /** Ficha resumida de un nodo dentro del explorador del árbol. */
-export default function NodePanel({ personId, headName, onClose, onFocus, onHighlight, onRegisterInvitee, canRegister }) {
+export default function NodePanel({ personId, headName, onClose, onFocus, onHighlight, onRegisterInvitee, canRegister, onExpandLevel, onExpandAll, onCollapseAll, busy }) {
   const { data, loading, error } = useAsync(() => api.get(`/people/${personId}`), [personId]);
   return (
     <aside className="side-panel" aria-label="Ficha del nodo">
@@ -37,6 +37,7 @@ export default function NodePanel({ personId, headName, onClose, onFocus, onHigh
               <dt>Invitado por</dt><dd>{data.inviter ? <PersonLink id={data.inviter.id} name={data.inviter.full_name} isLeader={data.inviter.is_leader} /> : <span className="muted">Cuelga de la cabeza</span>}</dd>
               <dt>Líder responsable</dt><dd>{data.leader ? <><PersonLink id={data.leader.id} name={data.leader.full_name} isLeader />{p.leader_mode === 'manual' && <span className="small muted"> (asignado)</span>}</> : <span className="muted">—</span>}</dd>
               <dt>Registro</dt><dd>{fmtDate(p.created_at)} · {METHOD[p.registration_method]}</dd>
+              <dt>Ubicación</dt><dd><LocationText loc={data.location} /></dd>
               <dt>Ha invitado</dt><dd>{fmtNum(data.invitees.length)} personas directas</dd>
               <dt>En su rama</dt><dd><b>{fmtNum(data.stats.total)}</b> personas{data.stats.leaders ? ` · ${data.stats.leaders} líderes` : ''}</dd>
               {p.is_leader && <><dt>Asignadas</dt><dd>{fmtNum(data.stats.assigned)} personas a su cargo</dd></>}
@@ -44,6 +45,16 @@ export default function NodePanel({ personId, headName, onClose, onFocus, onHigh
             {!p.is_leader && data.invitees.length > 0 && (
               <div className="alert alert-info"><GitBranch size={16} /><span>Ha invitado a otras personas, pero <b>no es líder</b>: el liderazgo sólo se otorga por designación.</span></div>
             )}
+            {data.stats.total > 0 ? (
+              <div className="stack" style={{ gap: 6 }}>
+                <span className="small muted">Expansión de esta rama ({fmtNum(data.stats.total)} personas debajo)</span>
+                <div className="row-wrap" style={{ gap: 6 }}>
+                  <button className="btn btn-sm" disabled={busy} onClick={onExpandLevel}><ChevronDown size={14} />Nivel</button>
+                  <button className="btn btn-sm" disabled={busy} onClick={onExpandAll}><ChevronsDown size={14} />Expandir todo</button>
+                  <button className="btn btn-sm" disabled={busy} onClick={onCollapseAll}><ChevronsUp size={14} />Contraer todo</button>
+                </div>
+              </div>
+            ) : <span className="small muted">No tiene personas debajo en el árbol.</span>}
             <div className="stack" style={{ gap: 8 }}>
               <button className="btn" onClick={() => onHighlight(p.id)}><Route size={15} />Resaltar camino desde la cabeza</button>
               <button className="btn" onClick={() => onFocus(p.id)}><Focus size={15} />Centrarse en esta rama</button>

@@ -2,15 +2,19 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   Crown, GitBranch, Network, UserCheck, Send, Pencil, MoveRight, Power, CheckCircle2, XCircle, KeyRound, Users, Layers,
-  ClipboardList, RefreshCw, ChevronRight, UserPlus, Info, Link2, ShieldCheck,
+  ClipboardList, RefreshCw, ChevronRight, UserPlus, Info, Link2, ShieldCheck, ChevronsDown, MapPin,
 } from 'lucide-react';
 import { api, qs } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { fmtDate, fmtDateTime, fmtNum, METHOD, phoneDisplay, relTime } from '../lib/format.js';
 import { BarList } from '../components/Charts.jsx';
 import RegisterPersonModal from '../components/RegisterPersonModal.jsx';
+import GeoSelect, { geoFromPerson, geoToApi } from '../components/GeoSelect.jsx';
 import {
-  Avatar, ConfirmModal, ErrorBox, Loading, Modal, PersonLink, PersonPicker, RoleBadge, ShareLink, StatusBadge, useAsync, useToast, Empty, HeadPill,
+  cedulaError, emailError, emailSuggestion, formatCedula, formatMobile, formatName, mobileError, normalizeCedula, normalizeEmail, normalizeMobile,
+} from '../lib/validators.js';
+import {
+  Avatar, ConfirmModal, ErrorBox, Loading, Modal, PersonLink, PersonPicker, RoleBadge, ShareLink, StatusBadge, useAsync, useToast, Empty, HeadPill, LocationText,
 } from '../components/ui.jsx';
 
 const HISTORY = {
@@ -26,8 +30,10 @@ const HISTORY = {
   reactivated: 'Reactivada',
   data_updated: 'Datos actualizados',
   link_regenerated: 'Enlace de invitación regenerado',
+  location_changed: 'Ubicación corregida',
+  location_verified: 'Ubicación verificada',
 };
-const FIELD = { full_name: 'Nombre', phone: 'Teléfono', email: 'Correo', document_id: 'Documento', city: 'Municipio', notes: 'Observaciones' };
+const FIELD = { full_name: 'Nombre', phone: 'Celular', email: 'Correo', document_id: 'Cédula', address: 'Dirección', city: 'Municipio', notes: 'Observaciones' };
 
 function HistoryDetail({ h, names }) {
   const d = h.details;
@@ -42,6 +48,8 @@ function HistoryDetail({ h, names }) {
     case 'moved': case 'moved_head':
       if (d.via_branch_of) return <>Movida junto con la rama de <b>{pn(d.via_branch_of)}</b>: {hn(d.from_head_id)} → {hn(d.to_head_id)}</>;
       return <>{d.from_head_id !== d.to_head_id ? <>{hn(d.from_head_id)} → {hn(d.to_head_id)}. </> : ''}Invitador: {pn(d.from_inviter_id)} → <b>{pn(d.to_inviter_id)}</b>. Rama movida: {d.branch_size} personas.</>;
+    case 'location_changed': case 'location_verified':
+      return <>{d.to?.geo_status === 'pending' ? 'Ubicación escrita a mano (pendiente)' : 'Ubicación del catálogo asignada'}</>;
     case 'data_updated':
       return <>{Object.entries(d.fields || {}).map(([k, v]) => <div key={k}>{FIELD[k] || k}: <s className="muted">{v.from || '—'}</s> → {v.to || '—'}</div>)}</>;
     default: return null;
@@ -49,22 +57,65 @@ function HistoryDetail({ h, names }) {
 }
 
 function EditModal({ p, onClose, onDone }) {
-  const [f, setF] = useState({ full_name: p.full_name, phone: p.phone, email: p.email || '', document_id: p.document_id || '', city: p.city || '', notes: p.notes || '', reason: '' });
+  const [f, setF] = useState({
+    full_name: p.full_name, phone: p.phone || '', email: p.email || '', document_id: p.document_id || '', address: p.address || '',
+    notes: p.notes || '', reason: '',
+  });
   const [err, setErr] = useState(null);
-  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
-  const save = async () => { try { await api.patch(`/people/${p.id}`, f); onDone('Datos actualizados'); onClose(); } catch (e) { setErr(e); } };
+  const [errors, setErrors] = useState({});
+  const set = (k, fmt = (x) => x) => (e) => setF({ ...f, [k]: fmt(e.target.value) });
+  const save = async () => {
+    const e = {};
+    const c = f.document_id ? cedulaError(f.document_id) : (p.document_id ? 'La cédula es obligatoria.' : null); if (c) e.document_id = c;
+    const m = mobileError(f.phone); if (m && normalizeMobile(f.phone) !== p.phone) e.phone = m;
+    const em = emailError(f.email); if (em) e.email = em;
+    setErrors(e);
+    if (Object.keys(e).length) return;
+    try {
+      await api.patch(`/people/${p.id}`, {
+        ...f, full_name: formatName(f.full_name), phone: normalizeMobile(f.phone), document_id: normalizeCedula(f.document_id) || null,
+        email: normalizeEmail(f.email) || null,
+      });
+      onDone('Datos actualizados'); onClose();
+    } catch (ex) { setErr(ex); if (ex.body?.error?.field) setErrors({ [ex.body.error.field]: ex.message }); }
+  };
+  const fe = (k) => errors[k] && <span className="err">{errors[k]}</span>;
   return (
     <Modal title="Editar datos" onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn btn-primary" onClick={save}>Guardar</button></>}>
       <div className="stack">
-        <div className="field"><label>Nombre completo</label><input className="input" value={f.full_name} onChange={set('full_name')} /></div>
+        <div className="field"><label>Nombre completo</label><input className="input" value={f.full_name} onChange={set('full_name')} onBlur={() => setF({ ...f, full_name: formatName(f.full_name) })} /></div>
         <div className="grid g-2">
-          <div className="field"><label>Teléfono</label><input className="input" value={f.phone} onChange={set('phone')} inputMode="tel" /></div>
-          <div className="field"><label>Documento</label><input className="input" value={f.document_id} onChange={set('document_id')} /></div>
-          <div className="field"><label>Correo</label><input className="input" value={f.email} onChange={set('email')} /></div>
-          <div className="field"><label>Municipio / barrio</label><input className="input" value={f.city} onChange={set('city')} /></div>
+          <div className="field"><label>Cédula</label><input className={`input ${errors.document_id ? 'invalid' : ''}`} inputMode="numeric" value={formatCedula(f.document_id)} onChange={set('document_id', normalizeCedula)} />{fe('document_id')}</div>
+          <div className="field"><label>Celular / WhatsApp</label><input className={`input ${errors.phone ? 'invalid' : ''}`} type="tel" inputMode="numeric" value={formatMobile(f.phone)} onChange={set('phone', normalizeMobile)} />{fe('phone')}</div>
         </div>
+        <div className="field"><label>Dirección</label><input className="input" value={f.address} onChange={set('address')} maxLength={200} />{fe('address')}</div>
+        <div className="field"><label>Correo</label><input className={`input ${errors.email ? 'invalid' : ''}`} type="email" inputMode="email" value={f.email} onChange={set('email', normalizeEmail)} />{fe('email')}
+          {emailSuggestion(f.email) && <button type="button" className="alert alert-warn email-suggest" style={{ marginTop: 4 }} onClick={() => setF({ ...f, email: emailSuggestion(f.email) })}>¿Quiso decir <b>{emailSuggestion(f.email)}</b>?</button>}</div>
         <div className="field"><label>Observaciones</label><textarea className="textarea" value={f.notes} onChange={set('notes')} /></div>
         <div className="field"><label>Motivo del cambio (opcional)</label><input className="input" value={f.reason} onChange={set('reason')} /></div>
+        <ErrorBox error={err} />
+      </div>
+    </Modal>
+  );
+}
+
+function LocationModal({ p, location, onClose, onDone }) {
+  const [geo, setGeo] = useState(geoFromPerson(location));
+  const [reason, setReason] = useState('');
+  const [err, setErr] = useState(null);
+  const save = async () => {
+    try { await api.post(`/people/${p.id}/location`, { location: geoToApi(geo), reason }); onDone('Ubicación actualizada'); onClose(); }
+    catch (e) { setErr(e); }
+  };
+  return (
+    <Modal wide title="Corregir ubicación" subtitle="Elija la ubicación del catálogo. Si la escribe a mano quedará pendiente de verificación." onClose={onClose}
+      footer={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn btn-primary" onClick={save} disabled={!geo.localidad}>Guardar</button></>}>
+      <div className="stack">
+        {location?.status === 'pending' && (
+          <div className="alert alert-warn"><Info size={16} /><span>Ubicación escrita a mano: <LocationText loc={location} /></span></div>
+        )}
+        <GeoSelect idPrefix="loc" value={geo} onChange={setGeo} />
+        <div className="field"><label>Motivo (opcional)</label><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} /></div>
         <ErrorBox error={err} />
       </div>
     </Modal>
@@ -200,6 +251,7 @@ export default function Person() {
           </div>
           <div className="row-wrap">
             <Link className="btn" to={`/arbol?cabeza=${p.head_id}&persona=${p.id}`}><GitBranch size={15} />Ver en el árbol</Link>
+            {stats.total > 0 && <Link className="btn" to={`/arbol?cabeza=${p.head_id}&foco=${p.id}&expandir=todo`} title="Abre la rama con todos sus niveles expandidos"><ChevronsDown size={15} />Ver rama completa</Link>}
             {perm.manage && p.status === 'active' && <button className="btn" onClick={() => setModal('register')}><UserPlus size={15} />Registrar invitado</button>}
           </div>
         </div>
@@ -265,7 +317,10 @@ export default function Person() {
           {/* Estadísticas de rama */}
           <div className="card">
             <div className="card-head"><div><h2>Su rama</h2><p>Personas que entraron a través de su cadena de invitaciones</p></div>
-              <Link className="btn btn-sm" to={`/arbol?cabeza=${p.head_id}&foco=${p.id}`}><GitBranch size={14} />Ver rama</Link></div>
+              <div className="row-wrap">
+                <Link className="btn btn-sm" to={`/arbol?cabeza=${p.head_id}&foco=${p.id}`}><GitBranch size={14} />Ver rama</Link>
+                {stats.total > 0 && <Link className="btn btn-sm" to={`/arbol?cabeza=${p.head_id}&foco=${p.id}&expandir=todo`}><ChevronsDown size={14} />Expandir todo</Link>}
+              </div></div>
             <div className="card-pad stack">
               <div className="grid g-4" style={{ gap: 10 }}>
                 <div><div className="small muted row"><Users size={13} />En su rama</div><div style={{ fontSize: 22, fontWeight: 650 }}>{fmtNum(stats.total)}</div></div>
@@ -329,9 +384,13 @@ export default function Person() {
           <div className="card card-pad stack">
             <h2>Datos de contacto</h2>
             <dl className="kv">
-              <dt>Teléfono</dt><dd>{phoneDisplay(p.phone)}</dd>
-              {perm.contact && <><dt>Correo</dt><dd>{p.email || '—'}</dd><dt>Documento</dt><dd>{p.document_id || '—'}</dd></>}
-              <dt>Municipio</dt><dd>{p.city || '—'}</dd>
+              <dt>Celular</dt><dd>{phoneDisplay(p.phone)}</dd>
+              {perm.contact && <><dt>Cédula</dt><dd>{p.document_id ? formatCedula(p.document_id) : <span className="muted">Sin registrar</span>}</dd>
+                <dt>Dirección</dt><dd>{p.address || <span className="muted">Sin registrar</span>}</dd>
+                <dt>Correo</dt><dd>{p.email || '—'}</dd></>}
+              <dt>Ubicación</dt><dd><LocationText loc={data.location} />
+                {perm.manage && <div><button className="btn btn-sm btn-ghost" style={{ paddingLeft: 0 }} onClick={() => setModal('location')}><MapPin size={13} />{data.location?.status === 'pending' ? 'Verificar / corregir' : 'Corregir ubicación'}</button></div>}</dd>
+              {p.city && <><dt>Municipio (anterior)</dt><dd>{p.city}</dd></>}
               {perm.manage && p.notes && <><dt>Observaciones</dt><dd>{p.notes}</dd></>}
               <dt>Consentimiento</dt><dd>{p.consent_at ? fmtDateTime(p.consent_at) : <span className="muted">No registrado</span>}</dd>
               <dt>Actualizado</dt><dd>{relTime(p.updated_at)}</dd>
@@ -371,6 +430,7 @@ export default function Person() {
       </div>
 
       {modal === 'edit' && <EditModal p={p} onClose={() => setModal(null)} onDone={done} />}
+      {modal === 'location' && <LocationModal p={p} location={data.location} onClose={() => setModal(null)} onDone={done} />}
       {modal === 'move' && <MoveModal p={p} head={head} onClose={() => setModal(null)} onDone={done} />}
       {modal === 'leader' && <LeaderModal p={p} onClose={() => setModal(null)} onDone={done} />}
       {modal === 'account' && <AccountModal p={p} onClose={() => setModal(null)} onDone={done} />}

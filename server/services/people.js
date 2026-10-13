@@ -2,10 +2,13 @@
 import { q, tx, now, pathUpper, MAX_PATH } from '../db.js';
 import {
   badRequest, conflict, notFound, forbidden, normalizeText, slugUpper, randomCode,
-  validatePhone, validateMobile, validateCedula, validateEmail, normalizePhone, str,
+  validatePhone, validateMobile, validateCedula, validateEmail, assertEmailDomain, normalizePhone, str,
 } from '../util.js';
 import { audit, history } from './audit.js';
 import { resolveLocation, geoIntegrity } from './geo.js';
+import { IS_PRODUCTION } from '../env.js';
+
+const EMAIL_DNS = process.env.EMAIL_DNS_CHECK ? process.env.EMAIL_DNS_CHECK === '1' : IS_PRODUCTION;
 
 // ---------------------------------------------------------------------------
 // Identificadores
@@ -185,6 +188,7 @@ export async function createPerson(opts) {
   return await tx(async () => {
     const { headId, inviterId = null, isLeader = false, leaderOverrideId = null, method, user = null, linkId = null, ip = null } = opts;
     const data = validatePersonData(opts.data || {});
+    await assertEmailDomain(data.email, { enabled: EMAIL_DNS });
     const geo = await resolveLocation(opts.data?.location, { required: true });
     const head = await getHead(headId);
     if (!head) throw badRequest('VALIDATION', 'Debe seleccionar una cabeza válida.', { field: 'head_id' });
@@ -521,6 +525,7 @@ export async function updatePersonData(personId, body, user, ip) {
     };
     // Registros antiguos (sin cédula/dirección) pueden editarse; los nuevos mantienen los obligatorios.
     const data = validatePersonData(merged, { legacy: { document_id: p.document_id, address: p.address, phone_changed: body.phone !== undefined && normalizePhone(body.phone) !== p.phone } });
+    if (data.email && data.email !== p.email) await assertEmailDomain(data.email, { enabled: EMAIL_DNS });
     if (p.status !== 'rejected') await assertNoDuplicate(data, p.id);
     const changes = {};
     for (const k of Object.keys(data)) {

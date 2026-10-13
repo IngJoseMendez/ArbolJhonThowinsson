@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Crown, Network } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronsDown, ChevronsUp, Crown, Network } from 'lucide-react';
 import { fmtDate, fmtNum } from '../lib/format.js';
 import { StatusBadge } from './ui.jsx';
 
@@ -7,7 +7,7 @@ const ROW = 44;
 const INDENT = 22;
 
 /** Lista jerárquica virtualizada: sólo se pintan las filas visibles. */
-export default function TreeList({ store, version, selectedId, pathIds, isDimmed, onSelect, headColor, scrollToId }) {
+export default function TreeList({ store, version, selectedId, pathIds, isDimmed, onSelect, headColor, scrollToId, onExpandAll, onCollapseAll }) {
   const ref = useRef(null);
   const [scroll, setScroll] = useState({ top: 0, h: 600 });
   const rows = useMemo(() => store.flatten(), [store, version]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -68,7 +68,7 @@ export default function TreeList({ store, version, selectedId, pathIds, isDimmed
                 ? <button className="twisty" onClick={(e) => { e.stopPropagation(); store.toggle(n.key); }} aria-label={n.expanded ? 'Contraer' : 'Expandir'}>
                   {n.loading ? <span className="spinner" style={{ width: 12, height: 12 }} /> : n.expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 </button>
-                : <span style={{ width: 24, flex: 'none' }} />}
+                : <span style={{ width: 24, flex: 'none', display: 'grid', placeItems: 'center' }} title="Sin personas debajo"><span className="leaf-dot" /></span>}
               {d.is_leader && <Crown size={14} color="var(--leader)" style={{ flex: 'none' }} />}
               <span className="ellipsis" style={{ fontWeight: d.is_leader || onPath ? 650 : 500, color: onPath ? 'var(--accent)' : undefined, minWidth: 0 }}>{d.full_name}</span>
               {d.is_leader
@@ -77,6 +77,14 @@ export default function TreeList({ store, version, selectedId, pathIds, isDimmed
               <span className="spacer" />
               {d.status !== 'active' && <StatusBadge status={d.status} />}
               <span className="small muted nowrap hide-sm">{fmtDate(d.created_at)}</span>
+              {hasKids && onExpandAll && (
+                <span className="row-actions">
+                  <button className="btn btn-sm btn-ghost btn-icon" title="Expandir todo (todos los niveles)" aria-label={`Expandir todo bajo ${d.full_name}`}
+                    onClick={(e) => { e.stopPropagation(); onExpandAll(n.key); }}><ChevronsDown size={14} /></button>
+                  <button className="btn btn-sm btn-ghost btn-icon" title="Contraer toda la rama" aria-label={`Contraer la rama de ${d.full_name}`}
+                    onClick={(e) => { e.stopPropagation(); onCollapseAll(n.key); }}><ChevronsUp size={14} /></button>
+                </span>
+              )}
               <span className="badge tnum" title="Personas debajo en la rama">{fmtNum(d.descendant_count)}</span>
             </div>
           );

@@ -15,11 +15,30 @@ const firstNames = (s) => (s ? s.split(' ').slice(0, 2).join(' ') : '');
  * expandidos siguen siendo fluidos.
  */
 const TreeCanvas = forwardRef(function TreeCanvas(
-  { store, version, selectedId, pathIds, foundId, isDimmed, onSelect, headColor }, ref,
+  { store, version, selectedId, pathIds, foundId, isDimmed, onSelect, headColor, initialTransform, onTransform, onExpandAll }, ref,
 ) {
   const wrap = useRef(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
-  const [t, setT] = useState({ x: 40, y: 40, k: 0.9 });
+  const [t, setT] = useState(() => initialTransform || { x: 40, y: 40, k: 0.9 });
+  // Al cambiar de árbol (cabeza/foco) se recupera la vista guardada de ese árbol.
+  const lastStore = useRef(store);
+  useEffect(() => {
+    if (lastStore.current !== store && initialTransform) setT(initialTransform);
+    lastStore.current = store;
+  }, [store, initialTransform]);
+  // Guarda la vista (con retardo) y, al desmontar, la última sin esperar al retardo.
+  const onTransformRef = useRef(onTransform);
+  onTransformRef.current = onTransform;
+  useEffect(() => {
+    if (!onTransform) return undefined;
+    const id = setTimeout(() => onTransform(t), 300);
+    return () => clearTimeout(id);
+  }, [t, onTransform]);
+  useEffect(() => {
+    const flush = () => onTransformRef.current?.(tRef.current);
+    window.addEventListener('pagehide', flush);
+    return () => { window.removeEventListener('pagehide', flush); flush(); };
+  }, []);
   const tRef = useRef(t);
   tRef.current = t;
   const drag = useRef(null);
@@ -199,9 +218,24 @@ const TreeCanvas = forwardRef(function TreeCanvas(
                     </text>
                   </>
                 )}
+                {!hasKids && (
+                  <g transform={`translate(${NODE_W},${NODE_H / 2})`} aria-hidden="true">
+                    <circle className="node-leaf-dot" r={4} />
+                    <title>Sin personas debajo</title>
+                  </g>
+                )}
+                {hasKids && onExpandAll && detail && (
+                  <g className="node-toggle" transform={`translate(${NODE_W + Math.max(34, String(d.descendant_count).length * 7 + 22) + 4},${NODE_H / 2})`}
+                    onClick={click(() => onExpandAll(it.key))} role="button" aria-label="Expandir todos los niveles de esta rama">
+                    <title>Expandir todo (todos los niveles)</title>
+                    <circle r={12} cx={10} />
+                    <path transform="translate(4,-6)" d="M2 2l4 4 4-4M2 7l4 4 4-4" fill="none" stroke="var(--text-2)" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
+                  </g>
+                )}
                 {hasKids && (
                   <g className="node-toggle" transform={`translate(${NODE_W - 2},${NODE_H / 2})`} onClick={click(() => store.toggle(it.key))}
-                    role="button" aria-label={n.expanded ? 'Contraer rama' : 'Expandir rama'}>
+                    role="button" aria-label={n.expanded ? 'Contraer rama' : 'Expandir un nivel'}>
+                    <title>{n.expanded ? 'Contraer esta rama' : 'Expandir el siguiente nivel'}</title>
                     <rect x={-2} y={-12} width={Math.max(34, String(d.descendant_count).length * 7 + 22)} height={24} rx={12}
                       fill={n.expanded ? 'var(--accent-soft)' : 'var(--surface)'} stroke={n.expanded ? 'var(--accent)' : 'var(--border-strong)'} strokeWidth={1.5} />
                     <text x={Math.max(34, String(d.descendant_count).length * 7 + 22) / 2 - 2} y={4} textAnchor="middle"
@@ -227,6 +261,7 @@ const TreeCanvas = forwardRef(function TreeCanvas(
         <span><span className="legend-swatch" style={{ borderColor: 'var(--leader)', background: 'var(--leader-soft)' }} />Líder oficial</span>
         <span><span className="legend-swatch" style={{ borderColor: 'var(--border-strong)' }} />Persona</span>
         <span><span className="legend-swatch" style={{ borderColor: 'var(--warning)', borderStyle: 'dashed' }} />Pendiente</span>
+        <span><svg width="10" height="10" aria-hidden="true"><circle cx="5" cy="5" r="4" className="node-leaf-dot" /></svg>Sin invitados</span>
         <span className="muted">Línea = invitó a · {fmtNum(visibleItems.length)}/{fmtNum(layout.items.length)} nodos dibujados</span>
       </div>
     </div>

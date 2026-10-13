@@ -397,3 +397,43 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 @media (max-width: 600px) { .hide-sm { display: none !important; } }
 
 @media (max-width: 900px) { .tree-legend { display: none; } .tree-bar .select { width: auto !important; flex: 1 1 140px; } }
+
+/* ---------- Combobox / selector geográfico ---------- */
+.req { color: var(--critical-text); }
+.combo { position: relative; }
+.combo .input { padding-left: 34px; padding-right: 34px; }
+.combo-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; z-index: 1; }
+.combo-value { position: absolute; left: 34px; right: 34px; top: 1px; bottom: 1px; display: flex; align-items: center; background: none; border: none; padding: 0; text-align: left; cursor: text; color: var(--text); min-width: 0; }
+.combo-btn { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 26px; height: 26px; border: none; background: none; border-radius: 6px; color: var(--muted); cursor: pointer; }
+button.combo-btn:hover { background: var(--surface-2); color: var(--text); }
+.combo-list { list-style: none; margin: 0; max-height: 280px; }
+.combo-list .dropdown-item { cursor: pointer; }
+.combo-manual-opt { border-top: 1px solid var(--border); margin-top: 4px; color: var(--accent); font-weight: 600; }
+.combo.compact .input { height: 36px; }
+.combo-manual { display: flex; align-items: center; gap: 8px; }
+.combo-manual .input { flex: 1; }
+.geo-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--accent-soft); font-size: 13px; }
+.geo-summary.pending { background: rgba(250, 178, 25, 0.16); }
+.geo-filter .field { min-width: 170px; flex: 1 1 170px; }
+.geo-filter .row-wrap > * { flex: 1 1 170px; min-width: 160px; }
+@media (max-width: 700px) { .geo-grid { grid-template-columns: minmax(0, 1fr) !important; } }
+.input-wrap { position: relative; }
+.input-ok { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--good); pointer-events: none; }
+.field-lg .input { height: 46px; font-size: 16px; }
+.public-card .combo .input { height: 46px; font-size: 16px; }
+.email-suggest { width: 100%; text-align: left; border: none; cursor: pointer; margin-top: -6px; }
+.badge-geo-pending { background: rgba(250, 178, 25, 0.18); color: var(--warning-text); }
+.loc-tree { display: flex; flex-direction: column; }
+.loc-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--border); font-size: 13.5px; }
+.loc-row:hover { background: var(--surface-2); }
+.loc-row .count { font-variant-numeric: tabular-nums; font-weight: 650; min-width: 48px; text-align: right; }
+.progress { height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; width: 180px; }
+.progress > div { height: 100%; background: var(--accent); transition: width 0.2s; }
+.node-leaf-dot { fill: var(--surface-3); stroke: var(--border-strong); }
+
+.leaf-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--surface-3); border: 1px solid var(--border-strong); display: inline-block; }
+.trow .row-actions { display: inline-flex; gap: 2px; opacity: 0; transition: opacity 0.1s; }
+.trow:hover .row-actions, .trow.selected .row-actions, .trow:focus-within .row-actions { opacity: 1; }
+@media (hover: none) { .trow .row-actions { opacity: 1; } }
+.tree-actions { flex-wrap: wrap; }
+.tree-legend span { white-space: nowrap; }

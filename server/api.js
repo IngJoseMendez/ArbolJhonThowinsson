@@ -229,7 +229,8 @@ api.get('/people', requireAuth, async (req, res) => res.json(await directory(req
 
 api.get('/people/check-duplicate', requireRole('super_admin', 'head_admin'), async (req, res) => {
   const phone = normalizePhone(req.query.phone);
-  const document_id = normalizeDocument(req.query.document_id);
+  // Misma normalización que al guardar: sin puntos/espacios ni ceros a la izquierda.
+  const document_id = String(req.query.document_id || '').replace(/[.\s-]/g, '').replace(/^0+(?=\d)/, '') || null;
   if (phone.length < 7 && !document_id) return res.json({ duplicate: null });
   const d = await findDuplicate({ phone: phone.length >= 7 ? phone : '__none__', document_id });
   if (!d) return res.json({ duplicate: null });

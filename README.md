@@ -105,10 +105,56 @@ N=20000 npm run seed:large       # genera una cabeza masiva para probar el árbo
 ```
 
 Variables de entorno: `DATABASE_URL` (o `POSTGRES_URL`), `DATABASE_SSL`, `DB_POOL_SIZE`, `PORT`, `ADMIN_USER`,
+`PHONE_MOBILE_PREFIXES` (por defecto `300-305,310-324,333,350-351`), `EMAIL_DNS_CHECK` (`1`/`0`; activo en producción),
 `ADMIN_PASSWORD`, `TRUST_PROXY` (detrás de un proxy inverso propio; en Vercel se activa automáticamente),
 `PHONE_COUNTRY_CODE` (por defecto `57`) y `PHONE_NATIONAL_LENGTH` (por defecto `10`). Con estas dos últimas,
 `+57 300 123 4567` y `3001234567` se tratan como el mismo número.
 En producción (`NODE_ENV=production`, como en Vercel) la cookie de sesión se marca como `Secure`.
+
+## Registro de personas y ubicación (Santa Marta)
+
+El registro manual y el registro por enlace usan **exactamente los mismos campos y validaciones** (`PersonFields`
+en el cliente y `validatePersonData` / `resolveLocation` en el servidor):
+
+| Campo | Regla |
+|---|---|
+| Nombre completo | Obligatorio; se capitaliza al salir del campo |
+| Cédula | Obligatoria y única. Acepta cédulas antiguas de 4 a 8 dígitos o el NUIP de 10 dígitos que empieza por 1 (Resolución 3571 de 2003). Rechaza números de relleno (todos iguales o en secuencia). Se muestra con puntos de miles |
+| Dirección | Obligatoria |
+| Celular / WhatsApp | Obligatorio y único. 10 dígitos con prefijo móvil colombiano (300–305, 310–324, 333, 350–351; configurable con `PHONE_MOBILE_PREFIXES`). Al escribir o pegar se quita `+57` y se formatea `300 555 0123`. En el celular abre el teclado numérico |
+| Localidad → Comuna/Corregimiento → Barrio/Vereda | Localidad obligatoria. Selectores dependientes con búsqueda, alimentados por la base de datos |
+| Correo | Opcional. Formato estricto y sugerencia de errores típicos (`gmial.com` → `gmail.com`). En producción también se comprueba que el dominio reciba correo (`EMAIL_DNS_CHECK`); si el DNS no está disponible, no bloquea |
+
+Si la ubicación no aparece, la persona elige **«¿Tu localidad no está aquí? Escríbela»** (o la equivalente para comuna
+y barrio). El texto se guarda aparte (`geo_*_text`), el registro queda **pendiente de verificación geográfica** y nunca
+se crea nada en el catálogo sin revisión. En *Ubicaciones → Por verificar* un administrador agrupa esos textos y decide
+entre **agregarlos al catálogo** (sólo el administrador general) o **corregir los registros** asignándoles una ubicación
+existente. Cada cambio queda en el historial.
+
+El catálogo inicial (3 localidades, 9 comunas, 4 corregimientos y 114 barrios), sus fuentes y sus limitaciones se
+describen en [`docs/geografia-santa-marta.md`](docs/geografia-santa-marta.md). El catálogo de barrios es **parcial**.
+Se completa desde *Ubicaciones → Catálogo*, donde se pueden crear, editar, mover y desactivar ubicaciones, o importar un
+CSV sin generar duplicados.
+
+Filtros por localidad, comuna y barrio (dependientes y combinables con cabeza, líder, estado y fecha) en el directorio
+y en el árbol, con el número de coincidencias. *Ubicaciones → Personas por ubicación* muestra cuántas personas hay en
+cada nivel y enlaza a su listado.
+
+## Expansión del árbol
+
+| Control | Efecto |
+|---|---|
+| **Expandir nivel** (pastilla `+N` del nodo) | Abre sólo el siguiente nivel |
+| **Expandir todo** (botón `⌄⌄` junto al nodo, barra de acciones o panel lateral) | Descarga la rama completa por bloques de 2.000 personas ordenados por ruta y abre **todos** los niveles, incluidos los que nunca se habían abierto. Muestra el progreso y se puede cancelar |
+| **Contraer todo** | Cierra todos los niveles de la rama elegida sin tocar las demás |
+| Desde la ficha | *Ver rama completa* abre la rama de la persona con todos sus niveles expandidos |
+
+Los nodos sin personas debajo se marcan con un punto gris. Con 20.000 personas expandidas el lienzo sólo dibuja los
+nodos visibles en pantalla, y la vista de lista está virtualizada.
+
+**Estado persistente:** las ramas abiertas, el zoom y la posición, la persona seleccionada y los filtros se conservan
+al ir a una ficha u otra página y volver (en memoria), y al recargar la pestaña (`sessionStorage`, por usuario; se
+borra al cerrar sesión). Al volver, los datos se refrescan en segundo plano sin cerrar ninguna rama.
 
 ## Modelo de datos
 

@@ -249,3 +249,18 @@ export function useAsync(fn, deps) {
   }, [...deps, tick]);
   return { ...state, reload: () => setTick((t) => t + 1) };
 }
+
+/** Ubicación de una persona: "Localidad 2 › Comuna 3 › Pescaíto", marcando lo escrito a mano. */
+export function LocationText({ loc, compact }) {
+  if (!loc || !loc.localidad) return <span className="muted">Sin ubicación</span>;
+  const part = (x, kind) => (x.manual !== undefined
+    ? <span title="Escrito a mano: pendiente de verificación" style={{ color: 'var(--warning-text)' }}>{x.manual}*</span>
+    : <span title={x.alias || kind}>{x.name}{!compact && x.kind === 'corregimiento' ? ' (corr.)' : ''}</span>);
+  const parts = ['localidad', 'comuna', 'barrio'].filter((l) => loc[l]).map((l) => part(loc[l], l));
+  return (
+    <span className="row-wrap" style={{ gap: 4, display: 'inline-flex' }}>
+      {parts.map((p, i) => <span key={i} className="row" style={{ gap: 4 }}>{i > 0 && <span className="muted">›</span>}{p}</span>)}
+      {loc.status === 'pending' && <span className="badge badge-geo-pending">Por verificar</span>}
+    </span>
+  );
+}
