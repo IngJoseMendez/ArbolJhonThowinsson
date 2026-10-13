@@ -133,6 +133,8 @@ export async function directory(user, f) {
   if (f.comuna_id) { where.push('p.geo_comuna_id = ?'); params.push(Number(f.comuna_id)); }
   if (f.barrio_id) { where.push('p.geo_barrio_id = ?'); params.push(Number(f.barrio_id)); }
   if (f.geo_status && ['pending', 'verified', 'none'].includes(f.geo_status)) { where.push('p.geo_status = ?'); params.push(f.geo_status); }
+  if (f.supports === 'yes' || f.supports === 'no') { where.push('p.supports = ?'); params.push(f.supports); }
+  else if (f.supports === 'unknown') where.push('p.supports IS NULL');
   if (f.head_id) { where.push('p.head_id = ?'); params.push(Number(f.head_id)); }
   if (f.leader_id) { where.push('p.leader_id = ?'); params.push(Number(f.leader_id)); }
   if (f.inviter_id) { where.push('p.inviter_id = ?'); params.push(Number(f.inviter_id)); }
@@ -155,7 +157,7 @@ export async function directory(user, f) {
   const rows = await q(`SELECT p.id, p.code, p.full_name, p.phone, p.email, p.city, p.is_leader, p.leader_code, p.status,
                          p.registration_method, p.created_at, p.head_id, p.path, p.leader_id, p.inviter_id,
                          h.name AS head_name, h.color AS head_color, l.full_name AS leader_name, i.full_name AS inviter_name,
-                         p.descendant_count, p.address, p.geo_status, p.geo_localidad_id, p.geo_comuna_id, p.geo_barrio_id,
+                         p.descendant_count, p.address, p.supports, p.geo_status, p.geo_localidad_id, p.geo_comuna_id, p.geo_barrio_id,
                          COALESCE(gl.name, p.geo_localidad_text) AS localidad_name, COALESCE(gc.name, p.geo_comuna_text) AS comuna_name,
                          COALESCE(gb.name, p.geo_barrio_text) AS barrio_name, gc.kind AS comuna_kind
                   ${base} ORDER BY ${sortCol} ${dir}, p.id ${dir} LIMIT ? OFFSET ?`).all(...params, pageSize, (page - 1) * pageSize);

@@ -46,7 +46,7 @@ export default function People() {
   const setFilter = (k) => (e) => setParams({ [k]: e.target.value, page: null });
   const sortBy = (k) => setParams({ sort: k, dir: query.sort === k && query.dir === 'desc' ? 'asc' : 'desc', page: null });
   const pages = data ? Math.max(1, Math.ceil(data.total / query.pageSize)) : 1;
-  const filtersOn = ['head_id', 'leader_id', 'inviter_id', 'status', 'type', 'method', 'from', 'to', 'q', 'localidad_id', 'geo_status'].some((k) => params[k]);
+  const filtersOn = ['head_id', 'leader_id', 'inviter_id', 'status', 'type', 'method', 'from', 'to', 'q', 'localidad_id', 'geo_status', 'supports'].some((k) => params[k]);
 
   return (
     <div className="page">
@@ -86,6 +86,10 @@ export default function People() {
           <select className="select" style={{ width: 210 }} value={params.geo_status || ''} onChange={setFilter('geo_status')} aria-label="Verificación de ubicación">
             <option value="">Cualquier verificación</option><option value="pending">Pendientes de verificación</option>
             <option value="verified">Ubicación verificada</option><option value="none">Sin ubicación</option>
+          </select>
+          <select className="select" style={{ width: 200 }} value={params.supports || ''} onChange={setFilter('supports')} aria-label="¿Contamos contigo?">
+            <option value="">¿Contamos contigo?: todos</option><option value="yes">Contamos contigo: Sí</option>
+            <option value="no">Contamos contigo: No</option><option value="unknown">Sin respuesta</option>
           </select>
           {data && <span className="badge badge-outline tnum" role="status"><b>{fmtNum(data.total)}</b>&nbsp;personas coinciden</span>}
         </div>

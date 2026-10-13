@@ -16,7 +16,14 @@ export async function getArea(id) {
 }
 
 /** Opciones de un nivel, opcionalmente filtradas por padre y texto (para los selectores). */
-export async function listAreas({ level, parentId = null, term = '', includeInactive = false, limit = 500 } = {}) {
+export async function listAreas({ level, parentId = null, localidadId = null, term = '', includeInactive = false, limit = 500 } = {}) {
+  if (localidadId) {
+    // Barrios y veredas de una localidad, con su comuna o corregimiento (que se deduce al elegir el barrio).
+    return q(`SELECT ${AREA_COLS.split(', ').map((c) => `b.${c}`).join(', ')}, c.name AS parent_name, c.kind AS parent_kind, c.alias AS parent_alias
+               FROM geo_areas b JOIN geo_areas c ON c.id = b.parent_id
+              WHERE b.level = 'barrio' AND c.parent_id = ? ${includeInactive ? '' : 'AND b.active = 1 AND c.active = 1'}
+              ORDER BY b.name_key, c.name_key LIMIT ?`).all(localidadId, limit);
+  }
   const where = [];
   const params = [];
   if (level) { where.push('level = ?'); params.push(level); }
@@ -37,7 +44,12 @@ export async function listAreas({ level, parentId = null, term = '', includeInac
  * input: { localidad_id | localidad_text, comuna_id | comuna_text, barrio_id | barrio_text }
  */
 export async function resolveLocation(input, { required = true } = {}) {
-  const loc = input || {};
+  const loc = { ...(input || {}) };
+  // Formulario sin comuna: si se elige un barrio del catálogo, su comuna o corregimiento se deduce.
+  if (loc.barrio_id && !loc.comuna_id && !loc.comuna_text) {
+    const b = await getArea(Number(loc.barrio_id));
+    if (b?.level === 'barrio') loc.comuna_id = b.parent_id;
+  }
   const out = {
     geo_localidad_id: null, geo_comuna_id: null, geo_barrio_id: null,
     geo_localidad_text: null, geo_comuna_text: null, geo_barrio_text: null, geo_status: 'none',
@@ -74,6 +86,8 @@ export async function resolveLocation(input, { required = true } = {}) {
       anyValue = true;
     } else {
       // Niveles inferiores vacíos: se admite (sólo la localidad es obligatoria), pero no "saltarse" un nivel.
+      // Excepción: barrio escrito a mano sin comuna (el formulario sólo pide localidad y barrio).
+      if (level === 'comuna' && loc.barrio_text && !loc.barrio_id) continue;
       const below = LEVELS.slice(LEVELS.indexOf(level) + 1).some((l) => loc[`${l}_id`] || loc[`${l}_text`]);
       if (below) throw badRequest('VALIDATION', `Indique primero la ${label}.`, { field: level });
       if (level === 'localidad' && required) throw badRequest('VALIDATION', 'La localidad es obligatoria.', { field: 'localidad' });

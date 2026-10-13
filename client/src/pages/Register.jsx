@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { AlertCircle, CheckCircle2, Clock, Crown, Lock, Network, UserPlus } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock, Crown, Lock, UserPlus } from 'lucide-react';
 import { api } from '../api.js';
 import { Avatar, Loading, ShareLink, useAsync } from '../components/ui.jsx';
-import PersonFields, { emptyPerson, validatePerson, personPayload, serverFieldError } from '../components/PersonFields.jsx';
+import PersonFields, { emptyPerson, validatePerson, personPayload, personName, serverFieldError } from '../components/PersonFields.jsx';
 
 /** Formulario público de registro mediante enlace (pensado para celular). */
 export default function Register() {
@@ -24,7 +24,8 @@ export default function Register() {
     setFieldErrors(v);
     if (Object.keys(v).length) {
       setErr({ message: 'Revise los campos marcados en rojo.' });
-      document.getElementById(`reg-${Object.keys(v)[0] === 'localidad' ? 'geo-localidad' : Object.keys(v)[0]}`)?.focus();
+      const k = Object.keys(v)[0];
+      document.getElementById(k === 'localidad' || k === 'barrio' ? `reg-geo-${k}` : k === 'supports' ? 'reg-supports-yes' : `reg-${k}`)?.focus();
       return;
     }
     setErr(null); setBusy(true);
@@ -35,9 +36,6 @@ export default function Register() {
   return (
     <div className="public-wrap">
       <div className="public-card">
-        <div className="row" style={{ gap: 10, marginBottom: 18, justifyContent: 'center' }}>
-          <div className="brand-logo"><Network size={18} /></div><b style={{ fontSize: 16 }}>Registro de la estructura</b>
-        </div>
         {loading && <Loading />}
         {error && (
           <div className="card card-pad stack" style={{ textAlign: 'center' }}>
@@ -65,7 +63,7 @@ export default function Register() {
             </div>
             <form className="card card-pad stack" onSubmit={submit} style={{ gap: 14 }}>
               <h2>Complete sus datos</h2>
-              <PersonFields idPrefix="reg" size="lg" value={f} errors={fieldErrors}
+              <PersonFields idPrefix="reg" size="lg" slogan value={f} errors={fieldErrors}
                 onChange={(v) => {
                   setF(v);
                   if (submitted) { const e2 = validatePerson(v); setFieldErrors(e2); if (!Object.keys(e2).length) setErr(null); }
@@ -105,7 +103,7 @@ export default function Register() {
                 <div className="divider" />
                 <h3>Invite a otras personas</h3>
                 <p className="small text-2" style={{ margin: 0 }}>Comparta su enlace personal. Quienes se registren con él quedarán vinculados a usted.</p>
-                <ShareLink token={done.invite_token} ownerName={f.full_name} headName={done.head} />
+                <ShareLink token={done.invite_token} ownerName={personName(f)} headName={done.head} />
               </>
             )}
           </div>

@@ -85,19 +85,51 @@ export async function nearestLeaderFromPath(path, excludeSelf = true) {
  * Campos de persona (iguales en registro manual y por enlace).
  * legacy: registros anteriores a estos campos pueden editarse sin completar los nuevos obligatorios.
  */
+const cleanName = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
+
+/** Nombres y apellidos por separado (formulario actual) o nombre completo (API y registros anteriores). */
+function validateNames(data) {
+  if (data.first_names === undefined && data.last_names === undefined) {
+    const full_name = str(data.full_name, { field: 'nombre completo', key: 'full_name', required: true, min: 3, max: 120 });
+    if (!/\p{L}/u.test(full_name)) throw badRequest('VALIDATION', 'El nombre no es válido.', { field: 'full_name' });
+    return { full_name: cleanName(full_name), first_names: data.keepNames?.first_names ?? null, last_names: data.keepNames?.last_names ?? null };
+  }
+  const part = (v, key, label) => {
+    const x = cleanName(str(v, { field: label, key, required: true, max: 60 }));
+    if (!/^[\p{L}' .-]+$/u.test(x) || (x.match(/\p{L}/gu) || []).length < 2) {
+      throw badRequest('VALIDATION', `Escriba ${label === 'nombres' ? 'los nombres' : 'los apellidos'} sólo con letras.`, { field: key });
+    }
+    return x;
+  };
+  const first_names = part(data.first_names, 'first_names', 'nombres');
+  const last_names = part(data.last_names, 'last_names', 'apellidos');
+  return { full_name: `${first_names} ${last_names}`, first_names, last_names };
+}
+
+/** «¿Contamos contigo en este camino?»: 'yes' | 'no' | null. */
+function validateSupports(v, { required = false } = {}) {
+  if (v === undefined || v === null || v === '') {
+    if (required) throw badRequest('VALIDATION', 'Responda si contamos contigo en este camino.', { field: 'supports' });
+    return null;
+  }
+  const x = v === true || v === 'yes' || v === 'si' || v === 'sí' ? 'yes' : v === false || v === 'no' ? 'no' : null;
+  if (!x) throw badRequest('VALIDATION', 'Respuesta no válida.', { field: 'supports' });
+  return x;
+}
+
 function validatePersonData(data, { legacy = null } = {}) {
-  const full_name = str(data.full_name, { field: 'nombre completo', key: 'full_name', required: true, min: 3, max: 120 });
-  if (!/\p{L}/u.test(full_name)) throw badRequest('VALIDATION', 'El nombre no es válido.', { field: 'full_name' });
+  const names = validateNames(data);
   const address = str(data.address, { field: 'dirección', key: 'address', max: 200, required: !legacy || !!legacy.address });
   if (address && address.length < 5) throw badRequest('VALIDATION', 'La dirección es demasiado corta.', { field: 'address' });
   return {
-    full_name: full_name.replace(/\s+/g, ' '),
+    ...names,
     document_id: validateCedula(data.document_id, { required: !legacy || !!legacy.document_id }),
     address: address || null,
     phone: legacy && !legacy.phone_changed ? validatePhone(data.phone) : validateMobile(data.phone),
     email: validateEmail(data.email),
     city: str(data.city, { field: 'ciudad / municipio', max: 80 }),
     notes: str(data.notes, { field: 'observaciones', max: 500 }),
+    supports: validateSupports(data.supports, { required: !!data.requireSupports }),
   };
 }
 
@@ -229,14 +261,15 @@ export async function createPerson(opts) {
     const r = await q(`INSERT INTO people (code, full_name, name_key, phone, email, document_id, city, notes, head_id, inviter_id,
                    leader_id, leader_mode, is_leader, leader_code, leader_since, registration_method, registered_by_user_id,
                    invite_link_id, status, path, depth, consent_at, registration_ip, created_at, updated_at,
-                   address, geo_localidad_id, geo_comuna_id, geo_barrio_id, geo_localidad_text, geo_comuna_text, geo_barrio_text, geo_status)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+                   address, geo_localidad_id, geo_comuna_id, geo_barrio_id, geo_localidad_text, geo_comuna_text, geo_barrio_text, geo_status,
+                   first_names, last_names, supports)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
       code, data.full_name, normalizeText(data.full_name), data.phone, data.email, data.document_id, data.city, data.notes,
       head.id, inviter?.id ?? null, leaderId, leaderMode, isLeader ? 1 : 0, leaderCode, isLeader ? ts : null,
       method, method === 'manual' ? user?.id ?? null : null, linkId, status, '/', inviter ? inviter.depth + 1 : 0,
       opts.consent ? ts : null, ip, opts.createdAt || ts, opts.createdAt || ts,
       data.address, geo.geo_localidad_id, geo.geo_comuna_id, geo.geo_barrio_id, geo.geo_localidad_text, geo.geo_comuna_text,
-      geo.geo_barrio_text, geo.geo_status,
+      geo.geo_barrio_text, geo.geo_status, data.first_names, data.last_names, data.supports,
     );
     const id = Number(r.lastInsertRowid);
     const path = `${inviter ? inviter.path : '/'}${id}/`;
@@ -267,8 +300,9 @@ export async function registerViaInvite(token, body, ip) {
   if (!body.consent) throw badRequest('CONSENT_REQUIRED', 'Debe aceptar el tratamiento de datos para registrarse.', { field: 'consent' });
   const person = await createPerson({
     data: {
-      full_name: body.full_name, document_id: body.document_id, address: body.address, phone: body.phone, email: body.email,
-      location: body.location,
+      full_name: body.full_name, first_names: body.first_names, last_names: body.last_names, document_id: body.document_id,
+      address: body.address, phone: body.phone, email: body.email, location: body.location, supports: body.supports,
+      requireSupports: true,
     },
     headId: head.id,
     inviterId: owner.id,
@@ -514,8 +548,12 @@ export async function updatePersonData(personId, body, user, ip) {
   return await tx(async () => {
     const p = await getPerson(personId);
     if (!p) throw notFound();
+    const nameParts = body.first_names !== undefined || body.last_names !== undefined
+      ? { first_names: body.first_names ?? p.first_names ?? '', last_names: body.last_names ?? p.last_names ?? '' }
+      : { full_name: body.full_name ?? p.full_name, keepNames: body.full_name === undefined ? p : null };
     const merged = {
-      full_name: body.full_name ?? p.full_name,
+      ...nameParts,
+      supports: body.supports !== undefined ? body.supports : p.supports,
       phone: body.phone ?? p.phone,
       email: body.email !== undefined ? body.email : p.email,
       document_id: body.document_id !== undefined ? body.document_id : p.document_id,
@@ -532,9 +570,9 @@ export async function updatePersonData(personId, body, user, ip) {
       if ((data[k] ?? null) !== (p[k] ?? null)) changes[k] = { from: p[k] ?? null, to: data[k] ?? null };
     }
     if (!Object.keys(changes).length) return p;
-    await q(`UPDATE people SET full_name = ?, name_key = ?, phone = ?, email = ?, document_id = ?, address = ?, city = ?, notes = ?, updated_at = ?
-        WHERE id = ?`).run(data.full_name, normalizeText(data.full_name), data.phone, data.email, data.document_id, data.address, data.city,
-      data.notes, now(), p.id);
+    await q(`UPDATE people SET full_name = ?, name_key = ?, phone = ?, email = ?, document_id = ?, address = ?, city = ?, notes = ?,
+        first_names = ?, last_names = ?, supports = ?, updated_at = ? WHERE id = ?`).run(data.full_name, normalizeText(data.full_name),
+      data.phone, data.email, data.document_id, data.address, data.city, data.notes, data.first_names, data.last_names, data.supports, now(), p.id);
     await history(p.id, 'data_updated', { fields: changes }, user?.id, body.reason || null);
     await audit(user, 'person.update', 'person', p.id, { fields: Object.keys(changes) }, ip);
     return await getPerson(p.id);

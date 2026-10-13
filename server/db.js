@@ -18,7 +18,6 @@ import SANTA_MARTA from './data/santa-marta.js';
 pg.types.setTypeParser(20, (v) => Number(v));
 pg.types.setTypeParser(1700, (v) => Number(v));
 
-const SCHEMA_VERSION = 2;
 const TS = `to_char(timezone('UTC', clock_timestamp()), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 
 const SCHEMA = `
@@ -226,6 +225,16 @@ CREATE INDEX IF NOT EXISTS ix_people_geo_bar ON people (geo_barrio_id);
 CREATE INDEX IF NOT EXISTS ix_people_geo_status ON people (geo_status) WHERE geo_status = 'pending';
 `;
 
+// v3: nombres y apellidos por separado y respuesta a «¿Contamos contigo en este camino?».
+const MIGRATION_3 = `
+ALTER TABLE people ADD COLUMN IF NOT EXISTS first_names VARCHAR(80);
+ALTER TABLE people ADD COLUMN IF NOT EXISTS last_names VARCHAR(80);
+ALTER TABLE people ADD COLUMN IF NOT EXISTS supports VARCHAR(3);
+DO $$ BEGIN
+  ALTER TABLE people ADD CONSTRAINT ck_people_supports CHECK (supports IS NULL OR supports IN ('yes','no'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+`;
+
 const nameKey = (s) => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 /** Carga inicial del catálogo de Santa Marta (sólo si el catálogo está vacío). */
@@ -248,6 +257,7 @@ async function seedGeo(c) {
 const MIGRATIONS = [
   { version: 1, sql: SCHEMA },
   { version: 2, sql: MIGRATION_2, after: seedGeo },
+  { version: 3, sql: MIGRATION_3 },
 ];
 
 let pool = null;
@@ -287,7 +297,7 @@ async function migrate() {
     if (!rows[0].ok) return 0;
     return (await c.query('SELECT MAX(version) AS v FROM schema_meta')).rows[0].v ?? 0;
   };
-  if ((await current(pool)) >= SCHEMA_VERSION) return;
+  if ((await current(pool)) >= MIGRATIONS[MIGRATIONS.length - 1].version) return;
   const c = await pool.connect();
   try {
     await c.query('BEGIN');

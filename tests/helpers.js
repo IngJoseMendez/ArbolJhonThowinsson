@@ -69,4 +69,4 @@ export const nextPhone = () => String(phone++);
 let doc = 70000000;
 export const nextDoc = () => String(doc++);
 /** Campos obligatorios de persona (cédula, dirección, ubicación) con una localidad del catálogo. */
-export const personFields = (location) => ({ document_id: nextDoc(), address: 'Calle 10 # 5-20', location });
+export const personFields = (location) => ({ document_id: nextDoc(), address: 'Calle 10 # 5-20', location, supports: 'yes' });

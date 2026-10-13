@@ -12,7 +12,7 @@ import RegisterPersonModal from '../components/RegisterPersonModal.jsx';
 import GeoSelect, { geoFromPerson, geoToApi } from '../components/GeoSelect.jsx';
 import LeaderPicker from '../components/LeaderPicker.jsx';
 import {
-  cedulaError, emailError, emailSuggestion, formatCedula, formatMobile, formatName, mobileError, normalizeCedula, normalizeEmail, normalizeMobile,
+  cedulaError, formatCedula, formatMobile, formatName, mobileError, normalizeCedula, normalizeMobile,
 } from '../lib/validators.js';
 import {
   Avatar, ConfirmModal, ErrorBox, Loading, Modal, PersonLink, PersonPicker, RoleBadge, ShareLink, StatusBadge, useAsync, useToast, Empty, HeadPill, LocationText,
@@ -34,7 +34,8 @@ const HISTORY = {
   location_changed: 'Ubicación corregida',
   location_verified: 'Ubicación verificada',
 };
-const FIELD = { full_name: 'Nombre', phone: 'Celular', email: 'Correo', document_id: 'Cédula', address: 'Dirección', city: 'Municipio', notes: 'Observaciones' };
+const SUPPORTS = { yes: 'Sí', no: 'No' };
+const FIELD = { full_name: 'Nombre', first_names: 'Nombres', last_names: 'Apellidos', supports: '¿Contamos contigo?', phone: 'Celular', email: 'Correo', document_id: 'Cédula', address: 'Dirección', city: 'Municipio', notes: 'Observaciones' };
 
 function HistoryDetail({ h, names }) {
   const d = h.details;
@@ -52,30 +53,42 @@ function HistoryDetail({ h, names }) {
     case 'location_changed': case 'location_verified':
       return <>{d.to?.geo_status === 'pending' ? 'Ubicación escrita a mano (pendiente)' : 'Ubicación del catálogo asignada'}</>;
     case 'data_updated':
-      return <>{Object.entries(d.fields || {}).map(([k, v]) => <div key={k}>{FIELD[k] || k}: <s className="muted">{v.from || '—'}</s> → {v.to || '—'}</div>)}</>;
+      return <>{Object.entries(d.fields || {}).map(([k, v]) => {
+        const fmt = (x) => (k === 'supports' ? SUPPORTS[x] : x) || '—';
+        return <div key={k}>{FIELD[k] || k}: <s className="muted">{fmt(v.from)}</s> → {fmt(v.to)}</div>;
+      })}</>;
     default: return null;
   }
 }
 
+/** Separa un nombre completo antiguo en nombres y apellidos (2+2, 1+2 o 1+1 palabras) como propuesta editable. */
+function splitName(full) {
+  const w = String(full || '').trim().split(/\s+/).filter(Boolean);
+  const n = w.length >= 4 ? w.length - 2 : w.length === 3 ? 1 : Math.min(1, w.length);
+  return { first_names: w.slice(0, n).join(' '), last_names: w.slice(n).join(' ') };
+}
+
 function EditModal({ p, onClose, onDone }) {
+  const names = p.first_names || p.last_names ? { first_names: p.first_names || '', last_names: p.last_names || '' } : splitName(p.full_name);
   const [f, setF] = useState({
-    full_name: p.full_name, phone: p.phone || '', email: p.email || '', document_id: p.document_id || '', address: p.address || '',
-    notes: p.notes || '', reason: '',
+    ...names, phone: p.phone || '', document_id: p.document_id || '', address: p.address || '',
+    supports: p.supports || '', notes: p.notes || '', reason: '',
   });
   const [err, setErr] = useState(null);
   const [errors, setErrors] = useState({});
   const set = (k, fmt = (x) => x) => (e) => setF({ ...f, [k]: fmt(e.target.value) });
   const save = async () => {
     const e = {};
+    if (!f.first_names.trim()) e.first_names = 'Escriba los nombres.';
+    if (!f.last_names.trim()) e.last_names = 'Escriba los apellidos.';
     const c = f.document_id ? cedulaError(f.document_id) : (p.document_id ? 'La cédula es obligatoria.' : null); if (c) e.document_id = c;
     const m = mobileError(f.phone); if (m && normalizeMobile(f.phone) !== p.phone) e.phone = m;
-    const em = emailError(f.email); if (em) e.email = em;
     setErrors(e);
     if (Object.keys(e).length) return;
     try {
       await api.patch(`/people/${p.id}`, {
-        ...f, full_name: formatName(f.full_name), phone: normalizeMobile(f.phone), document_id: normalizeCedula(f.document_id) || null,
-        email: normalizeEmail(f.email) || null,
+        ...f, first_names: formatName(f.first_names), last_names: formatName(f.last_names), phone: normalizeMobile(f.phone),
+        document_id: normalizeCedula(f.document_id) || null, supports: f.supports || null,
       });
       onDone('Datos actualizados'); onClose();
     } catch (ex) { setErr(ex); if (ex.body?.error?.field) setErrors({ [ex.body.error.field]: ex.message }); }
@@ -84,14 +97,22 @@ function EditModal({ p, onClose, onDone }) {
   return (
     <Modal title="Editar datos" onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn btn-primary" onClick={save}>Guardar</button></>}>
       <div className="stack">
-        <div className="field"><label>Nombre completo</label><input className="input" value={f.full_name} onChange={set('full_name')} onBlur={() => setF({ ...f, full_name: formatName(f.full_name) })} /></div>
+        {!p.first_names && !p.last_names && <span className="small muted">Registro anterior con nombre completo: revise cómo quedaron separados nombres y apellidos.</span>}
+        <div className="grid g-2">
+          <div className="field"><label>Nombres</label><input className={`input ${errors.first_names ? 'invalid' : ''}`} value={f.first_names} maxLength={60} onChange={set('first_names')} onBlur={() => setF({ ...f, first_names: formatName(f.first_names) })} />{fe('first_names')}</div>
+          <div className="field"><label>Apellidos</label><input className={`input ${errors.last_names ? 'invalid' : ''}`} value={f.last_names} maxLength={60} onChange={set('last_names')} onBlur={() => setF({ ...f, last_names: formatName(f.last_names) })} />{fe('last_names')}</div>
+        </div>
         <div className="grid g-2">
           <div className="field"><label>Cédula</label><input className={`input ${errors.document_id ? 'invalid' : ''}`} inputMode="numeric" value={formatCedula(f.document_id)} onChange={set('document_id', normalizeCedula)} />{fe('document_id')}</div>
           <div className="field"><label>Celular / WhatsApp</label><input className={`input ${errors.phone ? 'invalid' : ''}`} type="tel" inputMode="numeric" value={formatMobile(f.phone)} onChange={set('phone', normalizeMobile)} />{fe('phone')}</div>
         </div>
         <div className="field"><label>Dirección</label><input className="input" value={f.address} onChange={set('address')} maxLength={200} />{fe('address')}</div>
-        <div className="field"><label>Correo</label><input className={`input ${errors.email ? 'invalid' : ''}`} type="email" inputMode="email" value={f.email} onChange={set('email', normalizeEmail)} />{fe('email')}
-          {emailSuggestion(f.email) && <button type="button" className="alert alert-warn email-suggest" style={{ marginTop: 4 }} onClick={() => setF({ ...f, email: emailSuggestion(f.email) })}>¿Quiso decir <b>{emailSuggestion(f.email)}</b>?</button>}</div>
+        <div className="field"><label>¿Contamos contigo en este camino?</label>
+          <div className="seg">
+            {[['yes', 'Sí'], ['no', 'No'], ['', 'Sin respuesta']].map(([v, l]) => (
+              <button key={v} type="button" className={f.supports === v ? 'active' : ''} onClick={() => setF({ ...f, supports: v })}>{l}</button>
+            ))}
+          </div></div>
         <div className="field"><label>Observaciones</label><textarea className="textarea" value={f.notes} onChange={set('notes')} /></div>
         <div className="field"><label>Motivo del cambio (opcional)</label><input className="input" value={f.reason} onChange={set('reason')} /></div>
         <ErrorBox error={err} />
@@ -386,7 +407,8 @@ export default function Person() {
               <dt>Celular</dt><dd>{phoneDisplay(p.phone)}</dd>
               {perm.contact && <><dt>Cédula</dt><dd>{p.document_id ? formatCedula(p.document_id) : <span className="muted">Sin registrar</span>}</dd>
                 <dt>Dirección</dt><dd>{p.address || <span className="muted">Sin registrar</span>}</dd>
-                <dt>Correo</dt><dd>{p.email || '—'}</dd></>}
+                {p.email && <><dt>Correo</dt><dd>{p.email}</dd></>}</>}
+              <dt>¿Contamos contigo?</dt><dd>{p.supports ? <span className={`badge ${p.supports === 'yes' ? 'badge-good' : 'badge-outline'}`}>{SUPPORTS[p.supports]}</span> : <span className="muted">Sin respuesta</span>}</dd>
               <dt>Ubicación</dt><dd><LocationText loc={data.location} />
                 {perm.manage && <div><button className="btn btn-sm btn-ghost" style={{ paddingLeft: 0 }} onClick={() => setModal('location')}><MapPin size={13} />{data.location?.status === 'pending' ? 'Verificar / corregir' : 'Corregir ubicación'}</button></div>}</dd>
               {p.city && <><dt>Municipio (anterior)</dt><dd>{p.city}</dd></>}

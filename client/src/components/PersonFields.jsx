@@ -1,32 +1,38 @@
 import { CheckCircle2 } from 'lucide-react';
 import GeoSelect, { emptyGeo, geoToApi } from './GeoSelect.jsx';
-import {
-  cedulaError, emailError, emailSuggestion, formatCedula, formatMobile, formatName, mobileError, normalizeCedula,
-  normalizeEmail, normalizeMobile,
-} from '../lib/validators.js';
+import { cedulaError, formatCedula, formatMobile, formatName, mobileError, normalizeCedula, normalizeMobile } from '../lib/validators.js';
 
 export { normalizeMobile };
-export const emptyPerson = { full_name: '', document_id: '', address: '', phone: '', email: '', geo: emptyGeo };
+export const emptyPerson = { first_names: '', last_names: '', document_id: '', address: '', phone: '', geo: emptyGeo, supports: '' };
+
+const nameError = (v, what) => {
+  const x = String(v || '').trim();
+  if (!x) return `Escriba ${what}.`;
+  if (!/^[\p{L}' .-]+$/u.test(x) || (x.match(/\p{L}/gu) || []).length < 2) return `Escriba ${what} sólo con letras.`;
+  return null;
+};
 
 /** Validación en el cliente con las mismas reglas que el servidor. Devuelve { campo: mensaje }. */
 export function validatePerson(v) {
   const e = {};
-  if (String(v.full_name || '').trim().length < 3 || !/\p{L}{2,}/u.test(v.full_name || '')) e.full_name = 'Escriba el nombre completo.';
+  const fn = nameError(v.first_names, 'los nombres'); if (fn) e.first_names = fn;
+  const ln = nameError(v.last_names, 'los apellidos'); if (ln) e.last_names = ln;
   const c = cedulaError(v.document_id); if (c) e.document_id = c;
   if (String(v.address || '').trim().length < 5) e.address = 'Escriba la dirección (calle, carrera, número…).';
   const m = mobileError(v.phone); if (m) e.phone = m;
-  const em = emailError(v.email); if (em) e.email = em;
   const g = v.geo || emptyGeo;
   if (!g.localidad || (g.localidad.manual !== undefined && !g.localidad.manual.trim())) e.localidad = 'Seleccione o escriba la localidad.';
-  if (g.comuna?.manual !== undefined && !g.comuna.manual.trim() && g.localidad?.manual === undefined) e.comuna = 'Escriba la comuna o vuelva al listado.';
-  if (g.barrio?.manual !== undefined && !g.barrio.manual.trim() && g.comuna?.manual === undefined && g.localidad?.manual === undefined) e.barrio = 'Escriba el barrio o vuelva al listado.';
+  if (g.barrio?.manual !== undefined && !g.barrio.manual.trim() && g.localidad?.manual === undefined) e.barrio = 'Escriba el barrio o vuelva al listado.';
+  if (v.supports !== 'yes' && v.supports !== 'no') e.supports = 'Elija Sí o No.';
   return e;
 }
 
+export const personName = (v) => `${formatName(v.first_names)} ${formatName(v.last_names)}`.trim();
+
 export function personPayload(v) {
   return {
-    full_name: formatName(v.full_name), document_id: normalizeCedula(v.document_id), address: v.address.trim().replace(/\s+/g, ' '),
-    phone: normalizeMobile(v.phone), email: normalizeEmail(v.email) || null, location: geoToApi(v.geo),
+    first_names: formatName(v.first_names), last_names: formatName(v.last_names), document_id: normalizeCedula(v.document_id),
+    address: v.address.trim().replace(/\s+/g, ' '), phone: normalizeMobile(v.phone), location: geoToApi(v.geo), supports: v.supports,
   };
 }
 
@@ -40,12 +46,13 @@ export const serverFieldError = (err) => {
 /**
  * Campos de persona (idénticos en registro manual y por enlace).
  * Formatean automáticamente lo que se escribe o pega: celular "300 555 0123", cédula "1.082.345.678",
- * correo en minúsculas sin espacios, nombre en mayúscula inicial. Teclado numérico en celular.
+ * nombres y apellidos con mayúscula inicial. Teclado numérico en celular y cédula.
+ * slogan: muestra el eslogan bajo la pregunta final (formulario público).
  */
-export default function PersonFields({ value, onChange, errors = {}, onBlurField, size, idPrefix = 'pf' }) {
+export default function PersonFields({ value, onChange, errors = {}, onBlurField, size, idPrefix = 'pf', slogan }) {
   const setRaw = (k, v) => onChange({ ...value, [k]: v });
   const blur = (k) => () => {
-    if (k === 'full_name' && value.full_name) setRaw('full_name', formatName(value.full_name));
+    if ((k === 'first_names' || k === 'last_names') && value[k]) setRaw(k, formatName(value[k]));
     onBlurField?.(k);
   };
   const live = {
@@ -54,11 +61,10 @@ export default function PersonFields({ value, onChange, errors = {}, onBlurField
   };
   const err = (k) => errors[k] || live[k] || null;
   const ok = (k) => !err(k) && ((k === 'phone' && !mobileError(value.phone)) || (k === 'document_id' && !cedulaError(value.document_id)));
-  const suggestion = emailSuggestion(value.email);
 
-  const F = ({ k, label, children, hint, optional }) => (
+  const F = ({ k, label, children, hint }) => (
     <div className={`field ${size === 'lg' ? 'field-lg' : ''}`}>
-      <label htmlFor={`${idPrefix}-${k}`}>{label}{optional ? <span className="muted"> (opcional)</span> : <span className="req"> *</span>}</label>
+      <label htmlFor={`${idPrefix}-${k}`}>{label}<span className="req"> *</span></label>
       <div className="input-wrap">
         {children}
         {ok(k) && <CheckCircle2 size={16} className="input-ok" aria-label="Formato válido" />}
@@ -74,11 +80,18 @@ export default function PersonFields({ value, onChange, errors = {}, onBlurField
 
   return (
     <div className="stack" style={{ gap: 14 }}>
-      {F({
-        k: 'full_name', label: 'Nombre completo',
-        children: <input {...common('full_name')} value={value.full_name} onChange={(e) => setRaw('full_name', e.target.value)}
-          maxLength={120} autoComplete="name" autoCapitalize="words" placeholder="Nombres y apellidos" />,
-      })}
+      <div className="grid g-2" style={{ gap: 14 }}>
+        {F({
+          k: 'first_names', label: 'Nombres',
+          children: <input {...common('first_names')} value={value.first_names} onChange={(e) => setRaw('first_names', e.target.value)}
+            maxLength={60} autoComplete="given-name" autoCapitalize="words" placeholder="Ej.: María José" />,
+        })}
+        {F({
+          k: 'last_names', label: 'Apellidos',
+          children: <input {...common('last_names')} value={value.last_names} onChange={(e) => setRaw('last_names', e.target.value)}
+            maxLength={60} autoComplete="family-name" autoCapitalize="words" placeholder="Ej.: Pérez Gómez" />,
+        })}
+      </div>
       <div className="grid g-2" style={{ gap: 14 }}>
         {F({
           k: 'document_id', label: 'Cédula', hint: 'Sólo números. Evita registros duplicados.',
@@ -99,17 +112,21 @@ export default function PersonFields({ value, onChange, errors = {}, onBlurField
         children: <input {...common('address')} value={value.address} onChange={(e) => setRaw('address', e.target.value)}
           autoComplete="street-address" placeholder="Calle 10 # 5-20, apto 3" maxLength={200} />,
       })}
-      <GeoSelect idPrefix={`${idPrefix}-geo`} value={value.geo} onChange={(geo) => onChange({ ...value, geo })} errors={errors} />
-      {F({
-        k: 'email', label: 'Correo electrónico', optional: true,
-        children: <input {...common('email')} type="email" inputMode="email" autoComplete="email" autoCapitalize="none" spellCheck={false}
-          value={value.email} onChange={(e) => setRaw('email', normalizeEmail(e.target.value))} placeholder="nombre@gmail.com" maxLength={160} />,
-      })}
-      {suggestion && (
-        <button type="button" className="alert alert-warn email-suggest" onClick={() => setRaw('email', suggestion)}>
-          ¿Quiso decir <b>{suggestion}</b>? Toque para corregir.
-        </button>
-      )}
+      <GeoSelect simple idPrefix={`${idPrefix}-geo`} value={value.geo} onChange={(geo) => onChange({ ...value, geo })} errors={errors} />
+      <fieldset className={`supports ${errors.supports ? 'invalid' : ''}`} aria-describedby={errors.supports ? `${idPrefix}-supports-err` : undefined}>
+        <legend>¿Contamos contigo en este camino?<span className="req"> *</span></legend>
+        <div className="supports-options" role="radiogroup">
+          {[['yes', 'Sí'], ['no', 'No']].map(([v, l]) => (
+            <label key={v} className={`supports-option ${value.supports === v ? 'active' : ''}`}>
+              <input type="radio" name={`${idPrefix}-supports`} id={`${idPrefix}-supports-${v}`} value={v} checked={value.supports === v}
+                onChange={() => setRaw('supports', v)} />
+              {l}
+            </label>
+          ))}
+        </div>
+        {errors.supports && <span className="err" id={`${idPrefix}-supports-err`} role="alert">{errors.supports}</span>}
+        {slogan && <p className="slogan">En tus manos tienes el poder del cambio</p>}
+      </fieldset>
     </div>
   );
 }

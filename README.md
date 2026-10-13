@@ -5,9 +5,10 @@ y **personas**. Permite ver cómo crece cada estructura, a qué cabeza pertenece
 y quién la invitó directamente.
 
 - **Backend:** Node.js 20+ y Express 5.
-- **Base de datos:** PostgreSQL. En producción se usa **Neon**, integrado desde el Marketplace de Vercel; sirve cualquier Postgres 13 o superior, como Supabase o el Postgres de Railway.
+- **Base de datos:** PostgreSQL 13 o superior. Recomendado: el Postgres de **Railway**, junto a la aplicación.
 - **Frontend:** React 19 + Vite. El árbol se dibuja en SVG propio, con carga progresiva de ramas.
-- **Despliegue:** Vercel. El cliente se publica como sitio estático y la API como función serverless (`api/index.js`).
+- **Despliegue:** recomendado **Railway** (servidor siempre encendido + Postgres en red privada). También funciona en
+  Vercel (sitio estático + función serverless `api/index.js`) con la base de datos en Railway o Neon.
 - **Pruebas:** `node:test` contra PostgreSQL real, que cubre los 14 criterios de aceptación mediante la API HTTP, más una prueba de rendimiento con 20.000 personas.
 
 ### Por qué este stack
@@ -65,7 +66,12 @@ URL públicas (`*.proxy.rlwy.net`) usan TLS automáticamente.
    cambie la contraseña en *Usuarios y roles → Mi contraseña*. El administrador sólo se crea si la base de datos no
    tiene usuarios. En Vercel nunca se genera una contraseña aleatoria ni se escribe en los registros.
 
-Si prefiere otro proveedor de Postgres (Supabase, Railway…), basta con poner su URL en `DATABASE_URL`. La conexión
+**Vercel con la base de datos en Railway:** en vez del paso 2, cree el Postgres en Railway y, en Vercel, ponga en
+`DATABASE_URL` la URL **pública** de Railway (servicio Postgres → *Variables* → `DATABASE_PUBLIC_URL`, host
+`*.proxy.rlwy.net`). La privada (`*.railway.internal`) sólo funciona dentro de Railway. Cada consulta cruza de una
+nube a otra, por lo que es más lento que tener todo en Railway.
+
+Si prefiere otro proveedor de Postgres (Supabase…), basta con poner su URL en `DATABASE_URL`. La conexión
 usa TLS automáticamente cuando el host no es local (`DATABASE_SSL=false` lo desactiva). Elija siempre una región
 cercana a la de las funciones de Vercel.
 
@@ -118,15 +124,18 @@ en el cliente y `validatePersonData` / `resolveLocation` en el servidor):
 
 | Campo | Regla |
 |---|---|
-| Nombre completo | Obligatorio; se capitaliza al salir del campo |
+| Nombres · Apellidos | Dos campos obligatorios, sólo letras; se capitalizan al salir del campo. Se guardan por separado (`first_names`, `last_names`) y juntos en `full_name` para búsquedas y listados. En registros anteriores, *Editar datos* propone la separación para revisarla |
 | Cédula | Obligatoria y única. Acepta cédulas antiguas de 4 a 8 dígitos o el NUIP de 10 dígitos que empieza por 1 (Resolución 3571 de 2003). Rechaza números de relleno (todos iguales o en secuencia). Se muestra con puntos de miles |
 | Dirección | Obligatoria |
 | Celular / WhatsApp | Obligatorio y único. 10 dígitos con prefijo móvil colombiano (300–305, 310–324, 333, 350–351; configurable con `PHONE_MOBILE_PREFIXES`). Al escribir o pegar se quita `+57` y se formatea `300 555 0123`. En el celular abre el teclado numérico |
-| Localidad → Comuna/Corregimiento → Barrio/Vereda | Localidad obligatoria. Selectores dependientes con búsqueda, alimentados por la base de datos |
-| Correo | Opcional. Formato estricto y sugerencia de errores típicos (`gmial.com` → `gmail.com`). En producción también se comprueba que el dominio reciba correo (`EMAIL_DNS_CHECK`); si el DNS no está disponible, no bloquea |
+| Localidad → Barrio/Vereda | Localidad obligatoria, barrio opcional. El formulario no pide la comuna: el barrio se busca entre todos los de la localidad (cada opción indica su comuna o corregimiento) y la comuna se **deduce** y se guarda, así que los filtros y conteos por comuna siguen funcionando |
+| ¿Contamos contigo en este camino? | Sí / No, obligatorio en el registro por enlace (`supports`). Debajo, el eslogan «En tus manos tienes el poder del cambio». Filtro en el directorio y edición en la ficha |
 
-Si la ubicación no aparece, la persona elige **«¿Tu localidad no está aquí? Escríbela»** (o la equivalente para comuna
-y barrio). El texto se guarda aparte (`geo_*_text`), el registro queda **pendiente de verificación geográfica** y nunca
+El formulario ya no pide correo. La API sigue aceptándolo (opcional, con validación) y la ficha lo muestra si existe.
+
+Si la ubicación no aparece, la persona elige **«¿Tu localidad no está aquí? Escríbela»** (o «¿Tu barrio no está aquí?
+Escríbelo»). Un barrio escrito a mano queda sin comuna; al agregarlo al catálogo el administrador elige su comuna o
+corregimiento. El texto se guarda aparte (`geo_*_text`), el registro queda **pendiente de verificación geográfica** y nunca
 se crea nada en el catálogo sin revisión. En *Ubicaciones → Por verificar* un administrador agrupa esos textos y decide
 entre **agregarlos al catálogo** (sólo el administrador general) o **corregir los registros** asignándoles una ubicación
 existente. Cada cambio queda en el historial.

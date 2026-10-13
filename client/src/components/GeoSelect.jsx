@@ -14,6 +14,15 @@ export async function fetchAreas(level, parentId) {
 }
 export const clearGeoCache = () => cache.clear();
 
+/** Barrios y veredas de toda una localidad (formulario sin comuna), con su comuna o corregimiento. */
+export async function fetchBarriosOfLocalidad(localidadId) {
+  const key = `barrios-de:${localidadId}`;
+  if (!cache.has(key)) {
+    cache.set(key, api.get(`/geo/areas${qs({ level: 'barrio', localidad_id: localidadId })}`).catch((e) => { cache.delete(key); throw e; }));
+  }
+  return cache.get(key);
+}
+
 export const emptyGeo = { localidad: null, comuna: null, barrio: null };
 
 /** Convierte la selección en el formato que espera la API. */
@@ -35,7 +44,7 @@ export function geoFromPerson(loc) {
 
 const isManual = (x) => x && x.manual !== undefined;
 
-function useOptions(level, parent) {
+function useOptions(level, parent, { byLocalidad = false } = {}) {
   const [state, setState] = useState({ list: [], loading: false });
   const parentId = parent && !isManual(parent) ? parent.id : null;
   const enabled = level === 'localidad' || !!parentId;
@@ -43,10 +52,10 @@ function useOptions(level, parent) {
     if (!enabled) { setState({ list: [], loading: false }); return; }
     let alive = true;
     setState((s) => ({ ...s, loading: true }));
-    fetchAreas(level, parentId).then((list) => alive && setState({ list, loading: false }))
+    (byLocalidad ? fetchBarriosOfLocalidad(parentId) : fetchAreas(level, parentId)).then((list) => alive && setState({ list, loading: false }))
       .catch(() => alive && setState({ list: [], loading: false }));
     return () => { alive = false; };
-  }, [level, parentId, enabled]);
+  }, [level, parentId, enabled, byLocalidad]);
   return state;
 }
 
@@ -56,11 +65,71 @@ export function geoLabel(v) {
     .map((x) => (isManual(x) ? `${x.manual} (escrita)` : x.alias && x.kind === 'comuna' ? `${x.name} · ${x.alias}` : x.name));
 }
 
+const describeBarrio = (o) => (o.parent_kind === 'corregimiento' ? `Vereda · Corregimiento ${o.parent_name}`
+  : `${o.parent_name}${o.parent_alias ? ` · ${o.parent_alias}` : ''}`);
+
+/**
+ * Formulario de registro: sólo Localidad → Barrio/Vereda. La comuna o el corregimiento se deducen del barrio elegido
+ * (se guardan igual, para filtros y conteos); si el barrio se escribe a mano queda pendiente de verificación.
+ */
+function SimpleGeoSelect({ value, onChange, errors, idPrefix }) {
+  const loc = useOptions('localidad', null);
+  const bar = useOptions('barrio', value.localidad, { byLocalidad: true });
+  const setLocalidad = (v) => {
+    const same = v && value.localidad && !isManual(v) && v.id === value.localidad.id;
+    onChange(same ? { ...value, localidad: v } : { localidad: v, comuna: null, barrio: null });
+  };
+  const setBarrio = (o) => {
+    if (!o || isManual(o)) onChange({ ...value, comuna: null, barrio: o });
+    else onChange({ ...value, comuna: { id: o.parent_id, name: o.parent_name, kind: o.parent_kind, alias: o.parent_alias }, barrio: o });
+  };
+  const upperManual = isManual(value.localidad);
+  const path = [value.localidad, value.barrio].filter(Boolean).map((x) => (isManual(x) ? `${x.manual} (escrito)` : x.name));
+  const pending = [value.localidad, value.barrio].some((x) => isManual(x) && x.manual.trim());
+  return (
+    <div className="geo-select stack">
+      <div className="grid g-2 geo-grid" style={{ gap: 12 }}>
+        <Combobox id={`${idPrefix}-localidad`} label="Localidad" required options={loc.list} loading={loc.loading} value={value.localidad}
+          onChange={setLocalidad} placeholder="Buscar localidad…" error={errors.localidad}
+          manualLabel="¿Tu localidad no está aquí? Escríbela" manualPlaceholder="Nombre de la localidad" />
+        {upperManual ? (
+          <div className="field">
+            <label htmlFor={`${idPrefix}-barrio`}>Barrio o vereda <span className="muted">(opcional)</span></label>
+            <input id={`${idPrefix}-barrio`} className={`input ${errors.barrio ? 'invalid' : ''}`} maxLength={120} placeholder="Si lo conoce, escríbalo"
+              value={value.barrio?.manual || ''} onChange={(e) => setBarrio(e.target.value ? { manual: e.target.value } : null)} />
+            {errors.barrio && <span className="err">{errors.barrio}</span>}
+          </div>
+        ) : (
+          <Combobox id={`${idPrefix}-barrio`} label="Barrio o vereda" options={bar.list} loading={bar.loading} value={value.barrio}
+            onChange={setBarrio} disabled={!value.localidad} describe={describeBarrio} error={errors.barrio}
+            placeholder={value.localidad ? 'Buscar barrio o vereda…' : 'Elija primero la localidad'}
+            manualLabel="¿Tu barrio no está aquí? Escríbelo" manualPlaceholder="Nombre del barrio o vereda" />
+        )}
+      </div>
+      {path.length > 0 && (
+        <div className={`geo-summary ${pending ? 'pending' : ''}`} aria-live="polite">
+          <MapPin size={15} />
+          <span className="row-wrap" style={{ gap: 4 }}>
+            {path.map((p, i) => <span key={i} className="row" style={{ gap: 4 }}>{i > 0 && <ChevronRight size={13} className="muted" />}{p}</span>)}
+          </span>
+          {pending && <span className="badge badge-warning"><AlertTriangle size={12} />Por verificar</span>}
+          <button type="button" className="btn btn-sm btn-ghost" style={{ marginLeft: 'auto' }} onClick={() => onChange(emptyGeo)}>Corregir</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Selector geográfico dependiente Localidad → Comuna/Corregimiento → Barrio/Vereda.
  * mode="form": con opción "no está aquí" y resumen; mode="filter": sólo catálogo, compacto.
+ * simple: formulario de registro con sólo Localidad y Barrio (la comuna se deduce).
  */
-export default function GeoSelect({ value = emptyGeo, onChange, errors = {}, mode = 'form', idPrefix = 'geo' }) {
+export default function GeoSelect({ simple, ...props }) {
+  return simple ? <SimpleGeoSelect value={emptyGeo} errors={{}} idPrefix="geo" {...props} /> : <FullGeoSelect {...props} />;
+}
+
+function FullGeoSelect({ value = emptyGeo, onChange, errors = {}, mode = 'form', idPrefix = 'geo' }) {
   const form = mode === 'form';
   const loc = useOptions('localidad', null);
   const com = useOptions('comuna', value.localidad);

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ChevronDown, ChevronRight, MapPin, AlertTriangle, Plus, Pencil, Upload, Check, Power, Users, FolderTree,
@@ -7,7 +7,8 @@ import { api, qs } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { fmtNum, fmtDate } from '../lib/format.js';
 import { useQueryState } from '../lib/useParams.js';
-import GeoSelect, { emptyGeo, geoToApi, clearGeoCache } from '../components/GeoSelect.jsx';
+import GeoSelect, { emptyGeo, geoToApi, clearGeoCache, fetchAreas } from '../components/GeoSelect.jsx';
+import Combobox from '../components/Combobox.jsx';
 import { ErrorBox, Loading, Modal, Empty, useAsync, useToast } from '../components/ui.jsx';
 
 const KIND = { localidad: 'Localidad', comuna: 'Comuna', corregimiento: 'Corregimiento', barrio: 'Barrio', vereda: 'Vereda' };
@@ -117,17 +118,24 @@ function ResolveModal({ group, onClose, onDone }) {
   const [name, setName] = useState(written);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
-  const parent = level === 'barrio' ? initial.comuna : level === 'comuna' ? initial.localidad : null;
-  const canAdd = a.isSuper && (level === 'localidad' || parent);
+  // Barrio escrito desde el formulario sin comuna: el administrador elige la comuna o el corregimiento al agregarlo.
+  const needsComuna = level === 'barrio' && !initial.comuna && !!initial.localidad;
+  const [addComuna, setAddComuna] = useState(null);
+  const [comunas, setComunas] = useState([]);
+  useEffect(() => {
+    if (needsComuna) fetchAreas('comuna', initial.localidad.id).then(setComunas).catch(() => setComunas([]));
+  }, [needsComuna]); // eslint-disable-line react-hooks/exhaustive-deps
+  const parent = level === 'barrio' ? (initial.comuna || addComuna) : level === 'comuna' ? initial.localidad : null;
+  const canAdd = a.isSuper && (level === 'localidad' || parent || needsComuna);
 
   const submit = async () => {
     setBusy(true); setErr(null);
     try {
       let target;
       if (mode === 'add') {
-        const area = await api.post('/geo/areas', { level, name, parent_id: parent?.id ?? null, kind: level === 'barrio' && initial.comuna?.kind === 'corregimiento' ? 'vereda' : undefined });
+        const area = await api.post('/geo/areas', { level, name, parent_id: parent?.id ?? null, kind: level === 'barrio' && parent?.kind === 'corregimiento' ? 'vereda' : undefined });
         clearGeoCache();
-        target = { ...geoToApi(initial), [`${level}_id`]: area.id };
+        target = { ...geoToApi(initial), ...(needsComuna ? { comuna_id: parent.id } : {}), [`${level}_id`]: area.id };
         // Niveles inferiores que también se escribieron a mano siguen pendientes.
         if (level === 'localidad' && group.geo_comuna_text) target.comuna_text = group.geo_comuna_text;
         if (level !== 'barrio' && group.geo_barrio_text) target.barrio_text = group.geo_barrio_text;
@@ -143,7 +151,7 @@ function ResolveModal({ group, onClose, onDone }) {
 
   return (
     <Modal wide title={`Revisar «${written}»`} subtitle={`Nivel: ${level === 'comuna' ? 'comuna o corregimiento' : KIND[level].toLowerCase()}. Escrito a mano por ${group.people} persona${group.people === 1 ? '' : 's'}.`} onClose={onClose}
-      footer={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn btn-primary" disabled={busy || (mode === 'add' ? !name.trim() : !geo.localidad)} onClick={submit}>{busy && <span className="spinner" />}{mode === 'add' ? 'Agregar al catálogo y asignar' : 'Asignar a todas'}</button></>}>
+      footer={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn btn-primary" disabled={busy || (mode === 'add' ? !name.trim() || (needsComuna && !addComuna) : !geo.localidad)} onClick={submit}>{busy && <span className="spinner" />}{mode === 'add' ? 'Agregar al catálogo y asignar' : 'Asignar a todas'}</button></>}>
       <div className="stack">
         <div className="seg">
           {canAdd && <button className={mode === 'add' ? 'active' : ''} onClick={() => setMode('add')}><Plus size={14} />Agregar al catálogo</button>}
@@ -151,8 +159,14 @@ function ResolveModal({ group, onClose, onDone }) {
         </div>
         {mode === 'add' ? (
           <>
+            {needsComuna && (
+              <Combobox id="rv-add-comuna" label={`Comuna o corregimiento de ${initial.localidad.name}`} required options={comunas}
+                value={addComuna} onChange={setAddComuna} placeholder="Buscar comuna o corregimiento…"
+                describe={(o) => (o.kind === 'corregimiento' ? 'Corregimiento (zona rural)' : o.alias)}
+                hint="La persona sólo indicó localidad y barrio: elija dónde queda este barrio." />
+            )}
             <div className="field"><label>Nombre oficial</label><input className="input" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} />
-              <span className="hint">Se creará como {KIND[level === 'barrio' && initial.comuna?.kind === 'corregimiento' ? 'vereda' : level].toLowerCase()} {parent ? <>dentro de <b>{parent.name}</b></> : 'nueva'}. Revise la ortografía antes de agregarla.</span></div>
+              <span className="hint">Se creará como {KIND[level === 'barrio' && parent?.kind === 'corregimiento' ? 'vereda' : level].toLowerCase()} {parent ? <>dentro de <b>{parent.name}</b></> : 'nueva'}. Revise la ortografía antes de agregarla.</span></div>
           </>
         ) : (
           <>

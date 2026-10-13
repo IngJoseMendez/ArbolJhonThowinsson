@@ -19,7 +19,7 @@ const areas = async (level, parent) => (await anon.get(`/api/geo/areas?level=${l
 const byName = (list, name) => list.find((a) => a.name === name);
 const person = (extra = {}) => ({
   full_name: 'Persona Prueba', document_id: nextDoc(), address: 'Carrera 5 # 10-20', phone: nextPhone(),
-  location: { localidad_id: g.L2.id, comuna_id: g.C3.id, barrio_id: g.pescaito.id }, ...extra,
+  location: { localidad_id: g.L2.id, comuna_id: g.C3.id, barrio_id: g.pescaito.id }, supports: 'yes', ...extra,
 });
 
 test('Catálogo geográfico cargado desde la base de datos con relaciones verificadas', async () => {
@@ -86,7 +86,12 @@ test('3-4. Selección dependiente validada en el servidor', async () => {
   assert.equal(mis1.data.error.code, 'GEO_MISMATCH', 'comuna de otra localidad');
   const mis2 = await post({ localidad_id: g.L2.id, comuna_id: g.C3.id, barrio_id: g.bavaria.id });
   assert.equal(mis2.data.error.code, 'GEO_MISMATCH', 'barrio de otra comuna');
-  assert.equal((await post({ localidad_id: g.L2.id, barrio_id: g.pescaito.id })).status, 400, 'no se puede saltar la comuna');
+  // Formulario sin comuna: la comuna se deduce del barrio, y un barrio de otra localidad se rechaza.
+  const inf = await post({ localidad_id: g.L2.id, barrio_id: g.pescaito.id });
+  assert.equal(inf.status, 201, JSON.stringify(inf.data));
+  assert.equal(inf.data.geo_comuna_id, g.C3.id, 'comuna deducida del barrio');
+  assert.equal(inf.data.geo_status, 'verified');
+  assert.equal((await post({ localidad_id: g.L1.id, barrio_id: g.pescaito.id })).data.error.code, 'GEO_MISMATCH', 'barrio de otra localidad');
   assert.equal((await post({ localidad_id: g.C3.id })).status, 400, 'una comuna no es una localidad');
   const ok = await post({ localidad_id: g.L2.id, comuna_id: g.taganga.id });
   assert.equal(ok.status, 201, 'corregimiento como segundo nivel, sin barrio/vereda');
@@ -238,4 +243,50 @@ test('11. Catálogo editable e importación sin duplicados; integridad intacta',
   assert.equal(integ.ok, true, JSON.stringify(integ.issues.slice(0, 5)));
   const audit = (await admin.get('/api/audit?action=geo.&pageSize=50')).data.rows.map((r) => r.action);
   for (const a of ['geo.create', 'geo.update', 'geo.import', 'geo.resolve_pending']) assert.ok(audit.includes(a), a);
+});
+
+test('Formulario actual: nombres y apellidos, sin comuna y «¿Contamos contigo?»', async () => {
+  const link = (await admin.get(`/api/people/${ids.leader}`)).data.links[0].token;
+  const reg = (body) => anon.post(`/api/public/register/${link}`, { ...body, consent: true });
+  const base = () => {
+    const { full_name, ...rest } = person();
+    return { ...rest, first_names: 'María José', last_names: 'Pérez Gómez', location: { localidad_id: g.L2.id, barrio_id: g.olaya.id } };
+  };
+  // Barrios de toda la localidad, con su comuna (lista del formulario)
+  const all = (await anon.get(`/api/geo/areas?level=barrio&localidad_id=${g.L2.id}`)).data;
+  const olaya = all.find((b) => b.id === g.olaya.id);
+  assert.equal(olaya.parent_name, 'Comuna 3');
+  assert.ok(all.every((b) => b.level === 'barrio') && all.some((b) => b.parent_kind === 'comuna'));
+  // Obligatorios: nombres, apellidos y la respuesta Sí/No
+  assert.equal((await reg({ ...base(), first_names: '' })).data.error.field, 'first_names');
+  assert.equal((await reg({ ...base(), last_names: '3' })).data.error.field, 'last_names');
+  assert.equal((await reg({ ...base(), supports: undefined })).data.error.field, 'supports');
+  assert.equal((await reg({ ...base(), supports: 'tal vez' })).data.error.field, 'supports');
+  const ok = await reg(base());
+  assert.equal(ok.status, 201, JSON.stringify(ok.data));
+  const p = (await admin.get(`/api/people?q=perez gomez`)).data.rows.find((r) => r.full_name === 'María José Pérez Gómez');
+  assert.ok(p, 'nombre completo compuesto de nombres y apellidos');
+  const d = (await admin.get(`/api/people/${p.id}`)).data;
+  assert.equal(d.person.first_names, 'María José');
+  assert.equal(d.person.last_names, 'Pérez Gómez');
+  assert.equal(d.person.supports, 'yes');
+  assert.equal(d.location.comuna.name, 'Comuna 3', 'comuna deducida');
+  assert.equal(d.location.status, 'verified');
+  // Barrio escrito a mano sin comuna: pendiente
+  const man = await reg({ ...base(), first_names: 'Pedro', last_names: 'Manual Ruiz', supports: 'no',
+    location: { localidad_id: g.L2.id, barrio_text: 'Brisas del Nuevo Sol' } });
+  assert.equal(man.status, 201, JSON.stringify(man.data));
+  const pend = (await admin.get('/api/geo/pending')).data.find((x) => x.geo_barrio_text === 'Brisas del Nuevo Sol');
+  assert.equal(pend.level, 'barrio');
+  assert.equal(pend.geo_comuna_id, null);
+  // Filtro por respuesta
+  const no = (await admin.get('/api/people?supports=no&q=manual ruiz')).data;
+  assert.equal(no.total, 1);
+  assert.equal(no.rows[0].supports, 'no');
+  // Edición por partes
+  const e = await admin.patch(`/api/people/${p.id}`, { first_names: 'María', last_names: 'Pérez', supports: 'no' });
+  assert.equal(e.status, 200, JSON.stringify(e.data));
+  assert.equal(e.data.full_name, 'María Pérez');
+  assert.equal(e.data.supports, 'no');
+  assert.equal((await admin.get('/api/admin/integrity')).data.ok, true);
 });

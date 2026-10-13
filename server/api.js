@@ -600,9 +600,11 @@ const geoLimiter = rateLimit({ windowMs: 60e3, max: 240, key: (req) => `geo:${re
 api.get('/geo/areas', geoLimiter, async (req, res) => {
   const level = ['localidad', 'comuna', 'barrio'].includes(req.query.level) ? req.query.level : null;
   const parentId = intOrNull(req.query.parent_id, 'parent_id');
-  if (level && level !== 'localidad' && !parentId && !req.user) throw badRequest('VALIDATION', 'Indique el nivel superior.');
+  // localidad_id con level=barrio: todos los barrios y veredas de la localidad (formulario sin comuna).
+  const localidadId = level === 'barrio' ? intOrNull(req.query.localidad_id, 'localidad_id') : null;
+  if (level && level !== 'localidad' && !parentId && !localidadId && !req.user) throw badRequest('VALIDATION', 'Indique el nivel superior.');
   const all = req.query.all === '1' && req.user?.role === 'super_admin';
-  res.json(await listAreas({ level, parentId, term: String(req.query.q || '').slice(0, 60), includeInactive: all, limit: all ? 20000 : 1000 }));
+  res.json(await listAreas({ level, parentId, localidadId, term: String(req.query.q || '').slice(0, 60), includeInactive: all, limit: all ? 20000 : 1000 }));
 });
 
 api.post('/geo/areas', requireRole('super_admin'), async (req, res) => res.status(201).json(await createArea(req.body, req.user, ip(req))));
@@ -673,10 +675,10 @@ api.get('/public/invite/:token', lookupLimiter, async (req, res) => {
 
 api.post('/public/register/:token', publicLimiter, async (req, res) => {
   // Sólo se aceptan los campos del formulario; cabeza, invitador y líder se derivan del token.
-  const { full_name, document_id, address, phone, email, location, consent, website } = req.body || {};
+  const { full_name, first_names, last_names, document_id, address, phone, email, location, supports, consent, website } = req.body || {};
   let result;
   try {
-    result = await registerViaInvite(req.params.token, { full_name, document_id, address, phone, email, location, consent, website }, ip(req));
+    result = await registerViaInvite(req.params.token, { full_name, first_names, last_names, document_id, address, phone, email, location, supports, consent, website }, ip(req));
   } catch (e) {
     // No se revela a quién pertenece un dato duplicado en el formulario público.
     if (e instanceof AppError && e.code === 'DUPLICATE') {
