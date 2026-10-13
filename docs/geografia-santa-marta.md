@@ -1,6 +1,6 @@
 # Catálogo geográfico de Santa Marta: fuentes, estructura y limitaciones
 
-Consulta realizada el 13 de octubre de 2026. Datos cargados en `server/data/santa-marta.json`.
+Consulta realizada el 13 de octubre de 2026. Datos cargados en `server/data/santa-marta.js`.
 
 ## División territorial verificada
 

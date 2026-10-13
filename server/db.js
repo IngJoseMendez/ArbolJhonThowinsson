@@ -12,9 +12,7 @@
 // árbol nunca recuenta ramas enteras al dibujarse.
 import pg from 'pg';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import SANTA_MARTA from './data/santa-marta.js';
 
 // COUNT/SUM devuelven bigint/numeric: se convierten a número de JavaScript.
 pg.types.setTypeParser(20, (v) => Number(v));
@@ -234,8 +232,7 @@ const nameKey = (s) => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, ''
 async function seedGeo(c) {
   const { rows } = await c.query('SELECT COUNT(*) AS n FROM geo_areas');
   if (rows[0].n > 0) return;
-  const file = path.join(path.dirname(fileURLToPath(import.meta.url)), 'data', 'santa-marta.json');
-  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const data = SANTA_MARTA;
   const ins = 'INSERT INTO geo_areas (level, kind, code, name, name_key, alias, parent_id, source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id';
   for (const l of data.localidades) {
     const lid = (await c.query(ins, ['localidad', 'localidad', l.codigo, l.nombre, nameKey(l.nombre), l.alias, null, l.fuente])).rows[0].id;
