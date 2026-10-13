@@ -12,7 +12,7 @@ const ACTIONS = {
   'person.deactivated': 'Desactivación', 'person.reactivated': 'Reactivación', 'link.disable': 'Enlace desactivado', 'link.enable': 'Enlace reactivado',
   'link.update': 'Límites de enlace', 'link.regenerate': 'Enlace regenerado', 'head.create': 'Cabeza creada', 'head.update': 'Cabeza editada',
   'user.create': 'Usuario creado', 'user.update': 'Usuario editado', 'user.password_change': 'Cambio de contraseña', 'auth.login': 'Inicio de sesión',
-  'auth.login_failed': 'Inicio de sesión fallido',
+  'auth.login_failed': 'Inicio de sesión fallido', 'admin.recount': 'Reparación de contadores',
 };
 
 export default function Audit() {
@@ -29,13 +29,20 @@ export default function Audit() {
     <div className="page">
       <div className="page-head">
         <div><h1>Auditoría</h1><p>Registro de solo lectura de las acciones sensibles realizadas en la plataforma.</p></div>
-        <button className="btn" onClick={check}><ShieldCheck size={16} />Verificar integridad de la estructura</button>
+        <div className="row-wrap">
+          <button className="btn" onClick={check}><ShieldCheck size={16} />Verificar integridad de la estructura</button>
+          {integrity?.issues.some((i) => i.type === 'counters') && (
+            <button className="btn btn-primary" onClick={async () => {
+              try { const r = await api.post('/admin/recount'); toast(`${r.fixed} contadores reparados`); check(); } catch (e) { toast(e.message, 'error'); }
+            }}>Reparar contadores</button>
+          )}
+        </div>
       </div>
       {integrity && (
         <div className={`alert ${integrity.ok ? 'alert-good' : 'alert-error'}`} style={{ marginBottom: 16 }}>
           {integrity.ok ? <ShieldCheck size={16} /> : <ShieldAlert size={16} />}
           <div>
-            {integrity.ok ? 'Sin inconsistencias: rutas del árbol, pertenencia a cabezas, líderes, raíces y duplicados verificados.' : `${integrity.total_issues} inconsistencias detectadas.`}
+            {integrity.ok ? 'Sin inconsistencias: rutas del árbol, pertenencia a cabezas, líderes, raíces, contadores y duplicados verificados.' : `${integrity.total_issues} inconsistencias detectadas.`}
             {integrity.issues.slice(0, 20).map((i, k) => <div key={k} className="small"><Link to={`/personas/${i.person_id}`}>#{i.person_id}</Link> · {i.message}</div>)}
           </div>
         </div>

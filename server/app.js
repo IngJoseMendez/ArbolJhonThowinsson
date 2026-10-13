@@ -3,6 +3,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { loadUser } from './auth.js';
+import { ensureDb } from './db.js';
+import { ensureBootstrapAdmin } from './bootstrap.js';
 import { api } from './api.js';
 import { AppError } from './util.js';
 
@@ -12,6 +14,7 @@ export function createApp() {
   const app = express();
   app.disable('x-powered-by');
   if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY);
+  else if (process.env.VERCEL) app.set('trust proxy', true);
 
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -32,14 +35,21 @@ export function createApp() {
     next();
   });
   app.use(express.json({ limit: '50kb' }));
-  app.use(loadUser);
+  // Inicialización perezosa (una vez por proceso): conexión, esquema y administrador inicial.
+  let ready = null;
+  app.use('/api', async (_req, _res, next) => {
+    ready ??= ensureDb().then(() => ensureBootstrapAdmin()).catch((e) => { ready = null; throw e; });
+    await ready;
+    next();
+  });
+  app.use('/api', loadUser);
   app.use('/api', api);
   app.use('/api', (_req, _res, next) => next(new AppError(404, 'NOT_FOUND', 'Ruta no encontrada.')));
 
   const dist = path.resolve(__dirname, '..', 'client', 'dist');
   if (fs.existsSync(dist)) {
     app.use(express.static(dist, { index: false, maxAge: '1h' }));
-    app.get('*', (_req, res) => res.sendFile(path.join(dist, 'index.html')));
+    app.get('/{*splat}', (_req, res) => res.sendFile(path.join(dist, 'index.html')));
   }
 
   // eslint-disable-next-line no-unused-vars
@@ -51,7 +61,9 @@ export function createApp() {
       if (m.includes('INVITER_OTHER_HEAD')) err = new AppError(400, 'INVITER_OTHER_HEAD', 'Relación inconsistente: invitador de otra cabeza.');
       else if (m.includes('CYCLE')) err = new AppError(400, 'CYCLE', 'Relación circular no permitida.');
       else if (m.includes('LEADER_INVALID')) err = new AppError(400, 'LEADER_INVALID', 'Líder responsable no válido.');
-      else if (m.includes('UNIQUE constraint failed: people.phone') || m.includes('ux_people_phone')) err = new AppError(409, 'DUPLICATE', 'Ya existe una persona con ese teléfono.');
+      else if (m.includes('ux_people_phone')) err = new AppError(409, 'DUPLICATE', 'Ya existe una persona con ese teléfono.');
+      else if (m.includes('ux_people_doc')) err = new AppError(409, 'DUPLICATE', 'Ya existe una persona con ese documento.');
+      else if (err.code === '23505') err = new AppError(409, 'DUPLICATE', 'El registro ya existe.');
       else {
         console.error(err);
         err = new AppError(500, 'INTERNAL', 'Error interno del servidor.');

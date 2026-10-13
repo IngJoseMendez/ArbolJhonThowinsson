@@ -4,13 +4,56 @@ Plataforma web para gestionar la estructura organizativa de un proyecto mediante
 y **personas**. Permite ver cómo crece cada estructura, a qué cabeza pertenece cada persona, qué líder es su responsable
 y quién la invitó directamente.
 
-- **Backend:** Node.js 22 + Express 4. Base de datos SQLite mediante el módulo nativo `node:sqlite`, sin dependencias nativas que compilar.
+- **Backend:** Node.js 20+ y Express 5.
+- **Base de datos:** PostgreSQL. En producción se usa **Neon**, integrado desde el Marketplace de Vercel; sirve cualquier Postgres 13 o superior, como Supabase o el Postgres de Railway.
 - **Frontend:** React 19 + Vite. El árbol se dibuja en SVG propio, con carga progresiva de ramas.
-- **Pruebas:** `node:test`, que cubre los 14 criterios de aceptación contra la API HTTP real, más una prueba de rendimiento con 20.000 personas.
+- **Despliegue:** Vercel. El cliente se publica como sitio estático y la API como función serverless (`api/index.js`).
+- **Pruebas:** `node:test` contra PostgreSQL real, que cubre los 14 criterios de aceptación mediante la API HTTP, más una prueba de rendimiento con 20.000 personas.
 
-## Puesta en marcha
+### Por qué este stack
+
+- **Latencia mínima por consulta.** Neon corre en AWS, igual que las funciones de Vercel. Si ambos están en la misma
+  región, cada consulta tarda 1–2 ms de red; una base de datos en otra nube añadiría decenas de milisegundos a cada
+  consulta de cada página.
+- **El árbol no recuenta ramas.** `child_count` y `descendant_count` se mantienen dentro de la misma transacción que
+  cada alta, rechazo o movimiento. Expandir un nodo con miles de personas debajo es una consulta indexada de una
+  sola página. *Auditoría → Verificar integridad* recalcula los contadores y los compara con los guardados.
+- **Postgres resuelve este modelo de forma nativa:** índices únicos parciales (teléfono único salvo en registros
+  rechazados), triggers `plpgsql` como segunda barrera contra ciclos e invitadores de otra cabeza, colación `"C"`
+  para los rangos de rutas, y MVCC para que los registros simultáneos no se bloqueen entre sí.
+
+## Despliegue en Vercel
+
+1. Importe el repositorio en Vercel (*Add New → Project*). `vercel.json` ya define la instalación, la compilación
+   (`client/dist`) y la función `api/index.js`, así que no hay que cambiar *Framework*, *Build* ni *Output*.
+2. En el proyecto, vaya a *Storage → Create Database → Neon (Postgres)*, elija la **misma región** que sus
+   funciones (por ejemplo `us-east-1` / `iad1`) y conéctela al proyecto. Vercel añadirá automáticamente
+   `DATABASE_URL` (también `POSTGRES_URL`). No hay que crear tablas: el esquema se crea solo en la primera petición.
+3. En *Settings → Environment Variables* añada:
+
+   | Variable | Valor |
+   |---|---|
+   | `ADMIN_USER` | Usuario del administrador general (por ejemplo `admin`) |
+   | `ADMIN_PASSWORD` | Contraseña robusta del administrador general |
+
+4. En *Settings → Functions* elija la región de las funciones igual que la de la base de datos.
+5. Despliegue (*Redeploy* si las variables se añadieron después). Entre en `https://su-proyecto.vercel.app/login` y
+   cambie la contraseña en *Usuarios y roles → Mi contraseña*. El administrador sólo se crea si la base de datos no
+   tiene usuarios. En Vercel nunca se genera una contraseña aleatoria ni se escribe en los registros.
+
+Si prefiere otro proveedor de Postgres (Supabase, Railway…), basta con poner su URL en `DATABASE_URL`. La conexión
+usa TLS automáticamente cuando el host no es local (`DATABASE_SSL=false` lo desactiva). Elija siempre una región
+cercana a la de las funciones de Vercel.
+
+Datos de ejemplo (opcional, **no recomendado en producción**): `DATABASE_URL="…" npm run seed`.
+
+## Puesta en marcha local
+
+Requiere PostgreSQL 13 o superior:
 
 ```bash
+createdb arbol                                         # o use la URL de Neon
+export DATABASE_URL=postgres://usuario:clave@localhost:5432/arbol
 npm install            # dependencias del servidor
 npm run build          # instala y compila el cliente (client/dist)
 npm run seed           # datos de ejemplo (sólo si la BD está vacía)
@@ -27,23 +70,21 @@ Usuarios de ejemplo creados por `npm run seed`:
 | `juan` | `Juan1234!` | Líder (Juan Pérez, `LID-JUAN-PEREZ`) |
 | `maria` | `Maria1234!` | Persona registrada (María Gómez, no es líder) |
 
-Si la base de datos está vacía y no se ejecuta `seed`, el servidor crea un administrador `admin` con una
-contraseña aleatoria que muestra en consola. También puede fijarse con `ADMIN_USER` y `ADMIN_PASSWORD`.
-
 Desarrollo con recarga: `npm run dev:server` y, en otra terminal, `npm run dev:client` (Vite en :5173 con proxy a la API).
 
-Otros comandos:
+Pruebas: necesitan un PostgreSQL en el que el usuario pueda crear bases de datos (`CREATEDB`). Cada archivo de
+pruebas crea una base temporal y la elimina al terminar.
 
 ```bash
-npm test                         # pruebas de aceptación y de rendimiento
+TEST_DATABASE_URL=postgres://usuario:clave@localhost:5432/postgres npm test
 N=20000 npm run seed:large       # genera una cabeza masiva para probar el árbol
 ```
 
-Variables de entorno: `PORT`, `DB_FILE` (por defecto `data/arbol.db`), `ADMIN_USER`, `ADMIN_PASSWORD`,
-`TRUST_PROXY` (cuando hay un proxy inverso delante, para que funcionen bien la IP y el límite de peticiones),
+Variables de entorno: `DATABASE_URL` (o `POSTGRES_URL`), `DATABASE_SSL`, `DB_POOL_SIZE`, `PORT`, `ADMIN_USER`,
+`ADMIN_PASSWORD`, `TRUST_PROXY` (detrás de un proxy inverso propio; en Vercel se activa automáticamente),
 `PHONE_COUNTRY_CODE` (por defecto `57`) y `PHONE_NATIONAL_LENGTH` (por defecto `10`). Con estas dos últimas,
 `+57 300 123 4567` y `3001234567` se tratan como el mismo número.
-En producción se usa `NODE_ENV=production`, que marca la cookie de sesión como `Secure` (requiere HTTPS).
+En producción (`NODE_ENV=production`, como en Vercel) la cookie de sesión se marca como `Secure`.
 
 ## Modelo de datos
 
@@ -66,7 +107,8 @@ Cada persona tiene: identificador único (`PER-XXXXXX`), nombre y contacto, **ca
 ### Las tres relaciones no se mezclan
 
 1. **Pertenencia** (`head_id`): una sola cabeza por persona. Un trigger impide que el invitador sea de otra cabeza,
-   y un índice único sobre el teléfono y el documento impide que la misma persona aparezca registrada en dos cabezas.
+   y un índice único parcial (que excluye los registros rechazados) sobre el teléfono y el documento impide que la
+   misma persona aparezca registrada en dos cabezas.
 2. **Responsabilidad** (`leader_id`): por defecto es el líder oficial más cercano en la cadena de invitación. Un
    administrador puede asignar otro líder de la misma cabeza (`leader_mode = manual`). Al designar o retirar un
    líder, o al mover una rama, se recalculan automáticamente las asignaciones en modo automático, y cada cambio
@@ -76,7 +118,7 @@ Cada persona tiene: identificador único (`PER-XXXXXX`), nombre y contacto, **ca
 
 ### Estrategia de árbol
 
-Se usa un *materialized path*: `path = "/1/5/9/"` junto a `depth`, con un índice `(path, status)`.
+Se usa un *materialized path*: `path = "/1/5/9/"` (colación `"C"`) junto a `depth`, con un índice `(path, status)`.
 
 - Para obtener una rama completa o su tamaño basta un rango indexado (`path > p AND path < p || '~'`), sin recursión.
 - Los ancestros (camino desde la cabeza) se leen directamente de la ruta.
@@ -84,8 +126,8 @@ Se usa un *materialized path*: `path = "/1/5/9/"` junto a `depth`, con un índic
 - Un movimiento de rama reescribe las rutas de todo el subárbol en una sola sentencia, dentro de una transacción.
 - Las relaciones circulares se detectan comparando rutas, tanto en el servicio como mediante un trigger.
 
-Los contadores se calculan en el momento a partir de la base de datos, no se cachean, de modo que siempre coinciden
-con los registros. *Auditoría → Verificar integridad* recorre rutas, profundidades, cabezas, líderes, raíces y
+Los contadores de cada nodo (`child_count`, `descendant_count`) se actualizan en la misma transacción que el cambio
+que los afecta, de modo que siempre coinciden con los registros. *Auditoría → Verificar integridad* recorre rutas, profundidades, cabezas, líderes, raíces y
 duplicados.
 
 ## Enlaces e invitaciones

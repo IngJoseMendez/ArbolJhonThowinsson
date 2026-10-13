@@ -19,16 +19,16 @@ export function verifyPassword(pw, stored) {
   return crypto.timingSafeEqual(expected, actual);
 }
 
-export function createSession(userId) {
+export async function createSession(userId) {
   const token = crypto.randomBytes(32).toString('base64url');
   const expires = new Date(Date.now() + SESSION_DAYS * 864e5).toISOString();
-  q('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(sha256(token), userId, expires);
-  q('UPDATE users SET last_login_at = ? WHERE id = ?').run(now(), userId);
+  await q('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(sha256(token), userId, expires);
+  await q('UPDATE users SET last_login_at = ? WHERE id = ?').run(now(), userId);
   return { token, expires };
 }
 
-export function destroySession(token) {
-  if (token) q('DELETE FROM sessions WHERE token_hash = ?').run(sha256(token));
+export async function destroySession(token) {
+  if (token) await q('DELETE FROM sessions WHERE token_hash = ?').run(sha256(token));
 }
 
 function parseCookies(header = '') {
@@ -41,19 +41,19 @@ function parseCookies(header = '') {
 }
 
 /** Carga el usuario de la sesión (si existe) con sus ámbitos de cabeza. */
-export function loadUser(req, _res, next) {
+export async function loadUser(req, _res, next) {
   const token = parseCookies(req.headers.cookie)[COOKIE];
   req.sessionToken = token;
   req.user = null;
   if (token) {
-    const row = q(`SELECT u.id, u.username, u.display_name, u.role, u.person_id, u.status
+    const row = await q(`SELECT u.id, u.username, u.display_name, u.role, u.person_id, u.status
                      FROM sessions s JOIN users u ON u.id = s.user_id
                     WHERE s.token_hash = ? AND s.expires_at > ?`).get(sha256(token), now());
     if (row && row.status === 'active') {
-      const heads = q('SELECT head_id FROM user_head_scopes WHERE user_id = ?').all(row.id).map((r) => r.head_id);
+      const heads = (await q('SELECT head_id FROM user_head_scopes WHERE user_id = ?').all(row.id)).map((r) => r.head_id);
       let person = null;
       if (row.person_id) {
-        person = q('SELECT id, head_id, path, is_leader, status FROM people WHERE id = ?').get(row.person_id);
+        person = await q('SELECT id, head_id, path, is_leader, status FROM people WHERE id = ?').get(row.person_id);
       }
       req.user = { ...row, headIds: heads, person };
     }

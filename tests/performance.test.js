@@ -10,7 +10,7 @@ before(async () => {
   srv = await startServer();
   const { generateLarge } = await import('../scripts/large.js');
   const t = Date.now();
-  headId = generateLarge(N, 'Cabeza Masiva').headId;
+  headId = (await generateLarge(N, 'Cabeza Masiva')).headId;
   console.log(`# generadas ${N} personas en ${Date.now() - t} ms`);
   admin = await new Client(srv.base).login('admin', 'Admin1234!');
 });
@@ -27,19 +27,20 @@ async function timed(label, url, maxMs) {
 }
 
 test(`12. Respuestas rápidas con ${N} personas`, async () => {
-  const root = await timed('raíz de la cabeza', `/api/tree/${headId}/children`, 1500);
+  const root = await timed('raíz de la cabeza', `/api/tree/${headId}/children`, 400);
   assert.equal(root.total, 10);
   assert.equal(root.nodes.reduce((a, n) => a + n.descendant_count + 1, 0), N, 'los contadores suman el total');
   const big = root.nodes.sort((a, b) => b.child_count - a.child_count)[0];
-  const kids = await timed('hijos de un nodo grande (página 1)', `/api/tree/${headId}/children?parent=${big.id}&limit=100`, 1500);
+  const kids = await timed('hijos de un nodo grande (página 1)', `/api/tree/${headId}/children?parent=${big.id}&limit=100`, 400);
   assert.ok(kids.nodes.length <= 100);
-  const found = await timed('búsqueda por nombre', '/api/search?q=persona 1999', 1000);
+  const found = await timed('búsqueda por nombre', '/api/search?q=persona 1999', 400);
   assert.ok(found.length > 0);
   const deep = (await admin.get(`/api/people?head_id=${headId}&sort=created_at&dir=desc&pageSize=5`)).data.rows[0];
-  const path = await timed('camino hasta una hoja', `/api/tree/path/${deep.id}`, 500);
+  const path = await timed('camino hasta una hoja', `/api/tree/path/${deep.id}`, 300);
   assert.equal(path.chain.at(-1).id, deep.id);
-  await timed('ficha de líder raíz', `/api/people/${big.id}`, 1500);
-  await timed('directorio paginado', `/api/people?head_id=${headId}&page=50&pageSize=50`, 1500);
-  await timed('dashboard', '/api/stats/dashboard?days=365', 2500);
-  await timed('integridad', '/api/admin/integrity', 5000);
+  await timed('ficha de líder raíz', `/api/people/${big.id}`, 500);
+  await timed('directorio paginado', `/api/people?head_id=${headId}&page=50&pageSize=50`, 500);
+  await timed('dashboard', '/api/stats/dashboard?days=365', 1000);
+  const integ = await timed('integridad (incluye recálculo de contadores)', '/api/admin/integrity', 5000);
+  assert.equal(integ.ok, true, `contadores/estructura inconsistentes: ${JSON.stringify(integ.issues.slice(0, 5))}`);
 });

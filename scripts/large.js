@@ -2,9 +2,9 @@ import { q } from '../server/db.js';
 import { createPerson } from '../server/services/people.js';
 
 /** Crea una cabeza con n personas: 10 líderes raíz, ramas de invitación de profundidad variable. */
-export function generateLarge(n, headName) {
-  const admin = q(`SELECT * FROM users WHERE role = 'super_admin' ORDER BY id LIMIT 1`).get();
-  const h = q(`INSERT INTO heads (name, slug, color, region) VALUES (?, ?, '#7c3aed', 'Pruebas de carga')`)
+export async function generateLarge(n, headName) {
+  const admin = await q(`SELECT * FROM users WHERE role = 'super_admin' ORDER BY id LIMIT 1`).get();
+  const h = await q(`INSERT INTO heads (name, slug, color, region) VALUES (?, ?, '#7c3aed', 'Pruebas de carga')`)
     .run(headName, `masiva-${Date.now()}`);
   const headId = Number(h.lastInsertRowid);
   let phone = 6000000000 + Math.floor(Math.random() * 1e8);
@@ -22,7 +22,7 @@ export function generateLarge(n, headName) {
       inviter = nodes[idx];
       leader = rnd() < 0.01;
     }
-    const p = createPerson({
+    const p = await createPerson({
       data: { full_name: `Persona ${i} Prueba${leader ? ' Lider' : ''}`, phone: String(phone++) },
       headId, inviterId: inviter, isLeader: leader, method: inviter && rnd() < 0.8 ? 'invitation' : 'manual',
       user: admin, status: 'active', createdAt: new Date(start + (i / n) * 365 * 864e5).toISOString(),
