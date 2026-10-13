@@ -22,7 +22,31 @@ y quién la invitó directamente.
   rechazados), triggers `plpgsql` como segunda barrera contra ciclos e invitadores de otra cabeza, colación `"C"`
   para los rangos de rutas, y MVCC para que los registros simultáneos no se bloqueen entre sí.
 
-## Despliegue en Vercel
+## Despliegue recomendado: todo en Railway (aplicación + PostgreSQL)
+
+Es la opción más rápida y fiable para uso real. El servidor está siempre encendido, sin arranques en frío, y habla
+con la base de datos por la red privada de Railway (menos de 1 ms por consulta). Además Railway hace copias de
+seguridad programadas de Postgres.
+
+1. En Railway: *New Project → Deploy from GitHub repo* y elija este repositorio y la rama. `railway.json` ya
+   define la compilación (`npm run build`), el arranque (`npm start`) y el *healthcheck* (`/api/health`).
+2. En el mismo proyecto: *+ New → Database → PostgreSQL*.
+3. En el servicio de la aplicación, pestaña *Variables*:
+
+   | Variable | Valor |
+   |---|---|
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (referencia a la URL **privada**, `*.railway.internal`) |
+   | `ADMIN_USER` | Usuario del administrador general |
+   | `ADMIN_PASSWORD` | Contraseña robusta (obligatoria en producción; nunca se genera una aleatoria) |
+
+4. *Settings → Networking → Generate Domain* para obtener la URL pública (o conecte su dominio).
+5. En el servicio **Postgres → Backups**, active copias **diarias y semanales**.
+6. Entre en `/login` y cambie la contraseña del administrador.
+
+Las tablas se crean solas en el primer arranque. La conexión por la red privada no usa TLS porque ya va cifrada; las
+URL públicas (`*.proxy.rlwy.net`) usan TLS automáticamente.
+
+## Alternativa: Vercel
 
 1. Importe el repositorio en Vercel (*Add New → Project*). `vercel.json` ya define la instalación, la compilación
    (`dist/`) y la función `api/index.js`. En *Settings → Build & Development* deje **Root Directory vacío** (raíz del repositorio): si apunta a `client`, Vercel no desplegará la API.

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { IS_PRODUCTION } from './env.js';
 import { q, now } from './db.js';
 import { AppError, sha256 } from './util.js';
 
@@ -75,7 +76,7 @@ export function requireRole(...roles) {
 }
 
 export function setSessionCookie(res, token, expires) {
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  const secure = IS_PRODUCTION && process.env.INSECURE_COOKIES !== '1' ? '; Secure' : '';
   res.setHeader('Set-Cookie', `${COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Expires=${new Date(expires).toUTCString()}${secure}`);
 }
 

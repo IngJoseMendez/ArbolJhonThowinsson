@@ -197,7 +197,8 @@ function resolveUrl(url) {
 function sslFor(u) {
   if (process.env.DATABASE_SSL === 'false') return false;
   if (process.env.DATABASE_SSL === 'true' || /sslmode=require/.test(u)) return { rejectUnauthorized: false };
-  return /@(localhost|127\.0\.0\.1)[:/]/.test(u) ? false : { rejectUnauthorized: false };
+  // Local y red privada de Railway (*.railway.internal, ya cifrada): sin TLS. Resto: TLS.
+  return /@(localhost|127\.0\.0\.1|[^/@]+\.railway\.internal)[:/]/.test(u) ? false : { rejectUnauthorized: false };
 }
 
 /** Crea el pool y aplica el esquema si hace falta. */

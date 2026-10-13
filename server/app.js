@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { loadUser } from './auth.js';
 import { ensureDb } from './db.js';
 import { ensureBootstrapAdmin } from './bootstrap.js';
+import { ON_VERCEL, ON_RAILWAY } from './env.js';
+import { q } from './db.js';
 import { api } from './api.js';
 import { AppError } from './util.js';
 
@@ -14,7 +16,7 @@ export function createApp() {
   const app = express();
   app.disable('x-powered-by');
   if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY);
-  else if (process.env.VERCEL) app.set('trust proxy', true);
+  else if (ON_VERCEL || ON_RAILWAY) app.set('trust proxy', true); // detrás del proxy del proveedor
 
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -57,6 +59,8 @@ export function createApp() {
     await ready;
     next();
   });
+  // Comprobación de salud para el balanceador de Railway (no expone datos).
+  app.get('/api/health', async (_req, res) => { await q('SELECT 1').get(); res.json({ ok: true }); });
   app.use('/api', loadUser);
   app.use('/api', api);
   app.use('/api', (_req, _res, next) => next(new AppError(404, 'NOT_FOUND', 'Ruta no encontrada.')));

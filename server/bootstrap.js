@@ -1,13 +1,14 @@
 import crypto from 'node:crypto';
 import { q } from './db.js';
 import { hashPassword } from './auth.js';
+import { IS_PRODUCTION } from './env.js';
 
 /** Crea el administrador general inicial si no existe ningún usuario. */
 export async function ensureBootstrapAdmin() {
   const n = (await q('SELECT COUNT(*) n FROM users').get()).n;
   if (n > 0) return null;
   const username = process.env.ADMIN_USER || 'admin';
-  if (process.env.VERCEL && !process.env.ADMIN_PASSWORD) {
+  if (IS_PRODUCTION && !process.env.ADMIN_PASSWORD) {
     // En producción no se genera ni se escribe en los logs una contraseña aleatoria.
     console.warn('[bootstrap] Defina ADMIN_PASSWORD (y opcionalmente ADMIN_USER) para crear el administrador inicial.');
     return null;
