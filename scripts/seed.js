@@ -3,6 +3,7 @@
 import { openDb, q, closeDb } from '../server/db.js';
 import { hashPassword } from '../server/auth.js';
 import { createPerson, registerViaInvite } from '../server/services/people.js';
+import { locationPicker, sampleAddress } from './geo-sample.js';
 
 await openDb();
 if ((await q('SELECT COUNT(*) n FROM people').get()).n > 0 && !process.env.FORCE) {
@@ -31,14 +32,18 @@ async function head(name, color, region, description) {
 }
 
 let phoneSeq = 3001000000;
+let docSeq = 1082900000;
+let seq = 0;
+const pickLocation = await locationPicker();
+const fields = () => { seq++; return { document_id: String(docSeq++), address: sampleAddress(seq), location: pickLocation(seq) }; };
 const day = (n) => new Date(Date.now() - n * 864e5).toISOString();
 const manual = async (headId, name, inviterId, opts = {}) => (await createPerson({
-  data: { full_name: name, phone: String(phoneSeq++), city: opts.city || '' },
+  data: { full_name: name, phone: String(phoneSeq++), ...fields() },
   headId, inviterId, isLeader: !!opts.leader, method: 'manual', user: admin, status: 'active', createdAt: opts.at,
 })).id;
 const viaLink = async (ownerId, name, at) => {
   const link = await q(`SELECT token FROM invite_links WHERE owner_person_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1`).get(ownerId);
-  const { person } = await registerViaInvite(link.token, { full_name: name, phone: String(phoneSeq++), consent: true }, '127.0.0.1');
+  const { person } = await registerViaInvite(link.token, { full_name: name, phone: String(phoneSeq++), ...fields(), consent: true }, '127.0.0.1');
   if (at) await q('UPDATE people SET created_at = ? WHERE id = ?').run(at, person.id);
   return person.id;
 };

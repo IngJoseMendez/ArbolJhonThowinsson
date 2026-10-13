@@ -1,5 +1,6 @@
 import { q } from '../server/db.js';
 import { createPerson } from '../server/services/people.js';
+import { locationPicker, sampleAddress } from './geo-sample.js';
 
 /** Crea una cabeza con n personas: 10 líderes raíz, ramas de invitación de profundidad variable. */
 export async function generateLarge(n, headName) {
@@ -7,7 +8,9 @@ export async function generateLarge(n, headName) {
   const h = await q(`INSERT INTO heads (name, slug, color, region) VALUES (?, ?, '#7c3aed', 'Pruebas de carga')`)
     .run(headName, `masiva-${Date.now()}`);
   const headId = Number(h.lastInsertRowid);
-  let phone = 6000000000 + Math.floor(Math.random() * 1e8);
+  let phone = 3500000000 + Math.floor(Math.random() * 4e8);
+  let doc = 1000000000 + Math.floor(Math.random() * 8e8);
+  const pickLocation = await locationPicker(headId);
   const nodes = [];
   let seed = 42;
   const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
@@ -23,7 +26,10 @@ export async function generateLarge(n, headName) {
       leader = rnd() < 0.01;
     }
     const p = await createPerson({
-      data: { full_name: `Persona ${i} Prueba${leader ? ' Lider' : ''}`, phone: String(phone++) },
+      data: {
+        full_name: `Persona ${i} Prueba${leader ? ' Lider' : ''}`, phone: String(phone++), document_id: String(doc++),
+        address: sampleAddress(i), location: pickLocation(i),
+      },
       headId, inviterId: inviter, isLeader: leader, method: inviter && rnd() < 0.8 ? 'invitation' : 'manual',
       user: admin, status: 'active', createdAt: new Date(start + (i / n) * 365 * 864e5).toISOString(),
     });

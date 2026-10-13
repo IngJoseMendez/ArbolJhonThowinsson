@@ -1,7 +1,7 @@
 // Criterios de aceptación 1-14 verificados contra la API HTTP real.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startServer, Client, nextPhone } from './helpers.js';
+import { startServer, Client, nextPhone, personFields } from './helpers.js';
 
 let srv; let admin; let anon;
 const ids = {};
@@ -10,6 +10,7 @@ before(async () => {
   srv = await startServer();
   admin = await new Client(srv.base).login('admin', 'Admin1234!');
   anon = new Client(srv.base);
+  LOC = { localidad_id: (await anon.get('/api/geo/areas?level=localidad')).data[0].id };
 });
 after(() => srv.close());
 
@@ -18,12 +19,13 @@ const createHead = async (name) => {
   assert.equal(r.status, 201, JSON.stringify(r.data));
   return r.data.id;
 };
-const manual = async (body, client = admin) => client.post('/api/people', { phone: nextPhone(), ...body });
+let LOC; // ubicación por defecto: primera localidad del catálogo
+const manual = async (body, client = admin) => client.post('/api/people', { phone: nextPhone(), ...personFields(LOC), ...body });
 const linkOf = async (personId, client = admin) => {
   const r = await client.get(`/api/people/${personId}`);
   return r.data.links.find((l) => l.status === 'active')?.token;
 };
-const register = (token, name, extra = {}) => anon.post(`/api/public/register/${token}`, { full_name: name, phone: nextPhone(), consent: true, ...extra });
+const register = (token, name, extra = {}) => anon.post(`/api/public/register/${token}`, { full_name: name, phone: nextPhone(), ...personFields(LOC), consent: true, ...extra });
 
 test('1. Se pueden crear varias cabezas y cada una tiene su propio árbol', async () => {
   ids.norte = await createHead('Cabeza Norte');
@@ -153,7 +155,7 @@ test('7. Se distingue líder responsable de invitador directo', async () => {
 
 test('8. Los enlaces no permiten cambiar la estructura manipulando URL o cuerpo', async () => {
   const r = await anon.post('/api/public/register/LID-JUAN-PEREZ?head_id=' + ids.sur + '&inviter_id=' + ids.juanSur, {
-    full_name: 'Intruso Manipulador', phone: nextPhone(), consent: true,
+    full_name: 'Intruso Manipulador', phone: nextPhone(), ...personFields(LOC), consent: true,
     head_id: ids.sur, inviter_id: ids.juanSur, leader_id: ids.juanSur, is_leader: true, status: 'active', registration_method: 'manual',
   });
   assert.equal(r.status, 201);
@@ -187,8 +189,16 @@ test('8. Los enlaces no permiten cambiar la estructura manipulando URL o cuerpo'
 
 test('9. No se generan duplicados ni relaciones circulares', async () => {
   const p = (await admin.get(`/api/people/${ids.maria}`)).data.person;
-  const dup = await anon.post('/api/public/register/LID-JUAN-PEREZ', { full_name: 'Otra María', phone: p.phone, consent: true });
+  const dup = await anon.post('/api/public/register/LID-JUAN-PEREZ', { full_name: 'Otra María', phone: p.phone, ...personFields(LOC), consent: true });
   assert.equal(dup.status, 409);
+  // Cédula duplicada (con puntos, como suele escribirse) en registro público y manual de otra cabeza
+  const ced = p.document_id.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const dupDoc = await anon.post('/api/public/register/LID-JUAN-PEREZ', { full_name: 'Otra Cédula', phone: nextPhone(), ...personFields(LOC), document_id: ced, consent: true });
+  assert.equal(dupDoc.status, 409);
+  assert.equal(dupDoc.data.error.field, 'document_id');
+  const dupDoc2 = await manual({ full_name: 'Cédula Repetida', head_id: ids.sur, inviter_id: ids.juanSur, document_id: p.document_id });
+  assert.equal(dupDoc2.status, 409);
+  assert.match(dupDoc2.data.error.message, /cédula/);
   assert.equal(dup.data.existing, undefined, 'el formulario público no revela el registro existente');
   const dup2 = await manual({ full_name: 'Duplicada en Sur', head_id: ids.sur, inviter_id: ids.juanSur, phone: '+57 ' + p.phone });
   assert.equal(dup2.status, 409, 'el teléfono es único entre cabezas (no puede estar en dos cabezas)');

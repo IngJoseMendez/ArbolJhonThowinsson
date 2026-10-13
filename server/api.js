@@ -11,7 +11,10 @@ import {
   createPerson, registerViaInvite, resolveInvite, promoteToLeader, demoteLeader, setResponsibleLeader, movePerson,
   setStatus, updatePersonData, regeneratePersonLink, integrityReport, recountCounters, getPerson, getHead, findDuplicate,
 } from './services/people.js';
-import { treeChildren, pathToPerson, search, directory, dashboard, branchStats, NODE_SELECT } from './services/queries.js';
+import { treeChildren, treeSubtree, treeChildrenOf, pathToPerson, search, directory, dashboard, branchStats, NODE_SELECT } from './services/queries.js';
+import {
+  listAreas, getArea, createArea, updateArea, importAreas, pendingGroups, resolvePendingGroup, locationStats, setPersonLocation,
+} from './services/geo.js';
 import { audit } from './services/audit.js';
 import {
   badRequest, notFound, forbidden, str, intOrNull, slugLower, maskPhone, normalizePhone, normalizeDocument, AppError, sha256,
@@ -185,6 +188,36 @@ api.get('/tree/path/:personId', requireAuth, async (req, res) => {
   res.json({ head_id: p.head_id, chain: (await pathToPerson(req.user, p)).map((n) => ({ ...n, path: undefined })) });
 });
 
+// Rama completa en bloques (para "Expandir todo").
+api.get('/tree/:headId/subtree', requireAuth, async (req, res) => {
+  const headId = Number(req.params.headId);
+  if (!await getHead(headId) || !canViewHead(req.user, headId)) throw notFound('Cabeza no encontrada.');
+  const rootId = intOrNull(req.query.root, 'root');
+  if (rootId) {
+    const root = await getPerson(rootId);
+    if (!root || root.head_id !== headId || !canViewPerson(req.user, root)) throw notFound('Nodo no encontrado.');
+  } else if ((req.user.role === 'leader' || req.user.role === 'member') && req.user.person?.head_id !== headId) {
+    throw notFound('Cabeza no encontrada.');
+  }
+  const limit = Math.min(Math.max(Number(req.query.limit) || 2000, 1), 5000);
+  const r = await treeSubtree(req.user, headId, rootId, { after: req.query.after || null, limit });
+  res.json({ next: r.next, nodes: r.nodes.filter((n) => canViewPerson(req.user, n)).map((n) => ({ ...n, path: undefined })) });
+});
+
+// Hijos de varios nodos (restaurar el estado de expansión guardado).
+api.post('/tree/:headId/children-batch', requireAuth, async (req, res) => {
+  const headId = Number(req.params.headId);
+  if (!await getHead(headId) || !canViewHead(req.user, headId)) throw notFound('Cabeza no encontrada.');
+  const ids = [...new Set((Array.isArray(req.body.parents) ? req.body.parents : []).map(Number).filter(Number.isInteger))].slice(0, 2000);
+  const allowed = [];
+  for (const id of ids) {
+    const p = await q('SELECT id, head_id, path, leader_id FROM people WHERE id = ?').get(id);
+    if (p && p.head_id === headId && canViewPerson(req.user, p)) allowed.push(id);
+  }
+  const nodes = (await treeChildrenOf(allowed)).filter((n) => canViewPerson(req.user, n)).map((n) => ({ ...n, path: undefined }));
+  res.json({ parents: allowed, nodes });
+});
+
 api.get('/search', requireAuth, async (req, res) => {
   res.json(await search(req.user, req.query.q, { headId: intOrNull(req.query.head_id, 'head_id') }));
 });
@@ -278,7 +311,9 @@ api.get('/people/:id', requireAuth, async (req, res) => {
       ...p, is_leader: !!p.is_leader, path: undefined, registration_ip: undefined,
       phone: contact ? p.phone : maskPhone(p.phone), email: contact ? p.email : null,
       document_id: contact ? p.document_id : null, notes: manage ? p.notes : '',
+      address: contact ? p.address : null,
     },
+    location: await locationOf(p),
     head: { id: head.id, name: head.name, color: head.color, person_invites_enabled: !!head.person_invites_enabled },
     leader, inviter: inviter ? { ...inviter, is_leader: !!inviter.is_leader } : null,
     registered_by: registeredBy, via_link: viaLink, invitees, links, history, account, names,
@@ -546,6 +581,60 @@ api.patch('/users/:id', requireRole('super_admin', 'head_admin'), async (req, re
 });
 
 // ---------------------------------------------------------------------------
+// Catálogo geográfico y ubicación de personas
+// ---------------------------------------------------------------------------
+async function locationOf(p) {
+  const name = async (id) => (id ? (await getArea(id)) : null);
+  const [l, c, b] = [await name(p.geo_localidad_id), await name(p.geo_comuna_id), await name(p.geo_barrio_id)];
+  return {
+    status: p.geo_status,
+    localidad: l ? { id: l.id, name: l.name, alias: l.alias } : p.geo_localidad_text ? { manual: p.geo_localidad_text } : null,
+    comuna: c ? { id: c.id, name: c.name, alias: c.alias, kind: c.kind } : p.geo_comuna_text ? { manual: p.geo_comuna_text } : null,
+    barrio: b ? { id: b.id, name: b.name, kind: b.kind } : p.geo_barrio_text ? { manual: p.geo_barrio_text } : null,
+  };
+}
+
+const geoLimiter = rateLimit({ windowMs: 60e3, max: 240, key: (req) => `geo:${req.ip}` });
+// Lectura del catálogo: pública porque la usa el formulario de registro por enlace (no contiene datos personales).
+api.get('/geo/areas', geoLimiter, async (req, res) => {
+  const level = ['localidad', 'comuna', 'barrio'].includes(req.query.level) ? req.query.level : null;
+  const parentId = intOrNull(req.query.parent_id, 'parent_id');
+  if (level && level !== 'localidad' && !parentId && !req.user) throw badRequest('VALIDATION', 'Indique el nivel superior.');
+  const all = req.query.all === '1' && req.user?.role === 'super_admin';
+  res.json(await listAreas({ level, parentId, term: String(req.query.q || '').slice(0, 60), includeInactive: all, limit: all ? 20000 : 1000 }));
+});
+
+api.post('/geo/areas', requireRole('super_admin'), async (req, res) => res.status(201).json(await createArea(req.body, req.user, ip(req))));
+api.patch('/geo/areas/:id', requireRole('super_admin'), async (req, res) => res.json(await updateArea(Number(req.params.id), req.body, req.user, ip(req))));
+api.post('/geo/import', requireRole('super_admin'), async (req, res) => res.json(await importAreas(req.body.rows, req.user, ip(req))));
+
+api.get('/geo/stats', requireAuth, async (req, res) => {
+  const headId = intOrNull(req.query.head_id, 'head_id');
+  if (headId && !canViewHead(req.user, headId)) throw notFound();
+  res.json(await locationStats(scopeSql(req.user), headId));
+});
+
+api.get('/geo/pending', requireRole('super_admin', 'head_admin'), async (req, res) => {
+  res.json(await pendingGroups(scopeSql(req.user)));
+});
+
+api.post('/geo/pending/resolve', requireRole('super_admin', 'head_admin'), async (req, res) => {
+  const g = req.body.group || {};
+  const group = {
+    geo_localidad_id: intOrNull(g.geo_localidad_id, 'geo_localidad_id'), geo_comuna_id: intOrNull(g.geo_comuna_id, 'geo_comuna_id'),
+    geo_localidad_text: g.geo_localidad_text ?? null, geo_comuna_text: g.geo_comuna_text ?? null, geo_barrio_text: g.geo_barrio_text ?? null,
+  };
+  if (!group.geo_localidad_text && !group.geo_comuna_text && !group.geo_barrio_text) throw badRequest('VALIDATION', 'Grupo no válido.');
+  res.json(await resolvePendingGroup(group, req.body.target, scopeSql(req.user), req.user, ip(req)));
+});
+
+api.post('/people/:id/location', requireAuth, async (req, res) => {
+  const p = await loadManagedPerson(req);
+  await setPersonLocation(p.id, req.body.location, req.user, reasonOf(req), ip(req));
+  res.json({ location: await locationOf(await getPerson(p.id)) });
+});
+
+// ---------------------------------------------------------------------------
 // Auditoría e integridad
 // ---------------------------------------------------------------------------
 api.get('/audit', requireRole('super_admin'), async (req, res) => {
@@ -583,10 +672,10 @@ api.get('/public/invite/:token', lookupLimiter, async (req, res) => {
 
 api.post('/public/register/:token', publicLimiter, async (req, res) => {
   // Sólo se aceptan los campos del formulario; cabeza, invitador y líder se derivan del token.
-  const { full_name, phone, email, document_id, city, consent, website } = req.body || {};
+  const { full_name, document_id, address, phone, email, location, consent, website } = req.body || {};
   let result;
   try {
-    result = await registerViaInvite(req.params.token, { full_name, phone, email, document_id, city, consent, website }, ip(req));
+    result = await registerViaInvite(req.params.token, { full_name, document_id, address, phone, email, location, consent, website }, ip(req));
   } catch (e) {
     // No se revela a quién pertenece un dato duplicado en el formulario público.
     if (e instanceof AppError && e.code === 'DUPLICATE') {

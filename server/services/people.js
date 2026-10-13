@@ -2,9 +2,10 @@
 import { q, tx, now, pathUpper, MAX_PATH } from '../db.js';
 import {
   badRequest, conflict, notFound, forbidden, normalizeText, slugUpper, randomCode,
-  validatePhone, validateEmail, normalizeDocument, str,
+  validatePhone, validateMobile, validateCedula, validateEmail, normalizePhone, str,
 } from '../util.js';
 import { audit, history } from './audit.js';
+import { resolveLocation, geoIntegrity } from './geo.js';
 
 // ---------------------------------------------------------------------------
 // Identificadores
@@ -77,14 +78,21 @@ export async function nearestLeaderFromPath(path, excludeSelf = true) {
   return row ? row.id : null;
 }
 
-function validatePersonData(data) {
-  const full_name = str(data.full_name, { field: 'nombre completo', required: true, min: 3, max: 120 });
+/**
+ * Campos de persona (iguales en registro manual y por enlace).
+ * legacy: registros anteriores a estos campos pueden editarse sin completar los nuevos obligatorios.
+ */
+function validatePersonData(data, { legacy = null } = {}) {
+  const full_name = str(data.full_name, { field: 'nombre completo', key: 'full_name', required: true, min: 3, max: 120 });
   if (!/\p{L}/u.test(full_name)) throw badRequest('VALIDATION', 'El nombre no es válido.', { field: 'full_name' });
+  const address = str(data.address, { field: 'dirección', key: 'address', max: 200, required: !legacy || !!legacy.address });
+  if (address && address.length < 5) throw badRequest('VALIDATION', 'La dirección es demasiado corta.', { field: 'address' });
   return {
     full_name: full_name.replace(/\s+/g, ' '),
-    phone: validatePhone(data.phone),
+    document_id: validateCedula(data.document_id, { required: !legacy || !!legacy.document_id }),
+    address: address || null,
+    phone: legacy && !legacy.phone_changed ? validatePhone(data.phone) : validateMobile(data.phone),
     email: validateEmail(data.email),
-    document_id: normalizeDocument(data.document_id),
     city: str(data.city, { field: 'ciudad / municipio', max: 80 }),
     notes: str(data.notes, { field: 'observaciones', max: 500 }),
   };
@@ -106,8 +114,8 @@ export async function findDuplicate({ phone, document_id }, excludeId = null) {
 async function assertNoDuplicate(data, excludeId = null) {
   const dup = await findDuplicate(data, excludeId);
   if (dup) {
-    const what = dup.field === 'phone' ? 'teléfono' : 'documento';
-    throw conflict('DUPLICATE', `Ya existe una persona registrada con ese ${what}.`, {
+    const what = dup.field === 'phone' ? 'ese celular' : 'esa cédula';
+    throw conflict('DUPLICATE', `Ya existe una persona registrada con ${what}.`, {
       field: dup.field, existing: { id: dup.person.id, code: dup.person.code, head_id: dup.person.head_id },
     });
   }
@@ -177,6 +185,7 @@ export async function createPerson(opts) {
   return await tx(async () => {
     const { headId, inviterId = null, isLeader = false, leaderOverrideId = null, method, user = null, linkId = null, ip = null } = opts;
     const data = validatePersonData(opts.data || {});
+    const geo = await resolveLocation(opts.data?.location, { required: true });
     const head = await getHead(headId);
     if (!head) throw badRequest('VALIDATION', 'Debe seleccionar una cabeza válida.', { field: 'head_id' });
     if (head.status !== 'active') throw badRequest('HEAD_ARCHIVED', 'La cabeza está archivada y no admite registros.');
@@ -215,12 +224,15 @@ export async function createPerson(opts) {
     const ts = now();
     const r = await q(`INSERT INTO people (code, full_name, name_key, phone, email, document_id, city, notes, head_id, inviter_id,
                    leader_id, leader_mode, is_leader, leader_code, leader_since, registration_method, registered_by_user_id,
-                   invite_link_id, status, path, depth, consent_at, registration_ip, created_at, updated_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+                   invite_link_id, status, path, depth, consent_at, registration_ip, created_at, updated_at,
+                   address, geo_localidad_id, geo_comuna_id, geo_barrio_id, geo_localidad_text, geo_comuna_text, geo_barrio_text, geo_status)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
       code, data.full_name, normalizeText(data.full_name), data.phone, data.email, data.document_id, data.city, data.notes,
       head.id, inviter?.id ?? null, leaderId, leaderMode, isLeader ? 1 : 0, leaderCode, isLeader ? ts : null,
       method, method === 'manual' ? user?.id ?? null : null, linkId, status, '/', inviter ? inviter.depth + 1 : 0,
       opts.consent ? ts : null, ip, opts.createdAt || ts, opts.createdAt || ts,
+      data.address, geo.geo_localidad_id, geo.geo_comuna_id, geo.geo_barrio_id, geo.geo_localidad_text, geo.geo_comuna_text,
+      geo.geo_barrio_text, geo.geo_status,
     );
     const id = Number(r.lastInsertRowid);
     const path = `${inviter ? inviter.path : '/'}${id}/`;
@@ -250,7 +262,10 @@ export async function registerViaInvite(token, body, ip) {
   if (body.website) throw badRequest('SPAM', 'No se pudo procesar el registro.'); // honeypot
   if (!body.consent) throw badRequest('CONSENT_REQUIRED', 'Debe aceptar el tratamiento de datos para registrarse.', { field: 'consent' });
   const person = await createPerson({
-    data: { full_name: body.full_name, phone: body.phone, email: body.email, document_id: body.document_id, city: body.city },
+    data: {
+      full_name: body.full_name, document_id: body.document_id, address: body.address, phone: body.phone, email: body.email,
+      location: body.location,
+    },
     headId: head.id,
     inviterId: owner.id,
     isLeader: false,
@@ -500,18 +515,20 @@ export async function updatePersonData(personId, body, user, ip) {
       phone: body.phone ?? p.phone,
       email: body.email !== undefined ? body.email : p.email,
       document_id: body.document_id !== undefined ? body.document_id : p.document_id,
+      address: body.address !== undefined ? body.address : p.address,
       city: body.city ?? p.city,
       notes: body.notes ?? p.notes,
     };
-    const data = validatePersonData(merged);
+    // Registros antiguos (sin cédula/dirección) pueden editarse; los nuevos mantienen los obligatorios.
+    const data = validatePersonData(merged, { legacy: { document_id: p.document_id, address: p.address, phone_changed: body.phone !== undefined && normalizePhone(body.phone) !== p.phone } });
     if (p.status !== 'rejected') await assertNoDuplicate(data, p.id);
     const changes = {};
     for (const k of Object.keys(data)) {
       if ((data[k] ?? null) !== (p[k] ?? null)) changes[k] = { from: p[k] ?? null, to: data[k] ?? null };
     }
     if (!Object.keys(changes).length) return p;
-    await q(`UPDATE people SET full_name = ?, name_key = ?, phone = ?, email = ?, document_id = ?, city = ?, notes = ?, updated_at = ?
-        WHERE id = ?`).run(data.full_name, normalizeText(data.full_name), data.phone, data.email, data.document_id, data.city,
+    await q(`UPDATE people SET full_name = ?, name_key = ?, phone = ?, email = ?, document_id = ?, address = ?, city = ?, notes = ?, updated_at = ?
+        WHERE id = ?`).run(data.full_name, normalizeText(data.full_name), data.phone, data.email, data.document_id, data.address, data.city,
       data.notes, now(), p.id);
     await history(p.id, 'data_updated', { fields: changes }, user?.id, body.reason || null);
     await audit(user, 'person.update', 'person', p.id, { fields: Object.keys(changes) }, ip);
@@ -576,6 +593,7 @@ export async function integrityReport() {
     }
   }
   for (const d of await counterDrift()) issues.push({ type: 'counters', person_id: d.id, message: 'Contadores de rama desactualizados' });
+  for (const g of await geoIntegrity()) issues.push({ type: 'geo', person_id: g.id, message: 'Ubicación geográfica inconsistente' });
   return { ok: issues.length === 0, checked_at: now(), issues: issues.slice(0, 500), total_issues: issues.length };
 }
 

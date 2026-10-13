@@ -12,12 +12,15 @@
 // árbol nunca recuenta ramas enteras al dibujarse.
 import pg from 'pg';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // COUNT/SUM devuelven bigint/numeric: se convierten a número de JavaScript.
 pg.types.setTypeParser(20, (v) => Number(v));
 pg.types.setTypeParser(1700, (v) => Number(v));
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const TS = `to_char(timezone('UTC', clock_timestamp()), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 
 const SCHEMA = `
@@ -186,6 +189,70 @@ CREATE TRIGGER trg_people_consistency BEFORE INSERT OR UPDATE OF inviter_id ON p
 CREATE TABLE IF NOT EXISTS schema_meta (version INT NOT NULL);
 `;
 
+// v2: catálogo geográfico (Localidad → Comuna/Corregimiento → Barrio/Vereda) y nuevos campos de persona.
+const MIGRATION_2 = `
+CREATE TABLE IF NOT EXISTS geo_areas (
+  id         SERIAL PRIMARY KEY,
+  level      VARCHAR(10) NOT NULL CHECK (level IN ('localidad','comuna','barrio')),
+  kind       VARCHAR(15) NOT NULL CHECK (kind IN ('localidad','comuna','corregimiento','barrio','vereda')),
+  code       VARCHAR(40) UNIQUE,
+  name       VARCHAR(120) NOT NULL,
+  name_key   VARCHAR(120) NOT NULL,
+  alias      VARCHAR(120) NOT NULL DEFAULT '',
+  parent_id  INT REFERENCES geo_areas(id),
+  source     VARCHAR(20) NOT NULL DEFAULT 'ADMIN',
+  active     SMALLINT NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  created_at TEXT NOT NULL DEFAULT ${TS},
+  updated_at TEXT NOT NULL DEFAULT ${TS},
+  CHECK ((level = 'localidad') = (parent_id IS NULL)),
+  CHECK ((level = 'localidad' AND kind = 'localidad') OR (level = 'comuna' AND kind IN ('comuna','corregimiento'))
+      OR (level = 'barrio' AND kind IN ('barrio','vereda')))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_geo_name ON geo_areas (level, COALESCE(parent_id, 0), name_key);
+CREATE INDEX IF NOT EXISTS ix_geo_parent ON geo_areas (parent_id, active);
+
+ALTER TABLE people ADD COLUMN IF NOT EXISTS address VARCHAR(200);
+ALTER TABLE people ADD COLUMN IF NOT EXISTS geo_localidad_id INT REFERENCES geo_areas(id);
+ALTER TABLE people ADD COLUMN IF NOT EXISTS geo_comuna_id INT REFERENCES geo_areas(id);
+ALTER TABLE people ADD COLUMN IF NOT EXISTS geo_barrio_id INT REFERENCES geo_areas(id);
+ALTER TABLE people ADD COLUMN IF NOT EXISTS geo_localidad_text VARCHAR(120);
+ALTER TABLE people ADD COLUMN IF NOT EXISTS geo_comuna_text VARCHAR(120);
+ALTER TABLE people ADD COLUMN IF NOT EXISTS geo_barrio_text VARCHAR(120);
+ALTER TABLE people ADD COLUMN IF NOT EXISTS geo_status VARCHAR(10) NOT NULL DEFAULT 'none';
+DO $$ BEGIN
+  ALTER TABLE people ADD CONSTRAINT ck_people_geo_status CHECK (geo_status IN ('none','verified','pending'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+CREATE INDEX IF NOT EXISTS ix_people_geo_loc ON people (geo_localidad_id);
+CREATE INDEX IF NOT EXISTS ix_people_geo_com ON people (geo_comuna_id);
+CREATE INDEX IF NOT EXISTS ix_people_geo_bar ON people (geo_barrio_id);
+CREATE INDEX IF NOT EXISTS ix_people_geo_status ON people (geo_status) WHERE geo_status = 'pending';
+`;
+
+const nameKey = (s) => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+/** Carga inicial del catálogo de Santa Marta (sólo si el catálogo está vacío). */
+async function seedGeo(c) {
+  const { rows } = await c.query('SELECT COUNT(*) AS n FROM geo_areas');
+  if (rows[0].n > 0) return;
+  const file = path.join(path.dirname(fileURLToPath(import.meta.url)), 'data', 'santa-marta.json');
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const ins = 'INSERT INTO geo_areas (level, kind, code, name, name_key, alias, parent_id, source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id';
+  for (const l of data.localidades) {
+    const lid = (await c.query(ins, ['localidad', 'localidad', l.codigo, l.nombre, nameKey(l.nombre), l.alias, null, l.fuente])).rows[0].id;
+    for (const u of l.unidades) {
+      const uid = (await c.query(ins, ['comuna', u.tipo, u.codigo, u.nombre, nameKey(u.nombre), u.alias, lid, u.fuente])).rows[0].id;
+      for (const [b, src] of u.barrios) {
+        await c.query(ins, ['barrio', u.tipo === 'corregimiento' ? 'vereda' : 'barrio', null, b, nameKey(b), '', uid, src]);
+      }
+    }
+  }
+}
+
+const MIGRATIONS = [
+  { version: 1, sql: SCHEMA },
+  { version: 2, sql: MIGRATION_2, after: seedGeo },
+];
+
 let pool = null;
 let opening = null;
 const txStore = new AsyncLocalStorage();
@@ -218,21 +285,22 @@ export async function openDb(url) {
 }
 
 async function migrate() {
-  const { rows } = await pool.query("SELECT to_regclass('schema_meta') IS NOT NULL AS ok");
-  if (rows[0].ok) {
-    const { rows: v } = await pool.query('SELECT MAX(version) AS v FROM schema_meta');
-    if ((v[0]?.v ?? 0) >= SCHEMA_VERSION) return;
-  }
+  const current = async (c) => {
+    const { rows } = await c.query("SELECT to_regclass('schema_meta') IS NOT NULL AS ok");
+    if (!rows[0].ok) return 0;
+    return (await c.query('SELECT MAX(version) AS v FROM schema_meta')).rows[0].v ?? 0;
+  };
+  if ((await current(pool)) >= SCHEMA_VERSION) return;
   const c = await pool.connect();
   try {
     await c.query('BEGIN');
     await c.query('SELECT pg_advisory_xact_lock(724001)'); // una sola instancia migra a la vez
-    const again = await c.query("SELECT to_regclass('schema_meta') IS NOT NULL AS ok");
-    const done = again.rows[0].ok
-      && ((await c.query('SELECT MAX(version) AS v FROM schema_meta')).rows[0].v ?? 0) >= SCHEMA_VERSION;
-    if (!done) {
-      await c.query(SCHEMA);
-      await c.query('INSERT INTO schema_meta (version) VALUES ($1)', [SCHEMA_VERSION]);
+    const v = await current(c);
+    for (const m of MIGRATIONS) {
+      if (m.version <= v) continue;
+      await c.query(m.sql);
+      if (m.after) await m.after(c);
+      await c.query('INSERT INTO schema_meta (version) VALUES ($1)', [m.version]);
     }
     await c.query('COMMIT');
   } catch (e) {

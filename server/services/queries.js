@@ -7,7 +7,7 @@ import { ancestorIds } from './people.js';
 export const NODE_SELECT = `
   SELECT p.id, p.code, p.full_name, p.is_leader, p.leader_code, p.status, p.created_at, p.depth, p.inviter_id,
          p.leader_id, p.leader_mode, p.head_id, p.registration_method, p.path, p.city,
-         p.child_count, p.descendant_count,
+         p.child_count, p.descendant_count, p.geo_localidad_id, p.geo_comuna_id, p.geo_barrio_id, p.geo_status,
          l.full_name AS leader_name, i.full_name AS inviter_name
     FROM people p
     LEFT JOIN people l ON l.id = p.leader_id
@@ -38,6 +38,37 @@ export async function treeChildren(user, headId, parentId, { offset = 0, limit =
     if (extra && (extra.inviter_id ?? null) === (parentId ?? null) && extra.head_id === headId) rows.push(extra);
   }
   return { nodes: rows.map(toNode), total, offset };
+}
+
+/**
+ * Rama completa en bloques ordenados por ruta (carga progresiva para "Expandir todo").
+ * rootId = null => toda la cabeza (o la rama propia para líderes y personas).
+ * after = última ruta recibida (cursor). Devuelve nodos sin la raíz.
+ */
+export async function treeSubtree(user, headId, rootId, { after = null, limit = 2000 } = {}) {
+  let lo; let hi; let extra = ''; const params = [];
+  if (rootId) {
+    const root = await q('SELECT path FROM people WHERE id = ?').get(rootId);
+    lo = root.path; hi = pathUpper(root.path);
+    extra = 'AND p.path > ? AND p.path < ?'; params.push(lo, hi);
+  } else if (user.role === 'leader' || user.role === 'member') {
+    lo = user.person.path; hi = pathUpper(lo);
+    extra = 'AND p.path >= ? AND p.path < ?'; params.push(lo, hi);
+  }
+  if (after) { extra += ' AND p.path > ?'; params.push(String(after)); }
+  const rows = await q(`${NODE_SELECT} WHERE p.head_id = ? AND p.status <> 'rejected' ${extra}
+                        ORDER BY p.path LIMIT ?`).all(headId, ...params, limit + 1);
+  const more = rows.length > limit;
+  const page = rows.slice(0, limit);
+  return { nodes: page.map(toNode), next: more ? page[page.length - 1].path : null };
+}
+
+/** Hijos de varios nodos a la vez (restaurar ramas expandidas en una sola petición). */
+export async function treeChildrenOf(parentIds, { limit = 20000 } = {}) {
+  if (!parentIds.length) return [];
+  const rows = await q(`${NODE_SELECT} WHERE p.inviter_id IN (${parentIds.map(() => '?').join(',')}) AND p.status <> 'rejected'
+                        ORDER BY p.is_leader DESC, p.created_at, p.id LIMIT ?`).all(...parentIds, limit);
+  return rows.map(toNode);
 }
 
 /** Cadena desde la raíz visible hasta la persona (para resaltar camino / localizar). */
@@ -88,11 +119,20 @@ export async function directory(user, f) {
   if (f.q) {
     const t = String(f.q).trim();
     const digits = normalizePhone(t);
-    const ors = ['p.name_key LIKE ?', 'p.code = ?', 'p.leader_code LIKE ?'];
-    params.push(`%${normalizeText(t)}%`, t.toUpperCase(), `%${t.toUpperCase()}%`);
-    if (digits.length >= 4 && user.role !== 'member') { ors.push('p.phone LIKE ?'); params.push(`%${digits}%`); }
+    const ors = ['p.name_key LIKE ?', 'p.code = ?', 'p.leader_code LIKE ?',
+      'lower(p.geo_localidad_text) LIKE ?', 'lower(p.geo_comuna_text) LIKE ?', 'lower(p.geo_barrio_text) LIKE ?'];
+    const tl = `%${t.toLowerCase()}%`;
+    params.push(`%${normalizeText(t)}%`, t.toUpperCase(), `%${t.toUpperCase()}%`, tl, tl, tl);
+    if (user.role !== 'member') {
+      ors.push('lower(p.address) LIKE ?'); params.push(tl);
+      if (digits.length >= 4) { ors.push('p.phone LIKE ?', 'p.document_id LIKE ?'); params.push(`%${digits}%`, `%${digits}%`); }
+    }
     where.push(`(${ors.join(' OR ')})`);
   }
+  if (f.localidad_id) { where.push('p.geo_localidad_id = ?'); params.push(Number(f.localidad_id)); }
+  if (f.comuna_id) { where.push('p.geo_comuna_id = ?'); params.push(Number(f.comuna_id)); }
+  if (f.barrio_id) { where.push('p.geo_barrio_id = ?'); params.push(Number(f.barrio_id)); }
+  if (f.geo_status && ['pending', 'verified', 'none'].includes(f.geo_status)) { where.push('p.geo_status = ?'); params.push(f.geo_status); }
   if (f.head_id) { where.push('p.head_id = ?'); params.push(Number(f.head_id)); }
   if (f.leader_id) { where.push('p.leader_id = ?'); params.push(Number(f.leader_id)); }
   if (f.inviter_id) { where.push('p.inviter_id = ?'); params.push(Number(f.inviter_id)); }
@@ -108,18 +148,25 @@ export async function directory(user, f) {
   const page = Math.max(Number(f.page) || 1, 1);
   const base = `FROM people p JOIN heads h ON h.id = p.head_id
                 LEFT JOIN people l ON l.id = p.leader_id LEFT JOIN people i ON i.id = p.inviter_id
+                LEFT JOIN geo_areas gl ON gl.id = p.geo_localidad_id LEFT JOIN geo_areas gc ON gc.id = p.geo_comuna_id
+                LEFT JOIN geo_areas gb ON gb.id = p.geo_barrio_id
                 WHERE ${where.join(' AND ')}`;
   const total = (await q(`SELECT COUNT(*) n ${base}`).get(...params)).n;
   const rows = await q(`SELECT p.id, p.code, p.full_name, p.phone, p.email, p.city, p.is_leader, p.leader_code, p.status,
                          p.registration_method, p.created_at, p.head_id, p.path, p.leader_id, p.inviter_id,
                          h.name AS head_name, h.color AS head_color, l.full_name AS leader_name, i.full_name AS inviter_name,
-                         p.descendant_count
+                         p.descendant_count, p.address, p.geo_status, p.geo_localidad_id, p.geo_comuna_id, p.geo_barrio_id,
+                         COALESCE(gl.name, p.geo_localidad_text) AS localidad_name, COALESCE(gc.name, p.geo_comuna_text) AS comuna_name,
+                         COALESCE(gb.name, p.geo_barrio_text) AS barrio_name, gc.kind AS comuna_kind
                   ${base} ORDER BY ${sortCol} ${dir}, p.id ${dir} LIMIT ? OFFSET ?`).all(...params, pageSize, (page - 1) * pageSize);
   return {
     total, page, pageSize,
     rows: rows.map((r) => {
       const contact = canSeeContact(user, r);
-      return { ...r, is_leader: !!r.is_leader, phone: contact ? r.phone : maskPhone(r.phone), email: contact ? r.email : null, path: undefined };
+      return {
+        ...r, is_leader: !!r.is_leader, phone: contact ? r.phone : maskPhone(r.phone), email: contact ? r.email : null,
+        address: contact ? r.address : null, path: undefined,
+      };
     }),
   };
 }

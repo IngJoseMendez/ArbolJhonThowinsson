@@ -61,11 +61,12 @@ export function sha256(s) {
 }
 
 /** Validación de datos de entrada sencilla y explícita. */
-export function str(v, { field, min = 0, max = 200, required = false } = {}) {
+export function str(v, { field, key, min = 0, max = 200, required = false } = {}) {
   const s = v == null ? '' : String(v).trim();
-  if (required && !s) throw badRequest('VALIDATION', `El campo "${field}" es obligatorio.`, { field });
-  if (s && s.length < min) throw badRequest('VALIDATION', `El campo "${field}" es demasiado corto.`, { field });
-  if (s.length > max) throw badRequest('VALIDATION', `El campo "${field}" es demasiado largo (máx. ${max}).`, { field });
+  const extra = { field: key || field };
+  if (required && !s) throw badRequest('VALIDATION', `El campo "${field}" es obligatorio.`, extra);
+  if (s && s.length < min) throw badRequest('VALIDATION', `El campo "${field}" es demasiado corto.`, extra);
+  if (s.length > max) throw badRequest('VALIDATION', `El campo "${field}" es demasiado largo (máx. ${max}).`, extra);
   return s;
 }
 
@@ -82,6 +83,29 @@ export function validatePhone(raw) {
     throw badRequest('VALIDATION', 'El teléfono debe tener entre 7 y 15 dígitos.', { field: 'phone' });
   }
   return phone;
+}
+
+// Celular colombiano: 10 dígitos que empiezan por 3 (configurable con PHONE_MOBILE_PATTERN).
+const MOBILE = new RegExp(process.env.PHONE_MOBILE_PATTERN || '^3[0-9]{9}$');
+export function validateMobile(raw) {
+  const phone = normalizePhone(raw);
+  if (!phone) throw badRequest('VALIDATION', 'El celular / WhatsApp es obligatorio.', { field: 'phone' });
+  if (!MOBILE.test(phone)) {
+    throw badRequest('VALIDATION', 'El celular debe tener 10 dígitos y empezar por 3 (por ejemplo 300 123 4567).', { field: 'phone' });
+  }
+  return phone;
+}
+
+/** Cédula: sólo dígitos (se ignoran puntos y espacios), entre 5 y 11 dígitos. */
+export function validateCedula(raw, { required = true } = {}) {
+  const raw2 = String(raw ?? '').trim();
+  if (!raw2) {
+    if (required) throw badRequest('VALIDATION', 'La cédula es obligatoria.', { field: 'document_id' });
+    return null;
+  }
+  const v = raw2.replace(/[.\s-]/g, '');
+  if (!/^[0-9]{5,11}$/.test(v)) throw badRequest('VALIDATION', 'La cédula debe tener entre 5 y 11 dígitos, sin letras.', { field: 'document_id' });
+  return v.replace(/^0+(?=\d)/, '');
 }
 
 export function validateEmail(raw) {
