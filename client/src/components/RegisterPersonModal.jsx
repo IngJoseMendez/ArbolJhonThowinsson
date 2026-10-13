@@ -4,6 +4,7 @@ import { api, qs } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { Modal, PersonPicker, useToast } from './ui.jsx';
 import LeaderPicker from './LeaderPicker.jsx';
+import { useRegTypes } from '../lib/regTypes.js';
 import PersonFields, { emptyPerson, validatePerson, personPayload, serverFieldError, normalizeMobile } from './PersonFields.jsx';
 
 /** Registro manual por un administrador. Conserva quién registra y la rama asignada. */
@@ -13,6 +14,11 @@ export default function RegisterPersonModal({ onClose, onCreated, defaultHeadId,
   const [heads, setHeads] = useState([]);
   const [headId, setHeadId] = useState(defaultHeadId || defaultInviter?.head_id || '');
   const [isLeader, setIsLeader] = useState(false);
+  const types = useRegTypes();
+  const [typeId, setTypeId] = useState(null);
+  const typeChoices = types.list.filter((t) => t.active);
+  const currentType = types.byId[typeId] || typeChoices.find((t) => t.builtin && t.role === (isLeader ? 'leader' : 'person'));
+  const chooseType = (t) => { setTypeId(t.id); setIsLeader(t.role !== 'person'); };
   const [inviter, setInviter] = useState(defaultInviter || null);
   const [leaders, setLeaders] = useState([]);
   const [leaderMode, setLeaderMode] = useState('auto');
@@ -57,7 +63,7 @@ export default function RegisterPersonModal({ onClose, onCreated, defaultHeadId,
     try {
       const p = await api.post('/people', {
         ...personPayload(f), notes, consent, head_id: Number(headId), is_leader: isLeader, inviter_id: inviter?.id ?? null,
-        leader_id: leaderMode === 'manual' && leaderId ? Number(leaderId) : null,
+        leader_id: leaderMode === 'manual' && leaderId ? Number(leaderId) : null, reg_type_id: currentType?.id ?? null,
       });
       toast(`${p.full_name} registrado correctamente`);
       onCreated?.(p);
@@ -84,10 +90,22 @@ export default function RegisterPersonModal({ onClose, onCreated, defaultHeadId,
           </div>
           <div className="field">
             <label>Tipo de registro</label>
-            <div className="seg" role="radiogroup">
-              <button type="button" className={!isLeader ? 'active' : ''} onClick={() => setIsLeader(false)}><User size={14} />Persona</button>
-              <button type="button" className={isLeader ? 'active' : ''} onClick={() => setIsLeader(true)}><Crown size={14} />Líder oficial</button>
-            </div>
+            {typeChoices.length > 0 ? (
+              <div className="type-grid compact" role="radiogroup">
+                {typeChoices.map((t) => (
+                  <button key={t.id} type="button" role="radio" aria-checked={currentType?.id === t.id} className={`type-card ${currentType?.id === t.id ? 'active' : ''}`}
+                    style={{ '--chip': t.color }} onClick={() => chooseType(t)}>
+                    <span className="type-card-bar" /><b className="row" style={{ gap: 5 }}>{t.role === 'person' ? <User size={13} /> : <Crown size={13} />}{t.name}</b>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="seg" role="radiogroup">
+                <button type="button" className={!isLeader ? 'active' : ''} onClick={() => setIsLeader(false)}><User size={14} />Persona</button>
+                <button type="button" className={isLeader ? 'active' : ''} onClick={() => setIsLeader(true)}><Crown size={14} />Líder oficial</button>
+              </div>
+            )}
+            <span className="hint">{isLeader ? 'Quedará como líder oficial (código LID-…).' : 'Quedará como persona; invitar no la convierte en líder.'}</span>
           </div>
         </div>
 

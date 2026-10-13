@@ -12,6 +12,7 @@ import People from './pages/People.jsx';
 import Person from './pages/Person.jsx';
 import Links from './pages/Links.jsx';
 import Register from './pages/Register.jsx';
+import Panel from './pages/Panel.jsx';
 import Users from './pages/Users.jsx';
 import Audit from './pages/Audit.jsx';
 import Locations from './pages/Locations.jsx';
@@ -38,6 +39,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/registro/:token" element={<Register />} />
+        <Route path="/panel/:token" element={<Panel />} />
         <Route element={<Protected><Layout /></Protected>}>
           <Route index element={<Home />} />
           <Route path="cabezas" element={<Heads />} />

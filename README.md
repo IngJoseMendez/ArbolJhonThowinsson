@@ -149,6 +149,36 @@ Filtros por localidad, comuna y barrio (dependientes y combinables con cabeza, l
 y en el árbol, con el número de coincidencias. *Ubicaciones → Personas por ubicación* muestra cuántas personas hay en
 cada nivel y enlaza a su listado.
 
+## Tipos de registro, enlaces de registro y panel del líder
+
+**Tipos de registro** (*Enlaces → Tipos y colores*): cada tipo tiene nombre y color, y pertenece a **Cabeza**, **Líder**
+o **Persona**. Los tres tipos base vienen creados: se puede cambiar su color y su nombre, pero no desactivarlos. El
+administrador general crea tipos nuevos, por ejemplo «Voto seguro» (persona), «Líder aspirante» (líder) o «Concejal»
+(cabeza). El tipo queda guardado en cada registro: se ve en la ficha y en el directorio, y se puede filtrar.
+
+**Enlaces de registro** (*Enlaces → Nuevo enlace de registro*): el formulario se ve en el celular con el color y el
+nombre del tipo, así se sabe qué enlace es. Según el tipo:
+
+| Pertenece a | Quien se registra… | Requiere |
+|---|---|---|
+| Persona | Queda como persona invitada por quien se indique | Cabeza y persona de la que cuelga |
+| Líder | Queda como **líder oficial automáticamente** (código `LID-…`, su enlace para invitar y su panel) | Cabeza; padrino opcional (sin padrino cuelga de la cabeza) |
+| Cabeza | Crea una **cabeza nueva** («Concejal Nombre Apellido», con el color del tipo) y queda como su primer líder | Sólo el administrador general; 1 registro por enlace por defecto |
+
+Cabeza, padrino y tipo se toman del enlace en el servidor, nunca del formulario. Los enlaces admiten límite de
+registros, caducidad y desactivación, como los demás.
+
+**Panel del líder** (`/panel/<enlace secreto>`): de solo lectura y sin usuario ni contraseña. Muestra cuántas personas
+hay en su red (directas y por debajo), las altas de los últimos 7 y 30 días, cuántas dijeron «cuenten conmigo», la
+lista de su red con los celulares enmascarados y el botón «Comparte tu link para unir más personas».
+
+- Es un enlace **distinto** del de invitación: compartir el enlace de invitación no da acceso al panel.
+- Para abrirlo pide los **últimos 4 dígitos de la cédula**. Tras 8 intentos fallidos se bloquea 15 minutos.
+- En la base de datos sólo se guarda la huella (sha256) del enlace. Se muestra una vez, al registrarse o al generarlo
+  desde la ficha, y no se puede volver a consultar.
+- Desde la ficha del líder se ve cuándo lo abrió por última vez. Ahí se puede generar uno nuevo, que invalida el
+  anterior, o desactivarlo.
+
 ## Expansión del árbol
 
 | Control | Efecto |

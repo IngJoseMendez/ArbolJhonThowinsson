@@ -235,6 +235,49 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 `;
 
+// v4: tipos de registro (cabeza / líder / persona) con color, enlaces de registro tipados y panel privado del líder.
+const MIGRATION_4 = `
+CREATE TABLE IF NOT EXISTS reg_types (
+  id         SERIAL PRIMARY KEY,
+  name       VARCHAR(60) NOT NULL,
+  name_key   VARCHAR(60) NOT NULL UNIQUE,
+  role       VARCHAR(10) NOT NULL CHECK (role IN ('head','leader','person')),
+  color      CHAR(7) NOT NULL,
+  builtin    SMALLINT NOT NULL DEFAULT 0 CHECK (builtin IN (0,1)),
+  active     SMALLINT NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  created_at TEXT NOT NULL DEFAULT ${TS},
+  updated_at TEXT NOT NULL DEFAULT ${TS}
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_reg_types_builtin ON reg_types (role) WHERE builtin = 1;
+INSERT INTO reg_types (name, name_key, role, color, builtin) VALUES
+  ('Cabeza', 'cabeza', 'head', '#7c3aed', 1),
+  ('Líder', 'lider', 'leader', '#d97706', 1),
+  ('Persona', 'persona', 'person', '#2563eb', 1)
+ON CONFLICT DO NOTHING;
+
+ALTER TABLE invite_links ALTER COLUMN owner_person_id DROP NOT NULL;
+ALTER TABLE invite_links DROP CONSTRAINT IF EXISTS invite_links_kind_check;
+DO $$ BEGIN
+  ALTER TABLE invite_links ADD CONSTRAINT ck_links_kind CHECK (kind IN ('leader','person','register'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+ALTER TABLE invite_links ADD COLUMN IF NOT EXISTS reg_type_id INT REFERENCES reg_types(id);
+ALTER TABLE invite_links ADD COLUMN IF NOT EXISTS head_id INT REFERENCES heads(id);
+ALTER TABLE invite_links ADD COLUMN IF NOT EXISTS label VARCHAR(120);
+DO $$ BEGIN
+  ALTER TABLE invite_links ADD CONSTRAINT ck_links_owner CHECK (kind = 'register' OR owner_person_id IS NOT NULL);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+CREATE INDEX IF NOT EXISTS ix_links_head ON invite_links (head_id) WHERE head_id IS NOT NULL;
+
+ALTER TABLE people ADD COLUMN IF NOT EXISTS reg_type_id INT REFERENCES reg_types(id);
+ALTER TABLE people ADD COLUMN IF NOT EXISTS panel_token_hash CHAR(64);
+ALTER TABLE people ADD COLUMN IF NOT EXISTS panel_created_at TEXT;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS panel_viewed_at TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_people_panel ON people (panel_token_hash) WHERE panel_token_hash IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_people_reg_type ON people (reg_type_id);
+UPDATE people SET reg_type_id = (SELECT id FROM reg_types WHERE builtin = 1 AND role = CASE WHEN people.is_leader = 1 THEN 'leader' ELSE 'person' END)
+ WHERE reg_type_id IS NULL;
+`;
+
 const nameKey = (s) => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 /** Carga inicial del catálogo de Santa Marta (sólo si el catálogo está vacío). */
@@ -258,6 +301,7 @@ const MIGRATIONS = [
   { version: 1, sql: SCHEMA },
   { version: 2, sql: MIGRATION_2, after: seedGeo },
   { version: 3, sql: MIGRATION_3 },
+  { version: 4, sql: MIGRATION_4 },
 ];
 
 let pool = null;

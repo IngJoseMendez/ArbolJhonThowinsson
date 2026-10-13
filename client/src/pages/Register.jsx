@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { AlertCircle, CheckCircle2, Clock, Crown, Lock, UserPlus } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock, Crown, Lock, Network, UserPlus } from 'lucide-react';
 import { api } from '../api.js';
 import { Avatar, Loading, ShareLink, useAsync } from '../components/ui.jsx';
+import PanelLinkBox from '../components/PanelLinkBox.jsx';
+import { typeVars } from '../lib/regTypes.js';
 import PersonFields, { emptyPerson, validatePerson, personPayload, personName, serverFieldError } from '../components/PersonFields.jsx';
 
 /** Formulario público de registro mediante enlace (pensado para celular). */
@@ -33,9 +35,17 @@ export default function Register() {
     catch (ex) { setErr(ex); setFieldErrors((x) => ({ ...x, ...serverFieldError(ex.body?.error) })); } finally { setBusy(false); }
   };
 
+  const typed = inv?.type || done?.type;
+  const role = inv?.role;
   return (
-    <div className="public-wrap">
-      <div className="public-card">
+    <div className="public-wrap" style={typeVars(typed?.color)}>
+      <div className={`public-card ${typed ? 'typed' : ''}`}>
+        {typed && (inv?.valid || done) && (
+          <div className="type-banner" role="note">
+            <span className="type-banner-kicker">{role === 'head' ? 'Registro de cabeza' : role === 'leader' ? 'Registro de líder' : 'Registro'}</span>
+            <span className="type-banner-name">{typed.name}</span>
+          </div>
+        )}
         {loading && <Loading />}
         {error && (
           <div className="card card-pad stack" style={{ textAlign: 'center' }}>
@@ -54,13 +64,42 @@ export default function Register() {
         {inv?.valid && !done && (
           <>
             <div className="invite-hero">
-              <Avatar name={inv.inviter.name} leader={inv.inviter.is_leader} size="lg" />
-              <div style={{ minWidth: 0 }}>
-                <div className="small muted">Le invita</div>
-                <div style={{ fontWeight: 650, fontSize: 17 }} className="row">{inv.inviter.name}{inv.inviter.is_leader && <Crown size={15} color="var(--leader)" />}</div>
-                <div className="row small text-2" style={{ marginTop: 2 }}><span className="dot" style={{ background: inv.head.color }} />{inv.head.name}</div>
-              </div>
+              {inv.inviter ? (
+                <>
+                  <Avatar name={inv.inviter.name} leader={inv.inviter.is_leader} size="lg" />
+                  <div style={{ minWidth: 0 }}>
+                    <div className="small muted">Le invita</div>
+                    <div style={{ fontWeight: 650, fontSize: 17 }} className="row">{inv.inviter.name}{inv.inviter.is_leader && <Crown size={15} color="var(--leader)" />}</div>
+                    <div className="row small text-2" style={{ marginTop: 2 }}><span className="dot" style={{ background: inv.head.color }} />{inv.head.name}</div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="hero-icon"><Network size={22} /></div>
+                  <div style={{ minWidth: 0 }}>
+                    {inv.head ? (
+                      <>
+                        <div className="small muted">Únase como {role === 'leader' ? 'líder' : 'integrante'} de</div>
+                        <div className="row" style={{ fontWeight: 650, fontSize: 17 }}><span className="dot" style={{ background: inv.head.color }} />{inv.head.name}</div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="small muted">Cree su propia estructura</div>
+                        <div style={{ fontWeight: 650, fontSize: 17 }}>Nueva cabeza · {inv.type.name}</div>
+                      </>
+                    )}
+                    {inv.label && <div className="small text-2" style={{ marginTop: 2 }}>{inv.label}</div>}
+                  </div>
+                </>
+              )}
             </div>
+            {role !== 'person' && (
+              <div className="alert alert-info small" style={{ marginBottom: 14 }}>
+                {role === 'head'
+                  ? 'Al registrarse se crea su estructura y usted queda como su primer líder, con un enlace para invitar y un panel para ver su gestión.'
+                  : 'Al registrarse queda como líder, con un enlace para invitar a más personas y un panel privado para ver cómo va su gestión.'}
+              </div>
+            )}
             <form className="card card-pad stack" onSubmit={submit} style={{ gap: 14 }}>
               <h2>Complete sus datos</h2>
               <PersonFields idPrefix="reg" size="lg" slogan value={f} errors={fieldErrors}
@@ -91,19 +130,29 @@ export default function Register() {
               {done.status === 'pending'
                 ? <Clock size={40} color="var(--warning)" style={{ margin: '0 auto' }} />
                 : <CheckCircle2 size={40} color="var(--good)" style={{ margin: '0 auto' }} />}
-              <h2>{done.status === 'pending' ? '¡Registro recibido!' : '¡Registro completado!'}</h2>
+              <h2>{done.status === 'pending' ? '¡Registro recibido!' : done.is_leader ? `¡Listo, ${f.first_names.split(' ')[0]}!` : '¡Registro completado!'}</h2>
               <p className="text-2" style={{ margin: 0 }}>
                 {done.status === 'pending'
                   ? `Su registro en ${done.head} quedó pendiente de aprobación. Le avisaremos cuando sea confirmado.`
-                  : `Ya forma parte de ${done.head}, invitado por ${done.inviter}. Su identificador es ${done.code}.`}
+                  : done.role === 'head'
+                    ? `Se creó la estructura ${done.head} y usted es su primer líder (${done.leader_code}).`
+                    : done.is_leader
+                      ? `Ya es ${done.type.name.toLowerCase()} en ${done.head}. Su código de líder es ${done.leader_code}.`
+                      : `Ya forma parte de ${done.head}${done.inviter ? `, invitado por ${done.inviter}` : ''}. Su identificador es ${done.code}.`}
               </p>
             </div>
             {done.invite_token && (
               <>
                 <div className="divider" />
-                <h3>Invite a otras personas</h3>
-                <p className="small text-2" style={{ margin: 0 }}>Comparta su enlace personal. Quienes se registren con él quedarán vinculados a usted.</p>
+                <h3>Comparte tu link para unir más personas</h3>
+                <p className="small text-2" style={{ margin: 0 }}>Quienes se registren con él quedarán vinculados a ti{done.is_leader ? ' y los verás en tu panel' : ''}.</p>
                 <ShareLink token={done.invite_token} ownerName={personName(f)} headName={done.head} />
+              </>
+            )}
+            {done.panel_token && (
+              <>
+                <div className="divider" />
+                <PanelLinkBox token={done.panel_token} firstTime />
               </>
             )}
           </div>

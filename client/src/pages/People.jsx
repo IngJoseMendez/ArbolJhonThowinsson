@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowDown, ArrowUp, Crown, GitBranch, Search, Users, X, MapPin } from 'lucide-react';
 import GeoSelect, { emptyGeo, geoFromIds } from '../components/GeoSelect.jsx';
 import LeaderPicker from '../components/LeaderPicker.jsx';
+import { useRegTypes } from '../lib/regTypes.js';
 import { api, qs } from '../api.js';
 import { fmtDate, fmtNum, phoneDisplay } from '../lib/format.js';
 import { useQueryState } from '../lib/useParams.js';
@@ -24,6 +25,7 @@ export default function People() {
   const [params, setParams] = useQueryState();
   const [term, setTerm] = useState(params.q || '');
   const heads = useAsync(() => api.get('/heads'), []);
+  const types = useRegTypes();
   const leaders = useAsync(() => api.get(`/leaders${qs({ head_id: params.head_id })}`), [params.head_id]);
   const query = { sort: 'created_at', dir: 'desc', page: 1, pageSize: 25, ...params };
   const { data, loading, error } = useAsync(() => api.get(`/people${qs(query)}`), [JSON.stringify(query)]);
@@ -46,7 +48,7 @@ export default function People() {
   const setFilter = (k) => (e) => setParams({ [k]: e.target.value, page: null });
   const sortBy = (k) => setParams({ sort: k, dir: query.sort === k && query.dir === 'desc' ? 'asc' : 'desc', page: null });
   const pages = data ? Math.max(1, Math.ceil(data.total / query.pageSize)) : 1;
-  const filtersOn = ['head_id', 'leader_id', 'inviter_id', 'status', 'type', 'method', 'from', 'to', 'q', 'localidad_id', 'geo_status', 'supports'].some((k) => params[k]);
+  const filtersOn = ['head_id', 'leader_id', 'inviter_id', 'status', 'type', 'method', 'from', 'to', 'q', 'localidad_id', 'geo_status', 'supports', 'reg_type_id'].some((k) => params[k]);
 
   return (
     <div className="page">
@@ -87,6 +89,9 @@ export default function People() {
             <option value="">Cualquier verificación</option><option value="pending">Pendientes de verificación</option>
             <option value="verified">Ubicación verificada</option><option value="none">Sin ubicación</option>
           </select>
+          <select className="select" style={{ width: 180 }} value={params.reg_type_id || ''} onChange={setFilter('reg_type_id')} aria-label="Tipo de registro">
+            <option value="">Cualquier tipo</option>{types.list.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
           <select className="select" style={{ width: 200 }} value={params.supports || ''} onChange={setFilter('supports')} aria-label="¿Contamos contigo?">
             <option value="">¿Contamos contigo?: todos</option><option value="yes">Contamos contigo: Sí</option>
             <option value="no">Contamos contigo: No</option><option value="unknown">Sin respuesta</option>
@@ -119,7 +124,8 @@ export default function People() {
                       <div className="row" style={{ gap: 10 }}>
                         <Avatar name={r.full_name} leader={r.is_leader} />
                         <div style={{ minWidth: 0 }}>
-                          <div className="row" style={{ gap: 5 }}><b>{r.full_name}</b>{r.is_leader && <Crown size={13} color="var(--leader)" />}</div>
+                          <div className="row" style={{ gap: 5 }}><b>{r.full_name}</b>{r.is_leader && <Crown size={13} color="var(--leader)" />}
+                            {types.byId[r.reg_type_id] && <span className="type-chip" style={{ '--chip': types.byId[r.reg_type_id].color }}>{types.byId[r.reg_type_id].name}</span>}</div>
                           <div className="small muted"><span className="mono">{r.is_leader ? r.leader_code : r.code}</span> · {phoneDisplay(r.phone)}</div>
                         </div>
                       </div>

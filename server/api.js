@@ -10,14 +10,16 @@ import {
 import {
   createPerson, registerViaInvite, resolveInvite, promoteToLeader, demoteLeader, setResponsibleLeader, movePerson,
   setStatus, updatePersonData, regeneratePersonLink, integrityReport, recountCounters, getPerson, getHead, findDuplicate,
+  createRegisterLink, issuePanelToken, revokePanelToken, regTypeById,
 } from './services/people.js';
+import { panelData } from './services/panel.js';
 import { treeChildren, treeSubtree, treeChildrenOf, pathToPerson, search, directory, dashboard, branchStats, NODE_SELECT } from './services/queries.js';
 import {
   listAreas, getArea, createArea, updateArea, importAreas, pendingGroups, resolvePendingGroup, locationStats, setPersonLocation,
 } from './services/geo.js';
 import { audit } from './services/audit.js';
 import {
-  badRequest, notFound, forbidden, str, intOrNull, slugLower, maskPhone, normalizePhone, normalizeDocument, AppError, sha256,
+  badRequest, notFound, forbidden, str, intOrNull, slugLower, maskPhone, normalizePhone, normalizeDocument, AppError, sha256, normalizeText,
 } from './util.js';
 
 export const api = express.Router();
@@ -248,6 +250,7 @@ api.post('/people', requireRole('super_admin', 'head_admin'), async (req, res) =
     inviterId: intOrNull(req.body.inviter_id, 'inviter_id'),
     isLeader: !!req.body.is_leader,
     leaderOverrideId: intOrNull(req.body.leader_id, 'leader_id'),
+    regTypeId: intOrNull(req.body.reg_type_id, 'reg_type_id'),
     method: 'manual',
     user: req.user,
     status: 'active',
@@ -341,6 +344,22 @@ api.patch('/people/:id', requireAuth, async (req, res) => {
   res.json(await updatePersonData(p.id, req.body, req.user, ip(req)));
 });
 
+// Panel privado del líder: el enlace secreto sólo se muestra al emitirlo; emitir uno nuevo invalida el anterior.
+api.post('/people/:id/panel', requireAuth, async (req, res) => {
+  const p = await loadManagedPerson(req);
+  if (!p.is_leader) throw badRequest('NOT_LEADER', 'El panel de gestión es para líderes.');
+  const token = await issuePanelToken(p.id);
+  await audit(req.user, 'panel.issue', 'person', p.id, {}, ip(req));
+  res.json({ token });
+});
+
+api.post('/people/:id/panel/revoke', requireAuth, async (req, res) => {
+  const p = await loadManagedPerson(req);
+  await revokePanelToken(p.id);
+  await audit(req.user, 'panel.revoke', 'person', p.id, {}, ip(req));
+  res.json({ ok: true });
+});
+
 api.post('/people/:id/promote', requireAuth, async (req, res) => {
   const p = await loadManagedPerson(req);
   res.json(await promoteToLeader(p.id, req.user, reasonOf(req), ip(req)));
@@ -410,35 +429,105 @@ api.get('/leaders', requireAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // Enlaces e invitaciones
 // ---------------------------------------------------------------------------
+const HEX = /^#[0-9a-fA-F]{6}$/;
+const ROLES_TYPE = ['head', 'leader', 'person'];
+
+api.get('/reg-types', requireAuth, async (req, res) => {
+  const all = req.query.all === '1' && isAdmin(req.user);
+  res.json(await q(`SELECT t.*, (SELECT COUNT(*) FROM people p WHERE p.reg_type_id = t.id AND p.status <> 'rejected') AS people
+      FROM reg_types t ${all ? '' : 'WHERE t.active = 1'}
+      ORDER BY CASE t.role WHEN 'head' THEN 0 WHEN 'leader' THEN 1 ELSE 2 END, t.builtin DESC, t.name`).all());
+});
+
+api.post('/reg-types', requireRole('super_admin'), async (req, res) => {
+  const name = str(req.body.name, { field: 'nombre', key: 'name', required: true, min: 2, max: 60 });
+  const role = String(req.body.role || '');
+  if (!ROLES_TYPE.includes(role)) throw badRequest('VALIDATION', 'Elija si el tipo registra cabezas, líderes o personas.', { field: 'role' });
+  const color = String(req.body.color || '');
+  if (!HEX.test(color)) throw badRequest('VALIDATION', 'Color no válido.', { field: 'color' });
+  const key = normalizeText(name);
+  if (await q('SELECT 1 FROM reg_types WHERE name_key = ?').get(key)) throw badRequest('DUPLICATE', 'Ya existe un tipo con ese nombre.', { field: 'name' });
+  const r = await q('INSERT INTO reg_types (name, name_key, role, color) VALUES (?,?,?,?)').run(name, key, role, color.toLowerCase());
+  await audit(req.user, 'reg_type.create', 'reg_type', Number(r.lastInsertRowid), { name, role, color }, ip(req));
+  res.status(201).json(await regTypeById(Number(r.lastInsertRowid)));
+});
+
+api.patch('/reg-types/:id', requireRole('super_admin'), async (req, res) => {
+  const t = await regTypeById(Number(req.params.id));
+  if (!t) throw notFound('Tipo no encontrado.');
+  const d = {};
+  if (req.body.name !== undefined) {
+    d.name = str(req.body.name, { field: 'nombre', key: 'name', required: true, min: 2, max: 60 });
+    const other = await q('SELECT id FROM reg_types WHERE name_key = ? AND id <> ?').get(normalizeText(d.name), t.id);
+    if (other) throw badRequest('DUPLICATE', 'Ya existe un tipo con ese nombre.', { field: 'name' });
+  }
+  if (req.body.color !== undefined) {
+    if (!HEX.test(String(req.body.color))) throw badRequest('VALIDATION', 'Color no válido.', { field: 'color' });
+    d.color = String(req.body.color).toLowerCase();
+  }
+  if (req.body.active !== undefined) {
+    if (t.builtin && !req.body.active) throw badRequest('BUILTIN', 'Los tipos base (Cabeza, Líder, Persona) no se pueden desactivar.');
+    d.active = req.body.active ? 1 : 0;
+  }
+  // El rol no se cambia: las personas ya registradas con el tipo quedarían incoherentes.
+  if (Object.keys(d).length) {
+    await q(`UPDATE reg_types SET name = COALESCE(?, name), name_key = COALESCE(?, name_key), color = COALESCE(?, color),
+        active = COALESCE(?, active), updated_at = ? WHERE id = ?`)
+      .run(d.name ?? null, d.name ? normalizeText(d.name) : null, d.color ?? null, d.active ?? null, now(), t.id);
+    await audit(req.user, 'reg_type.update', 'reg_type', t.id, d, ip(req));
+  }
+  res.json(await regTypeById(t.id));
+});
+
+api.post('/links', requireRole('super_admin', 'head_admin'), async (req, res) => {
+  if (req.body.head_id && !canManageHead(req.user, Number(req.body.head_id))) throw forbidden('No administra esta cabeza.');
+  res.status(201).json(await createRegisterLink(req.body, req.user, ip(req)));
+});
+
 api.get('/links', requireAuth, async (req, res) => {
-  const sc = scopeSql(req.user, 'o');
+  // Los enlaces de registro pueden no tener dueño: su cabeza es k.head_id (o ninguna, si registran cabezas nuevas).
+  const admin = isAdmin(req.user);
+  const sc = admin ? scopeSql(req.user, 'x') : scopeSql(req.user, 'o');
   const params = [...sc.params];
   const where = [sc.sql];
-  if (req.query.head_id) { where.push('o.head_id = ?'); params.push(Number(req.query.head_id)); }
+  if (!admin) where.push("k.kind <> 'register'");
+  if (req.query.head_id) { where.push('x.head_id = ?'); params.push(Number(req.query.head_id)); }
   if (req.query.kind) { where.push('k.kind = ?'); params.push(String(req.query.kind)); }
+  if (req.query.reg_type_id) { where.push('k.reg_type_id = ?'); params.push(Number(req.query.reg_type_id)); }
   if (req.query.status) { where.push('k.status = ?'); params.push(String(req.query.status)); }
   if (req.query.q) {
-    where.push('(o.name_key LIKE ? OR k.token LIKE ?)');
-    params.push(`%${String(req.query.q).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')}%`, `%${String(req.query.q).toUpperCase()}%`);
+    where.push('(o.name_key LIKE ? OR k.token LIKE ? OR lower(k.label) LIKE ?)');
+    params.push(`%${String(req.query.q).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')}%`, `%${String(req.query.q).toUpperCase()}%`,
+      `%${String(req.query.q).toLowerCase()}%`);
   }
   const pageSize = Math.min(Number(req.query.pageSize) || 50, 200);
   const page = Math.max(Number(req.query.page) || 1, 1);
-  const base = `FROM invite_links k JOIN people o ON o.id = k.owner_person_id JOIN heads h ON h.id = o.head_id
+  const base = `FROM invite_links k LEFT JOIN people o ON o.id = k.owner_person_id
+                CROSS JOIN LATERAL (SELECT COALESCE(k.head_id, o.head_id) AS head_id) x
+                LEFT JOIN heads h ON h.id = x.head_id LEFT JOIN reg_types rt ON rt.id = k.reg_type_id
                 LEFT JOIN users du ON du.id = k.disabled_by WHERE ${where.join(' AND ')}`;
   const total = (await q(`SELECT COUNT(*) n ${base}`).get(...params)).n;
   const rows = await q(`SELECT k.*, o.full_name AS owner_name, o.code AS owner_code, o.is_leader AS owner_is_leader, o.status AS owner_status,
-        o.head_id, h.name AS head_name, h.color AS head_color, du.display_name AS disabled_by_name,
+        x.head_id, h.name AS head_name, h.color AS head_color, du.display_name AS disabled_by_name,
+        rt.name AS type_name, rt.color AS type_color, rt.role AS type_role,
         (SELECT COUNT(*) FROM people r WHERE r.invite_link_id = k.id AND r.status <> 'rejected') AS uses,
         (SELECT COUNT(*) FROM people r WHERE r.invite_link_id = k.id AND r.status = 'pending') AS pending,
         (SELECT MAX(created_at) FROM people r WHERE r.invite_link_id = k.id) AS last_used
-      ${base} ORDER BY uses DESC, k.id DESC LIMIT ? OFFSET ?`).all(...params, pageSize, (page - 1) * pageSize);
-  res.json({ total, page, pageSize, rows: rows.map((r) => ({ ...r, owner_is_leader: !!r.owner_is_leader, can_manage: canManageHead(req.user, r.head_id) })) });
+      ${base} ORDER BY k.status, k.id DESC LIMIT ? OFFSET ?`).all(...params, pageSize, (page - 1) * pageSize);
+  res.json({
+    total, page, pageSize,
+    rows: rows.map((r) => ({
+      ...r, owner_is_leader: !!r.owner_is_leader,
+      can_manage: r.head_id ? canManageHead(req.user, r.head_id) : req.user.role === 'super_admin',
+    })),
+  });
 });
 
 async function loadManagedLink(req) {
-  const l = await q('SELECT k.*, o.head_id FROM invite_links k JOIN people o ON o.id = k.owner_person_id WHERE k.id = ?').get(Number(req.params.id));
+  const l = await q(`SELECT k.*, COALESCE(k.head_id, o.head_id) AS scope_head_id FROM invite_links k
+      LEFT JOIN people o ON o.id = k.owner_person_id WHERE k.id = ?`).get(Number(req.params.id));
   if (!l) throw notFound('Enlace no encontrado.');
-  assert(canManageHead(req.user, l.head_id), 'No administra la cabeza de este enlace.');
+  assert(l.scope_head_id ? canManageHead(req.user, l.scope_head_id) : req.user.role === 'super_admin', 'No administra la cabeza de este enlace.');
   return l;
 }
 
@@ -453,6 +542,11 @@ api.post('/links/:id/disable', requireAuth, async (req, res) => {
 
 api.post('/links/:id/enable', requireAuth, async (req, res) => {
   const l = await loadManagedLink(req);
+  if (l.kind === 'register') {
+    await q(`UPDATE invite_links SET status = 'active', disabled_at = NULL, disabled_by = NULL, disabled_reason = NULL WHERE id = ?`).run(l.id);
+    await audit(req.user, 'link.enable', 'invite_link', l.id, { token: l.token }, ip(req));
+    return res.json({ ok: true });
+  }
   const owner = await getPerson(l.owner_person_id);
   if (owner.status !== 'active') throw badRequest('NOT_ACTIVE', 'El propietario del enlace no está activo.');
   if (l.kind === 'leader' && !owner.is_leader) throw badRequest('NOT_LEADER', 'El propietario ya no es líder.');
@@ -658,18 +752,28 @@ api.get('/admin/integrity', requireRole('super_admin'), async (_req, res) => res
 api.post('/admin/recount', requireRole('super_admin'), async (req, res) => res.json(await recountCounters(req.user, ip(req))));
 
 // ---------------------------------------------------------------------------
+// Panel público de solo lectura del líder (enlace secreto + PIN)
+// ---------------------------------------------------------------------------
+const panelLimiter = rateLimit({ windowMs: 60e3, max: 60, key: (req) => `panel:${req.ip}` });
+api.post('/public/panel/:token', panelLimiter, async (req, res) => {
+  res.json(await panelData(req.params.token, req.body?.pin, { q: String(req.body?.q || '').slice(0, 60), page: req.body?.page }));
+});
+
+// ---------------------------------------------------------------------------
 // Registro público mediante enlace
 // ---------------------------------------------------------------------------
 const publicLimiter = rateLimit({ windowMs: 10 * 60e3, max: 10, key: (req) => `reg:${req.ip}` });
 const lookupLimiter = rateLimit({ windowMs: 60e3, max: 60, key: (req) => `inv:${req.ip}` });
 
 api.get('/public/invite/:token', lookupLimiter, async (req, res) => {
-  const { link, owner, head, valid, reason } = await resolveInvite(req.params.token);
+  const { link, owner, head, type, role, valid, reason } = await resolveInvite(req.params.token);
   res.json({
-    token: link.token, valid, reason,
-    inviter: { name: owner.full_name, is_leader: !!owner.is_leader && link.kind === 'leader' },
-    head: { name: head.name, color: head.color },
-    requires_approval: !!head.requires_approval,
+    token: link.token, valid, reason, role,
+    type: { name: type.name, color: type.color, role: type.role },
+    label: link.label || null,
+    inviter: owner ? { name: owner.full_name, is_leader: !!owner.is_leader && link.kind !== 'person' } : null,
+    head: head ? { name: head.name, color: head.color } : null,
+    requires_approval: role !== 'head' && !!head?.requires_approval,
   });
 });
 
@@ -686,12 +790,15 @@ api.post('/public/register/:token', publicLimiter, async (req, res) => {
     }
     throw e;
   }
-  const { person, owner, head } = result;
+  const { person, owner, head, type, role, panelToken } = result;
   res.status(201).json({
-    ok: true, status: person.status, code: person.code,
-    inviter: owner.full_name, head: head.name,
+    ok: true, status: person.status, code: person.code, role, is_leader: !!person.is_leader, leader_code: person.leader_code,
+    type: { name: type.name, color: type.color },
+    inviter: owner?.full_name ?? null, head: head.name,
     invite_token: person.status === 'active'
       ? (await q(`SELECT token FROM invite_links WHERE owner_person_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1`).get(person.id))?.token ?? null
       : null,
+    // Enlace secreto del panel de gestión (sólo líderes). Se muestra una única vez.
+    panel_token: panelToken,
   });
 });

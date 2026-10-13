@@ -2,8 +2,9 @@
 import { q, tx, now, pathUpper, MAX_PATH } from '../db.js';
 import {
   badRequest, conflict, notFound, forbidden, normalizeText, slugUpper, randomCode,
-  validatePhone, validateMobile, validateCedula, validateEmail, assertEmailDomain, normalizePhone, str,
+  validatePhone, validateMobile, validateCedula, validateEmail, assertEmailDomain, normalizePhone, str, sha256, slugLower,
 } from '../util.js';
+import crypto from 'node:crypto';
 import { audit, history } from './audit.js';
 import { resolveLocation, geoIntegrity } from './geo.js';
 import { IS_PRODUCTION } from '../env.js';
@@ -50,7 +51,9 @@ async function generatePersonInviteToken(fullName) {
 // ---------------------------------------------------------------------------
 
 export async function getPerson(id) {
-  return await q('SELECT * FROM people WHERE id = ?').get(id);
+  const p = await q('SELECT * FROM people WHERE id = ?').get(id);
+  if (p) { p.panel_active = !!p.panel_token_hash; delete p.panel_token_hash; } // la huella del panel nunca sale del servidor
+  return p;
 }
 
 export async function getHead(id) {
@@ -187,25 +190,115 @@ async function ensurePersonLink(person, userId) {
   return await createLink(person, 'person', userId);
 }
 
+// ---------------------------------------------------------------------------
+// Tipos de registro (cabeza / líder / persona, con color)
+// ---------------------------------------------------------------------------
+
+export const regTypeById = (id) => q('SELECT * FROM reg_types WHERE id = ?').get(id);
+export const builtinType = (role) => q('SELECT * FROM reg_types WHERE builtin = 1 AND role = ?').get(role);
+
+/** Tipo compatible con la condición de líder (los tipos «cabeza» y «líder» registran líderes). */
+async function typeFor(regTypeId, isLeader) {
+  const t = regTypeId ? await regTypeById(regTypeId) : await builtinType(isLeader ? 'leader' : 'person');
+  if (!t) throw badRequest('VALIDATION', 'El tipo de registro no existe.', { field: 'reg_type_id' });
+  if ((t.role === 'person') === !!isLeader) {
+    throw badRequest('VALIDATION', `El tipo «${t.name}» es para ${t.role === 'person' ? 'personas' : 'líderes'}.`, { field: 'reg_type_id' });
+  }
+  return t;
+}
+
+/** Crea una cabeza (nombre único). La usan el administrador y los enlaces de registro de tipo «cabeza». */
+export async function createHeadRecord(d, userId = null) {
+  let name = d.name;
+  for (let i = 2; await q('SELECT 1 FROM heads WHERE lower(name) = lower(?)').get(name); i++) name = `${d.name} (${i})`;
+  let slug = slugLower(name);
+  for (let i = 2; await q('SELECT 1 FROM heads WHERE slug = ?').get(slug); i++) slug = `${slugLower(name)}-${i}`;
+  const r = await q(`INSERT INTO heads (name, slug, description, region, color, requires_approval, person_invites_enabled, created_by)
+               VALUES (?,?,?,?,?,?,?,?)`).run(name, slug, d.description || '', d.region || '', d.color || '#2a78d6',
+    d.requires_approval ?? 0, d.person_invites_enabled ?? 1, userId);
+  return await getHead(Number(r.lastInsertRowid));
+}
+
 /** Resuelve un token público. Toda la información estructural sale de la BD, nunca de la URL. */
 export async function resolveInvite(rawToken) {
   const token = String(rawToken ?? '').trim().toUpperCase();
   if (!/^[A-Z0-9-]{4,80}$/.test(token)) throw notFound('El enlace de invitación no es válido.');
   const link = await q('SELECT * FROM invite_links WHERE token = ?').get(token);
   if (!link) throw notFound('El enlace de invitación no es válido.');
-  const owner = await getPerson(link.owner_person_id);
-  const head = await getHead(owner.head_id);
+  // Enlaces de líder/persona: quien se registra es una persona invitada por el dueño del enlace.
+  // Enlaces de registro: el tipo decide si se registra una persona, un líder o una nueva cabeza.
+  const type = link.reg_type_id ? await regTypeById(link.reg_type_id) : await builtinType('person');
+  const role = link.kind === 'register' ? type.role : 'person';
+  const owner = link.owner_person_id ? await getPerson(link.owner_person_id) : null;
+  const head = role === 'head' ? null : await getHead(link.head_id ?? owner.head_id);
   let reason = null;
   if (link.status !== 'active') reason = 'Este enlace fue desactivado.';
   else if (link.expires_at && link.expires_at < now()) reason = 'Este enlace ha caducado.';
-  else if (owner.status !== 'active') reason = 'Este enlace ya no está disponible.';
-  else if (head.status !== 'active') reason = 'Este enlace ya no está disponible.';
+  else if (owner && owner.status !== 'active') reason = 'Este enlace ya no está disponible.';
+  else if (head && head.status !== 'active') reason = 'Este enlace ya no está disponible.';
+  else if (owner && head && owner.head_id !== head.id) reason = 'Este enlace ya no está disponible.';
   else if (link.kind === 'leader' && !owner.is_leader) reason = 'Este enlace ya no está disponible.';
+  else if (link.kind === 'register' && !type.active) reason = 'Este enlace ya no está disponible.';
   else if (link.max_uses != null) {
     const used = (await q(`SELECT COUNT(*) n FROM people WHERE invite_link_id = ? AND status <> 'rejected'`).get(link.id)).n;
     if (used >= link.max_uses) reason = 'Este enlace alcanzó su límite de registros.';
   }
-  return { link, owner, head, valid: !reason, reason };
+  return { link, owner, head, type, role, valid: !reason, reason };
+}
+
+/** Enlace de registro tipado creado por un administrador. */
+export async function createRegisterLink(body, user, ip) {
+  return await tx(async () => {
+    const type = await regTypeById(Number(body.reg_type_id));
+    if (!type || !type.active) throw badRequest('VALIDATION', 'Elija un tipo de registro activo.', { field: 'reg_type_id' });
+    const label = str(body.label, { field: 'nombre del enlace', key: 'label', max: 120 }) || null;
+    let headId = null;
+    let owner = null;
+    if (type.role === 'head') {
+      if (user.role !== 'super_admin') throw forbidden('Sólo el administrador general crea enlaces para registrar cabezas.');
+    } else {
+      headId = Number(body.head_id) || null;
+      const head = headId ? await getHead(headId) : null;
+      if (!head || head.status !== 'active') throw badRequest('VALIDATION', 'Elija una cabeza activa.', { field: 'head_id' });
+      if (body.owner_person_id) {
+        owner = await getPerson(Number(body.owner_person_id));
+        if (!owner || owner.head_id !== head.id || owner.status !== 'active') {
+          throw badRequest('VALIDATION', 'Quien invita debe ser una persona activa de la misma cabeza.', { field: 'owner_person_id' });
+        }
+      } else if (type.role === 'person') {
+        throw badRequest('VALIDATION', 'Indique de quién cuelgan las personas que se registren con este enlace.', { field: 'owner_person_id' });
+      }
+    }
+    let maxUses = body.max_uses === undefined || body.max_uses === '' || body.max_uses === null ? null : Number(body.max_uses);
+    if (maxUses !== null && (!Number.isInteger(maxUses) || maxUses < 1)) throw badRequest('VALIDATION', 'Máximo de registros no válido.', { field: 'max_uses' });
+    if (type.role === 'head' && maxUses === null) maxUses = 1; // por defecto, un enlace por cabeza
+    let expires = body.expires_at || null;
+    if (expires && Number.isNaN(Date.parse(expires))) throw badRequest('VALIDATION', 'Fecha de caducidad no válida.', { field: 'expires_at' });
+    if (expires) expires = new Date(expires).toISOString();
+    const base = `REG-${slugUpper(type.name, 2)}`;
+    let token;
+    do token = `${base}-${randomCode(6)}`; while (await tokenTaken(token));
+    const r = await q(`INSERT INTO invite_links (token, kind, owner_person_id, reg_type_id, head_id, label, max_uses, expires_at, created_by)
+                 VALUES (?, 'register', ?, ?, ?, ?, ?, ?, ?)`).run(token, owner?.id ?? null, type.id, headId, label, maxUses, expires, user.id);
+    const id = Number(r.lastInsertRowid);
+    await audit(user, 'link.create_register', 'invite_link', id, { token, reg_type: type.name, role: type.role, head_id: headId, owner_person_id: owner?.id ?? null }, ip);
+    return await q('SELECT * FROM invite_links WHERE id = ?').get(id);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Panel privado del líder (sólo lectura, enlace secreto + PIN)
+// ---------------------------------------------------------------------------
+
+/** Emite (o reemplaza) el enlace secreto del panel. Sólo se guarda su huella: el enlace anterior deja de funcionar. */
+export async function issuePanelToken(personId) {
+  const token = crypto.randomBytes(24).toString('base64url');
+  await q('UPDATE people SET panel_token_hash = ?, panel_created_at = ?, panel_viewed_at = NULL WHERE id = ?').run(sha256(token), now(), personId);
+  return token;
+}
+
+export async function revokePanelToken(personId) {
+  await q('UPDATE people SET panel_token_hash = NULL, panel_created_at = NULL, panel_viewed_at = NULL WHERE id = ?').run(personId);
 }
 
 // ---------------------------------------------------------------------------
@@ -220,6 +313,7 @@ export async function createPerson(opts) {
   return await tx(async () => {
     const { headId, inviterId = null, isLeader = false, leaderOverrideId = null, method, user = null, linkId = null, ip = null } = opts;
     const data = validatePersonData(opts.data || {});
+    const regType = await typeFor(opts.regTypeId, isLeader);
     await assertEmailDomain(data.email, { enabled: EMAIL_DNS });
     const geo = await resolveLocation(opts.data?.location, { required: true });
     const head = await getHead(headId);
@@ -262,14 +356,14 @@ export async function createPerson(opts) {
                    leader_id, leader_mode, is_leader, leader_code, leader_since, registration_method, registered_by_user_id,
                    invite_link_id, status, path, depth, consent_at, registration_ip, created_at, updated_at,
                    address, geo_localidad_id, geo_comuna_id, geo_barrio_id, geo_localidad_text, geo_comuna_text, geo_barrio_text, geo_status,
-                   first_names, last_names, supports)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+                   first_names, last_names, supports, reg_type_id)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
       code, data.full_name, normalizeText(data.full_name), data.phone, data.email, data.document_id, data.city, data.notes,
       head.id, inviter?.id ?? null, leaderId, leaderMode, isLeader ? 1 : 0, leaderCode, isLeader ? ts : null,
       method, method === 'manual' ? user?.id ?? null : null, linkId, status, '/', inviter ? inviter.depth + 1 : 0,
       opts.consent ? ts : null, ip, opts.createdAt || ts, opts.createdAt || ts,
       data.address, geo.geo_localidad_id, geo.geo_comuna_id, geo.geo_barrio_id, geo.geo_localidad_text, geo.geo_comuna_text,
-      geo.geo_barrio_text, geo.geo_status, data.first_names, data.last_names, data.supports,
+      geo.geo_barrio_text, geo.geo_status, data.first_names, data.last_names, data.supports, regType.id,
     );
     const id = Number(r.lastInsertRowid);
     const path = `${inviter ? inviter.path : '/'}${id}/`;
@@ -284,7 +378,7 @@ export async function createPerson(opts) {
     await history(id, 'registered', {
       method, head_id: head.id, head: head.name, inviter_id: inviter?.id ?? null, inviter: inviter?.full_name ?? null,
       leader_id: leaderId, leader_mode: leaderMode, is_leader: !!isLeader, leader_code: leaderCode, status,
-      invite_link_id: linkId,
+      invite_link_id: linkId, reg_type: regType.name,
     }, user?.id, opts.reason || null);
     await audit(user, method === 'manual' ? 'person.create_manual' : 'person.register_invite', 'person', id,
       { head_id: head.id, inviter_id: inviter?.id ?? null, is_leader: !!isLeader, link_id: linkId }, ip);
@@ -292,28 +386,41 @@ export async function createPerson(opts) {
   });
 }
 
-/** Registro público mediante enlace. head/inviter se derivan SIEMPRE del token en el servidor. */
+/**
+ * Registro público mediante enlace. Cabeza, invitador y tipo se derivan SIEMPRE del token en el servidor.
+ * Según el tipo del enlace se registra una persona, un líder (con su enlace y su panel) o una nueva cabeza
+ * cuyo primer líder es quien se registra.
+ */
 export async function registerViaInvite(token, body, ip) {
-  const { link, owner, head, valid, reason } = await resolveInvite(token);
+  const { link, owner, head, type, role, valid, reason } = await resolveInvite(token);
   if (!valid) throw badRequest('LINK_INVALID', reason);
   if (body.website) throw badRequest('SPAM', 'No se pudo procesar el registro.'); // honeypot
   if (!body.consent) throw badRequest('CONSENT_REQUIRED', 'Debe aceptar el tratamiento de datos para registrarse.', { field: 'consent' });
-  const person = await createPerson({
-    data: {
-      full_name: body.full_name, first_names: body.first_names, last_names: body.last_names, document_id: body.document_id,
-      address: body.address, phone: body.phone, email: body.email, location: body.location, supports: body.supports,
-      requireSupports: true,
-    },
-    headId: head.id,
-    inviterId: owner.id,
-    isLeader: false,
-    method: 'invitation',
-    linkId: link.id,
-    status: head.requires_approval ? 'pending' : 'active',
-    consent: true,
-    ip,
+  const data = {
+    full_name: body.full_name, first_names: body.first_names, last_names: body.last_names, document_id: body.document_id,
+    address: body.address, phone: body.phone, email: body.email, location: body.location, supports: body.supports,
+    requireSupports: true,
+  };
+  const common = { data, method: 'invitation', linkId: link.id, consent: true, ip, regTypeId: type.id };
+  return await tx(async () => {
+    let person;
+    let targetHead = head;
+    if (role === 'head') {
+      // Se valida antes de crear la cabeza; si algo falla después, la transacción la deshace.
+      validatePersonData(data);
+      const { full_name } = validateNames(data);
+      targetHead = await createHeadRecord({ name: `${type.name} ${full_name}`, color: type.color, description: `Registrada con el enlace ${link.token}` });
+      await audit(null, 'head.create_via_link', 'head', targetHead.id, { link_id: link.id, reg_type: type.name }, ip);
+      person = await createPerson({ ...common, headId: targetHead.id, inviterId: null, isLeader: true, status: 'active' });
+    } else {
+      person = await createPerson({
+        ...common, headId: head.id, inviterId: owner?.id ?? null, isLeader: role === 'leader',
+        status: head.requires_approval ? 'pending' : 'active',
+      });
+    }
+    const panelToken = person.is_leader ? await issuePanelToken(person.id) : null;
+    return { person, owner, head: targetHead, type, role, panelToken };
   });
-  return { person, owner, head };
 }
 
 // ---------------------------------------------------------------------------
@@ -366,7 +473,10 @@ export async function promoteToLeader(personId, user, reason, ip) {
     if (p.is_leader) throw badRequest('ALREADY_LEADER', 'La persona ya es líder oficial.');
     if (p.status !== 'active') throw badRequest('NOT_ACTIVE', 'Sólo se puede designar como líder a una persona activa.');
     const code = await generateLeaderCode(p.full_name);
-    await q('UPDATE people SET is_leader = 1, leader_code = ?, leader_since = ?, updated_at = ? WHERE id = ?').run(code, now(), now(), p.id);
+    await q(`UPDATE people SET is_leader = 1, leader_code = ?, leader_since = ?, updated_at = ?,
+        reg_type_id = CASE WHEN (SELECT role FROM reg_types WHERE id = people.reg_type_id) = 'person' OR reg_type_id IS NULL
+                           THEN (SELECT id FROM reg_types WHERE builtin = 1 AND role = 'leader') ELSE reg_type_id END
+        WHERE id = ?`).run(code, now(), now(), p.id);
     const updated = await getPerson(p.id);
     await createLink(updated, 'leader', user?.id);
     // Su invitación personal deja de ser necesaria: el enlace de líder la sustituye.
@@ -389,7 +499,8 @@ export async function demoteLeader(personId, user, reason, ip) {
     if (!p.inviter_id) {
       throw badRequest('ROOT_LEADER', 'Es un líder raíz de la cabeza: antes de retirarle el liderazgo debe moverlo debajo de otra persona.');
     }
-    await q('UPDATE people SET is_leader = 0, leader_since = NULL, updated_at = ? WHERE id = ?').run(now(), p.id);
+    await q(`UPDATE people SET is_leader = 0, leader_since = NULL, updated_at = ?, panel_token_hash = NULL, panel_created_at = NULL,
+        reg_type_id = (SELECT id FROM reg_types WHERE builtin = 1 AND role = 'person') WHERE id = ?`).run(now(), p.id);
     await q(`UPDATE invite_links SET status = 'disabled', disabled_at = ?, disabled_by = ?, disabled_reason = 'auto:demoted'
         WHERE owner_person_id = ? AND kind = 'leader' AND status = 'active'`).run(now(), user?.id ?? null, p.id);
     await history(p.id, 'demoted_leader', { leader_code: p.leader_code }, user?.id, reason);
@@ -563,6 +674,8 @@ export async function updatePersonData(personId, body, user, ip) {
     };
     // Registros antiguos (sin cédula/dirección) pueden editarse; los nuevos mantienen los obligatorios.
     const data = validatePersonData(merged, { legacy: { document_id: p.document_id, address: p.address, phone_changed: body.phone !== undefined && normalizePhone(body.phone) !== p.phone } });
+    data.reg_type_id = body.reg_type_id !== undefined && body.reg_type_id !== null && body.reg_type_id !== ''
+      ? (await typeFor(Number(body.reg_type_id), p.is_leader)).id : p.reg_type_id;
     if (data.email && data.email !== p.email) await assertEmailDomain(data.email, { enabled: EMAIL_DNS });
     if (p.status !== 'rejected') await assertNoDuplicate(data, p.id);
     const changes = {};
@@ -571,8 +684,9 @@ export async function updatePersonData(personId, body, user, ip) {
     }
     if (!Object.keys(changes).length) return p;
     await q(`UPDATE people SET full_name = ?, name_key = ?, phone = ?, email = ?, document_id = ?, address = ?, city = ?, notes = ?,
-        first_names = ?, last_names = ?, supports = ?, updated_at = ? WHERE id = ?`).run(data.full_name, normalizeText(data.full_name),
-      data.phone, data.email, data.document_id, data.address, data.city, data.notes, data.first_names, data.last_names, data.supports, now(), p.id);
+        first_names = ?, last_names = ?, supports = ?, reg_type_id = ?, updated_at = ? WHERE id = ?`).run(data.full_name, normalizeText(data.full_name),
+      data.phone, data.email, data.document_id, data.address, data.city, data.notes, data.first_names, data.last_names, data.supports,
+      data.reg_type_id, now(), p.id);
     await history(p.id, 'data_updated', { fields: changes }, user?.id, body.reason || null);
     await audit(user, 'person.update', 'person', p.id, { fields: Object.keys(changes) }, ip);
     return await getPerson(p.id);

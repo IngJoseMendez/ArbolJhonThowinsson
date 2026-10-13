@@ -450,3 +450,45 @@ button.combo-btn:hover { background: var(--surface-2); color: var(--text); }
 .supports-option.active { border-color: var(--accent); background: var(--accent-soft, rgba(37, 99, 235, 0.08)); color: var(--accent); }
 .supports .err { display: block; margin-top: 8px; }
 .slogan { margin: 14px 0 0; text-align: center; font-style: italic; font-weight: 600; font-size: 15px; color: var(--text-2); letter-spacing: 0.01em; }
+
+/* Tipos de registro: el formulario y el panel se tiñen con el color del tipo */
+.public-wrap[style*="--type"] { background: linear-gradient(180deg, var(--type-soft) 0, var(--bg) 340px); }
+.type-banner { display: flex; flex-direction: column; gap: 2px; padding: 16px 18px; margin-bottom: 14px; border-radius: var(--radius);
+  background: var(--type); color: var(--type-ink); box-shadow: var(--shadow-sm); }
+.type-banner-kicker { font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.85; }
+.type-banner-name { font-size: 22px; font-weight: 750; line-height: 1.2; }
+.type-banner-sub { font-size: 13px; opacity: 0.9; }
+.public-card.typed .invite-hero { border-left: 5px solid var(--type); }
+.public-card.typed .btn-primary { background: var(--type); border-color: var(--type); color: var(--type-ink); }
+.public-card.typed .btn-primary:hover:not(:disabled) { filter: brightness(1.06); }
+.public-card.typed .supports-option.active { border-color: var(--type); color: var(--type); background: var(--type-soft); }
+.public-card.typed .check input { accent-color: var(--type); }
+.hero-icon { width: 48px; height: 48px; flex: none; border-radius: 50%; display: grid; place-items: center;
+  background: var(--type-soft, var(--accent-soft)); color: var(--type, var(--accent)); }
+.type-chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px 2px 7px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  background: color-mix(in srgb, var(--chip) 14%, transparent); color: var(--text); border: 1px solid color-mix(in srgb, var(--chip) 40%, transparent); white-space: nowrap; }
+.type-chip::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--chip); }
+
+/* Panel del líder */
+.pin-input { text-align: center; font-size: 28px !important; letter-spacing: 0.5em; font-weight: 700; height: 58px !important; }
+.panel-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.panel-stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+.panel-stat b { font-size: 24px; line-height: 1.1; }
+.panel-stat span { font-size: 12.5px; color: var(--text-2); }
+.panel-stat.big { grid-column: 1 / -1; border-color: var(--type, var(--border)); background: var(--type-soft, var(--surface)); }
+.panel-stat.big b { font-size: 34px; color: var(--type, var(--text)); }
+.panel-list { list-style: none; margin: 0; padding: 0; }
+.panel-list li { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--border); }
+.panel-link .link-box code { font-size: 11.5px; }
+.color-input { width: 44px; height: 36px; padding: 2px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; }
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border-strong); cursor: pointer; }
+.swatch.active { box-shadow: 0 0 0 2px var(--text); }
+.type-swatch { width: 14px; height: 14px; border-radius: 4px; flex: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12); display: inline-block; }
+.type-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.type-card { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 12px 10px 16px; text-align: left;
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; overflow: hidden; color: var(--text); }
+.type-card-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: var(--chip); }
+.type-card.active { border-color: var(--chip); background: color-mix(in srgb, var(--chip) 10%, var(--surface)); box-shadow: 0 0 0 1px var(--chip); }
+.type-grid.compact { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px; }
+.type-grid.compact .type-card { padding: 8px 10px 8px 14px; font-size: 13px; }

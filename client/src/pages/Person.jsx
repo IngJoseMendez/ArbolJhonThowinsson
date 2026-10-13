@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   Crown, GitBranch, Network, UserCheck, Send, Pencil, MoveRight, Power, CheckCircle2, XCircle, KeyRound, Users, Layers,
-  ClipboardList, RefreshCw, ChevronRight, UserPlus, Info, Link2, ShieldCheck, ChevronsDown, MapPin,
+  ClipboardList, RefreshCw, ChevronRight, UserPlus, Info, Link2, ShieldCheck, ChevronsDown, MapPin, Eye,
 } from 'lucide-react';
 import { api, qs } from '../api.js';
 import { useAuth } from '../auth.jsx';
@@ -11,6 +11,8 @@ import { BarList } from '../components/Charts.jsx';
 import RegisterPersonModal from '../components/RegisterPersonModal.jsx';
 import GeoSelect, { geoFromPerson, geoToApi } from '../components/GeoSelect.jsx';
 import LeaderPicker from '../components/LeaderPicker.jsx';
+import PanelLinkBox from '../components/PanelLinkBox.jsx';
+import { useRegTypes } from '../lib/regTypes.js';
 import {
   cedulaError, formatCedula, formatMobile, formatName, mobileError, normalizeCedula, normalizeMobile,
 } from '../lib/validators.js';
@@ -35,7 +37,7 @@ const HISTORY = {
   location_verified: 'Ubicación verificada',
 };
 const SUPPORTS = { yes: 'Sí', no: 'No' };
-const FIELD = { full_name: 'Nombre', first_names: 'Nombres', last_names: 'Apellidos', supports: '¿Contamos contigo?', phone: 'Celular', email: 'Correo', document_id: 'Cédula', address: 'Dirección', city: 'Municipio', notes: 'Observaciones' };
+const FIELD = { reg_type_id: 'Tipo de registro', full_name: 'Nombre', first_names: 'Nombres', last_names: 'Apellidos', supports: '¿Contamos contigo?', phone: 'Celular', email: 'Correo', document_id: 'Cédula', address: 'Dirección', city: 'Municipio', notes: 'Observaciones' };
 
 function HistoryDetail({ h, names }) {
   const d = h.details;
@@ -68,12 +70,13 @@ function splitName(full) {
   return { first_names: w.slice(0, n).join(' '), last_names: w.slice(n).join(' ') };
 }
 
-function EditModal({ p, onClose, onDone }) {
+function EditModal({ p, types = [], onClose, onDone }) {
   const names = p.first_names || p.last_names ? { first_names: p.first_names || '', last_names: p.last_names || '' } : splitName(p.full_name);
   const [f, setF] = useState({
     ...names, phone: p.phone || '', document_id: p.document_id || '', address: p.address || '',
-    supports: p.supports || '', notes: p.notes || '', reason: '',
+    supports: p.supports || '', reg_type_id: p.reg_type_id ? String(p.reg_type_id) : '', notes: p.notes || '', reason: '',
   });
+  const typeOptions = types.filter((t) => (t.active || t.id === p.reg_type_id) && (p.is_leader ? t.role !== 'person' : t.role === 'person'));
   const [err, setErr] = useState(null);
   const [errors, setErrors] = useState({});
   const set = (k, fmt = (x) => x) => (e) => setF({ ...f, [k]: fmt(e.target.value) });
@@ -88,7 +91,7 @@ function EditModal({ p, onClose, onDone }) {
     try {
       await api.patch(`/people/${p.id}`, {
         ...f, first_names: formatName(f.first_names), last_names: formatName(f.last_names), phone: normalizeMobile(f.phone),
-        document_id: normalizeCedula(f.document_id) || null, supports: f.supports || null,
+        document_id: normalizeCedula(f.document_id) || null, supports: f.supports || null, reg_type_id: f.reg_type_id || undefined,
       });
       onDone('Datos actualizados'); onClose();
     } catch (ex) { setErr(ex); if (ex.body?.error?.field) setErrors({ [ex.body.error.field]: ex.message }); }
@@ -107,6 +110,12 @@ function EditModal({ p, onClose, onDone }) {
           <div className="field"><label>Celular / WhatsApp</label><input className={`input ${errors.phone ? 'invalid' : ''}`} type="tel" inputMode="numeric" value={formatMobile(f.phone)} onChange={set('phone', normalizeMobile)} />{fe('phone')}</div>
         </div>
         <div className="field"><label>Dirección</label><input className="input" value={f.address} onChange={set('address')} maxLength={200} />{fe('address')}</div>
+        {typeOptions.length > 1 && (
+          <div className="field"><label>Tipo de registro</label>
+            <select className="select" value={f.reg_type_id} onChange={set('reg_type_id')}>
+              {typeOptions.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select></div>
+        )}
         <div className="field"><label>¿Contamos contigo en este camino?</label>
           <div className="seg">
             {[['yes', 'Sí'], ['no', 'No'], ['', 'Sin respuesta']].map(([v, l]) => (
@@ -245,6 +254,8 @@ export default function Person() {
   const toast = useToast();
   const { data, loading, error, reload } = useAsync(() => api.get(`/people/${id}`), [id]);
   const [modal, setModal] = useState(null);
+  const [panelToken, setPanelToken] = useState(null);
+  const types = useRegTypes();
   const done = (msg) => { toast(msg); reload(); };
 
   if (loading && !data) return <Loading />;
@@ -263,6 +274,7 @@ export default function Person() {
             <h1>{p.full_name}</h1>
             <div className="row-wrap" style={{ marginTop: 8 }}>
               <RoleBadge isLeader={p.is_leader} code={p.leader_code} />
+              {types.byId[p.reg_type_id] && <span className="type-chip" style={{ '--chip': types.byId[p.reg_type_id].color }} title="Tipo de registro">{types.byId[p.reg_type_id].name}</span>}
               {!p.is_leader && invitees.length > 0 && <span className="badge" title="Ha invitado a otras personas sin ser líder oficial"><Send size={12} />Invita a otras personas · no es líder</span>}
               <StatusBadge status={p.status} />
               <HeadPill name={head.name} color={head.color} />
@@ -400,6 +412,20 @@ export default function Person() {
             {p.is_leader === false && <div className="alert alert-info small"><Info size={14} />Invitar no convierte a nadie en líder.</div>}
           </div>
 
+          {p.is_leader && perm.manage && (
+            <div className="card card-pad stack">
+              <h2 className="row"><Eye size={16} />Panel de gestión</h2>
+              <p className="small text-2" style={{ margin: 0 }}>Enlace privado de solo lectura para que {p.full_name.split(' ')[0]} vea su red sin usuario ni contraseña. Se abre con los últimos 4 dígitos de su cédula.</p>
+              {p.panel_active
+                ? <div className="small">Activo desde {fmtDate(p.panel_created_at)} · {p.panel_viewed_at ? `abierto ${relTime(p.panel_viewed_at)}` : 'aún no lo ha abierto'}</div>
+                : <div className="small muted">Sin enlace de panel.</div>}
+              <div className="row-wrap">
+                <button className="btn btn-sm" onClick={() => setModal('panel')}><KeyRound size={14} />{p.panel_active ? 'Generar uno nuevo' : 'Generar enlace del panel'}</button>
+                {p.panel_active && <button className="btn btn-sm btn-ghost" onClick={() => setModal('panel-revoke')}>Desactivar</button>}
+              </div>
+            </div>
+          )}
+
           {/* Datos */}
           <div className="card card-pad stack">
             <h2>Datos de contacto</h2>
@@ -450,7 +476,18 @@ export default function Person() {
         </div>
       </div>
 
-      {modal === 'edit' && <EditModal p={p} onClose={() => setModal(null)} onDone={done} />}
+      {modal === 'edit' && <EditModal p={p} types={types.list} onClose={() => setModal(null)} onDone={done} />}
+      {modal === 'panel' && <ConfirmModal title={p.panel_active ? 'Generar un nuevo enlace del panel' : 'Generar enlace del panel'} confirmLabel="Generar"
+        message={p.panel_active ? 'El enlace actual dejará de funcionar. Entregue el nuevo sólo a la persona por un canal privado.' : 'Se creará un enlace privado de solo lectura. Entréguelo sólo a la persona por un canal privado.'}
+        onConfirm={async () => { const r = await api.post(`/people/${p.id}/panel`); setPanelToken(r.token); reload(); }} onClose={() => setModal(null)} />}
+      {modal === 'panel-revoke' && <ConfirmModal title="Desactivar panel" danger confirmLabel="Desactivar"
+        message="El enlace del panel dejará de funcionar. Puede generar uno nuevo cuando quiera."
+        onConfirm={async () => { await api.post(`/people/${p.id}/panel/revoke`); done('Panel desactivado'); }} onClose={() => setModal(null)} />}
+      {panelToken && (
+        <Modal title="Enlace del panel" onClose={() => setPanelToken(null)} footer={<button className="btn btn-primary" onClick={() => setPanelToken(null)}>Listo</button>}>
+          <PanelLinkBox token={panelToken} />
+        </Modal>
+      )}
       {modal === 'location' && <LocationModal p={p} location={data.location} onClose={() => setModal(null)} onDone={done} />}
       {modal === 'move' && <MoveModal p={p} head={head} onClose={() => setModal(null)} onDone={done} />}
       {modal === 'leader' && <LeaderModal p={p} onClose={() => setModal(null)} onDone={done} />}
