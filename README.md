@@ -25,7 +25,7 @@ y quién la invitó directamente.
 ## Despliegue en Vercel
 
 1. Importe el repositorio en Vercel (*Add New → Project*). `vercel.json` ya define la instalación, la compilación
-   (`dist/`) y la función `api/index.js`, así que no hay que cambiar *Framework*, *Build* ni *Output*.
+   (`dist/`) y la función `api/index.js`. En *Settings → Build & Development* deje **Root Directory vacío** (raíz del repositorio): si apunta a `client`, Vercel no desplegará la API.
 2. En el proyecto, vaya a *Storage → Create Database → Neon (Postgres)*, elija la **misma región** que sus
    funciones (por ejemplo `us-east-1` / `iad1`) y conéctela al proyecto. Vercel añadirá automáticamente
    `DATABASE_URL` (también `POSTGRES_URL`). No hay que crear tablas: el esquema se crea solo en la primera petición.

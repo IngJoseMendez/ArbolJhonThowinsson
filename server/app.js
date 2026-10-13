@@ -61,8 +61,8 @@ export function createApp() {
   app.use('/api', api);
   app.use('/api', (_req, _res, next) => next(new AppError(404, 'NOT_FOUND', 'Ruta no encontrada.')));
 
-  const dist = path.resolve(__dirname, '..', 'dist');
-  if (fs.existsSync(dist)) {
+  const dist = [path.resolve(__dirname, '..', 'dist'), path.resolve(__dirname, '..', 'client', 'dist')].find((d) => fs.existsSync(d)) || '';
+  if (dist) {
     app.use(express.static(dist, { index: false, maxAge: '1h' }));
     app.get('/{*splat}', (_req, res) => res.sendFile(path.join(dist, 'index.html')));
   }
