@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS heads (
   slug          TEXT NOT NULL UNIQUE,
   description   TEXT NOT NULL DEFAULT '',
   region        TEXT NOT NULL DEFAULT '',
-  color         TEXT NOT NULL DEFAULT '#4f46e5',
+  color         TEXT NOT NULL DEFAULT '#2a78d6',
   status        TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','archived')),
   requires_approval INTEGER NOT NULL DEFAULT 0 CHECK (requires_approval IN (0,1)),
   person_invites_enabled INTEGER NOT NULL DEFAULT 1 CHECK (person_invites_enabled IN (0,1)),

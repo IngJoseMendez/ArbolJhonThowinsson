@@ -14,10 +14,11 @@ import {
 import { treeChildren, pathToPerson, search, directory, dashboard, branchStats, NODE_SELECT } from './services/queries.js';
 import { audit } from './services/audit.js';
 import {
-  badRequest, notFound, forbidden, str, intOrNull, slugLower, maskPhone, normalizePhone, normalizeDocument, AppError,
+  badRequest, notFound, forbidden, str, intOrNull, slugLower, maskPhone, normalizePhone, normalizeDocument, AppError, sha256,
 } from './util.js';
 
 export const api = express.Router();
+const HEAD_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948'];
 const ip = (req) => req.ip;
 
 // ---------------------------------------------------------------------------
@@ -57,6 +58,17 @@ api.get('/me', requireAuth, (req, res) => {
   });
 });
 
+api.post('/me/password', requireAuth, rateLimit({ windowMs: 15 * 60e3, max: 10 }), (req, res) => {
+  const u = q('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (!verifyPassword(String(req.body.current ?? ''), u.password_hash)) throw badRequest('BAD_PASSWORD', 'La contraseña actual no es correcta.');
+  const next = String(req.body.password ?? '');
+  if (next.length < 8) throw badRequest('VALIDATION', 'La nueva contraseña debe tener al menos 8 caracteres.');
+  q('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(next), u.id);
+  q('DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?').run(u.id, sha256(req.sessionToken));
+  audit(req.user, 'user.password_change', 'user', u.id, {}, ip(req));
+  res.json({ ok: true });
+});
+
 // ---------------------------------------------------------------------------
 // Cabezas
 // ---------------------------------------------------------------------------
@@ -84,7 +96,9 @@ function headInput(body, partial = false) {
   if (!partial || body.description !== undefined) out.description = str(body.description, { field: 'descripción', max: 500 });
   if (!partial || body.region !== undefined) out.region = str(body.region, { field: 'región', max: 80 });
   if (body.color !== undefined || !partial) {
-    const c = String(body.color || '#4f46e5');
+    // Por defecto, el siguiente color libre de la paleta categórica validada.
+    const used = new Set(q('SELECT color FROM heads').all().map((r) => r.color));
+    const c = String(body.color || HEAD_COLORS.find((x) => !used.has(x)) || HEAD_COLORS[0]);
     if (!/^#[0-9a-fA-F]{6}$/.test(c)) throw badRequest('VALIDATION', 'Color no válido.');
     out.color = c;
   }
@@ -243,6 +257,21 @@ api.get('/people/:id', requireAuth, (req, res) => {
     .filter((h) => manage || isSelf || SAFE.has(h.change_type))
     .map((h) => ({ ...h, details: JSON.parse(h.details) }));
   const account = manage ? q('SELECT id, username, role, status, last_login_at FROM users WHERE person_id = ?').get(p.id) : null;
+  // Nombres referenciados en el historial (sólo de personas visibles para el usuario).
+  const pids = new Set(); const hids = new Set();
+  for (const h of history) {
+    const d = h.details;
+    for (const k of ['inviter_id', 'leader_id', 'from', 'to', 'from_inviter_id', 'to_inviter_id', 'via_branch_of']) {
+      if (Number.isInteger(d[k])) pids.add(d[k]);
+    }
+    for (const k of ['head_id', 'from_head_id', 'to_head_id']) if (Number.isInteger(d[k])) hids.add(d[k]);
+  }
+  const names = { people: {}, heads: {} };
+  for (const pid of pids) {
+    const r = getPerson(pid);
+    if (r) names.people[pid] = canViewPerson(u, r) || r.id === p.inviter_id || r.id === p.leader_id ? r.full_name : 'Persona fuera de su alcance';
+  }
+  for (const hid of hids) { const r = getHead(hid); if (r) names.heads[hid] = r.name; }
   res.json({
     person: {
       ...p, is_leader: !!p.is_leader, path: undefined, registration_ip: undefined,
@@ -251,7 +280,7 @@ api.get('/people/:id', requireAuth, (req, res) => {
     },
     head: { id: head.id, name: head.name, color: head.color, person_invites_enabled: !!head.person_invites_enabled },
     leader, inviter: inviter ? { ...inviter, is_leader: !!inviter.is_leader } : null,
-    registered_by: registeredBy, via_link: viaLink, invitees, links, history, account,
+    registered_by: registeredBy, via_link: viaLink, invitees, links, history, account, names,
     stats: branchStats(p),
     chain: pathToPerson(u, p).map((n) => ({ id: n.id, full_name: n.full_name, is_leader: n.is_leader, code: n.code })),
     permissions: { manage, contact, super: u.role === 'super_admin', self: isSelf },

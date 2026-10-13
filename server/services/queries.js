@@ -125,17 +125,17 @@ export function directory(user, f) {
   };
 }
 
-function headFilter(user, alias = 'p') {
+function headFilter(user, column) {
   const ids = visibleHeadIds(user);
   if (ids === null) return { sql: '1=1', params: [] };
   if (!ids.length) return { sql: '0=1', params: [] };
-  return { sql: `${alias}.head_id IN (${ids.map(() => '?').join(',')})`, params: ids };
+  return { sql: `${column} IN (${ids.map(() => '?').join(',')})`, params: ids };
 }
 
 /** Estadísticas del dashboard, siempre calculadas sobre la BD y dentro del alcance del usuario. */
 export function dashboard(user, { headId = null, days = 90 } = {}) {
   const sc = scopeSql(user);
-  const hf = headFilter(user, 'h');
+  const hf = headFilter(user, 'h.id');
   const extra = headId ? ' AND p.head_id = ?' : '';
   const ep = headId ? [Number(headId)] : [];
   const w = `${sc.sql}${extra}`;

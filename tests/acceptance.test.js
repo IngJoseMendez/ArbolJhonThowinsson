@@ -265,6 +265,22 @@ test('11. Los permisos impiden consultar o modificar fuera del alcance', async (
   // Puede generar su propia invitación, pero no la de otros
   assert.equal((await ric.post(`/api/people/${ids.ricardo}/link`, {})).status, 200);
   assert.equal((await ric.post(`/api/people/${ids.sofia}/link`, {})).status, 403);
+  // Dashboard y estadísticas limitados al alcance de cada rol
+  const sd = await sur.get('/api/stats/dashboard');
+  assert.equal(sd.status, 200, JSON.stringify(sd.data));
+  assert.deepEqual(sd.data.perHead.map((h) => h.id), [ids.sur]);
+  assert.equal(sd.data.totals.heads, 1);
+  const jd = await jose.get('/api/stats/dashboard');
+  assert.equal(jd.status, 200, JSON.stringify(jd.data));
+  assert.equal(jd.data.totals.people, 3, 'el líder sólo cuenta su estructura');
+  const rdash = await ric.get('/api/stats/dashboard');
+  assert.equal(rdash.status, 200);
+  assert.equal(rdash.data.totals.people, 2);
+  assert.equal((await sur.get(`/api/stats/dashboard?head_id=${ids.norte}`)).status, 404);
+  assert.equal((await jose.get(`/api/heads/${ids.norte}`)).status, 200);
+  assert.equal((await jose.get(`/api/heads/${ids.sur}`)).status, 404);
+  assert.deepEqual((await jose.get('/api/leaders')).data.map((l) => l.id), [ids.jose]);
+  assert.ok((await jose.get('/api/links')).data.rows.every((l) => [ids.jose, ids.ricardo, ids.sofia].includes(l.owner_person_id)));
   // Sin sesión
   assert.equal((await anon.get('/api/people')).status, 401);
 });

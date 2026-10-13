@@ -43,7 +43,7 @@ const viaLink = (ownerId, name, at) => {
 };
 
 // --- Cabeza Norte (ejemplo literal del enunciado) ---
-const norte = head('Cabeza Norte', '#4f46e5', 'Zona Norte', 'Estructura de ejemplo del enunciado.');
+const norte = head('Cabeza Norte', '#2a78d6', 'Zona Norte', 'Estructura de ejemplo del enunciado.');
 const juan = manual(norte, 'Juan Pérez', null, { leader: true, at: day(80) });
 const maria = viaLink(juan, 'María Gómez', day(70));
 const pedro = viaLink(maria, 'Pedro Ramírez', day(60));
@@ -62,7 +62,7 @@ const last = ['García', 'Rojas', 'Díaz', 'Moreno', 'Jiménez', 'Ruiz', 'Álvar
 let k = 0;
 const nm = () => `${first[k % first.length]} ${last[Math.floor(k++ / first.length) % last.length]} ${last[(k * 7) % last.length]}`;
 
-for (const [name, color, region] of [['Cabeza Sur', '#0d9488', 'Zona Sur'], ['Cabeza Centro', '#d97706', 'Zona Centro']]) {
+for (const [name, color, region] of [['Cabeza Sur', '#eb6834', 'Zona Sur'], ['Cabeza Centro', '#1baf7a', 'Zona Centro']]) {
   const h = head(name, color, region, `Estructura territorial ${region}.`);
   for (let L = 0; L < 3; L++) {
     const leader = manual(h, nm(), null, { leader: true, at: day(88 - L * 5) });
