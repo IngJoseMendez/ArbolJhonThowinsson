@@ -92,6 +92,15 @@ test('3-4. Selección dependiente validada en el servidor', async () => {
   assert.equal(inf.data.geo_comuna_id, g.C3.id, 'comuna deducida del barrio');
   assert.equal(inf.data.geo_status, 'verified');
   assert.equal((await post({ localidad_id: g.L1.id, barrio_id: g.pescaito.id })).data.error.code, 'GEO_MISMATCH', 'barrio de otra localidad');
+  // Sólo el barrio: comuna y localidad se deducen
+  const solo = await post({ barrio_id: g.olaya.id });
+  assert.equal(solo.status, 201, JSON.stringify(solo.data));
+  assert.equal(solo.data.geo_localidad_id, g.L2.id);
+  assert.equal(solo.data.geo_comuna_id, g.C3.id);
+  const todos = (await anon.get('/api/geo/areas?level=barrio&todos=1')).data;
+  const o = todos.find((b) => b.id === g.olaya.id);
+  assert.equal(o.localidad_id, g.L2.id);
+  assert.equal(o.parent_name, 'Comuna 3');
   assert.equal((await post({ localidad_id: g.C3.id })).status, 400, 'una comuna no es una localidad');
   const ok = await post({ localidad_id: g.L2.id, comuna_id: g.taganga.id });
   assert.equal(ok.status, 201, 'corregimiento como segundo nivel, sin barrio/vereda');

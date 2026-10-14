@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import LeaderPicker from '../components/LeaderPicker.jsx';
 import { Link } from 'react-router-dom';
-import { Ban, Check, CheckCircle2, Clock, Copy, Crown, Link2, Palette, Plus, Power, Search, Settings2, XCircle } from 'lucide-react';
+import { Ban, Check, CheckCircle2, Clock, Copy, Crown, ExternalLink, Link2, Palette, Plus, Power, Search, Settings2, XCircle } from 'lucide-react';
 import { ROLE_HELP, ROLE_LABEL, SWATCHES, clearRegTypes, useRegTypes, typeVars } from '../lib/regTypes.js';
 import { api, qs } from '../api.js';
 import { useAuth } from '../auth.jsx';
@@ -196,6 +197,94 @@ function TypesTab() {
   );
 }
 
+const remember = (k, v) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch { /* sin almacenamiento */ } };
+const recall = (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+
+/** Tarjeta de un tipo: su enlace general con botones directos (WhatsApp, Copiar, Abrir). */
+function GeneralLinkCard({ type, heads }) {
+  const toast = useToast();
+  const onlyHead = heads.length === 1 ? String(heads[0].id) : '';
+  const [headId, setHeadId] = useState(() => recall(`gl:${type.id}:head`) || onlyHead);
+  const [ownerId, setOwnerId] = useState(() => recall(`gl:${type.id}:owner`));
+  const [leaders, setLeaders] = useState([]);
+  const [link, setLink] = useState(null);
+  const [err, setErr] = useState(null);
+  const needsHead = type.role !== 'head';
+  const needsOwner = type.role === 'person';
+  const validHead = heads.some((h) => String(h.id) === String(headId)) ? headId : onlyHead;
+  const head = heads.find((h) => String(h.id) === String(validHead));
+
+  useEffect(() => {
+    if (!needsOwner || !validHead) { setLeaders([]); return; }
+    api.get(`/leaders${qs({ head_id: validHead })}`).then(setLeaders).catch(() => setLeaders([]));
+  }, [needsOwner, validHead]);
+  const owner = leaders.find((l) => String(l.id) === String(ownerId));
+  const ready = (!needsHead || validHead) && (!needsOwner || owner);
+
+  useEffect(() => {
+    setLink(null); setErr(null);
+    if (!ready) return undefined;
+    let alive = true;
+    api.post('/links/general', { reg_type_id: type.id, head_id: needsHead ? Number(validHead) : null, owner_person_id: needsOwner ? owner.id : null })
+      .then((l) => alive && setLink(l)).catch((e) => alive && setErr(e));
+    return () => { alive = false; };
+  }, [type.id, validHead, owner?.id, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const url = link ? inviteUrl(link.token) : '';
+  const message = `${type.role === 'head' ? 'Regístrate y crea tu estructura' : 'Regístrate'} como ${type.name}${head ? ` en ${head.name}` : ''}: ${url}`;
+  const copy = async () => { if (await copyText(url)) toast(`Enlace de ${type.name} copiado`); };
+  return (
+    <div className="glink" style={{ '--chip': type.color, ...typeVars(type.color) }}>
+      <div className="glink-head">
+        <b>{type.name}</b>
+        <span className="small">{type.role === 'head' ? 'Registra cabezas' : type.role === 'leader' ? 'Registra líderes' : 'Registra personas'}</span>
+      </div>
+      <div className="glink-body">
+        {needsHead && heads.length > 1 && (
+          <select className="select" value={validHead} aria-label={`Cabeza para ${type.name}`}
+            onChange={(e) => { setHeadId(e.target.value); remember(`gl:${type.id}:head`, e.target.value); setOwnerId(''); }}>
+            <option value="">¿En qué cabeza?</option>{heads.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+          </select>
+        )}
+        {needsHead && heads.length === 1 && <span className="small text-2 row" style={{ gap: 6 }}><span className="dot" style={{ background: heads[0].color }} />{heads[0].name}</span>}
+        {needsOwner && validHead && (
+          <LeaderPicker id={`gl-owner-${type.id}`} leaders={leaders} compact value={ownerId} placeholder="¿De qué líder cuelgan?"
+            onChange={(id) => { setOwnerId(id); remember(`gl:${type.id}:owner`, id); }} />
+        )}
+        {link ? (
+          <>
+            <div className="row-wrap" style={{ gap: 6 }}>
+              <a className="btn btn-sm btn-wa" href={`https://wa.me/?text=${encodeURIComponent(message)}`} target="_blank" rel="noopener noreferrer">WhatsApp</a>
+              <button type="button" className="btn btn-sm" onClick={copy}><Copy size={14} />Copiar</button>
+              <a className="btn btn-sm btn-ghost btn-icon" href={`/registro/${link.token}`} target="_blank" rel="noopener noreferrer" title="Abrir formulario" aria-label="Abrir formulario"><ExternalLink size={14} /></a>
+            </div>
+            <span className="small muted">{fmtNum(link.uses)} registros con este enlace</span>
+          </>
+        ) : err ? <span className="small" style={{ color: 'var(--critical)' }}>{err.message}</span>
+          : ready ? <span className="small muted">Preparando enlace…</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function GeneralLinks() {
+  const a = useAuth();
+  const types = useRegTypes();
+  const heads = useAsync(() => api.get('/heads'), []);
+  const manageable = (heads.data || []).filter((h) => h.status === 'active' && h.can_manage);
+  const list = types.list.filter((t) => t.active && (t.role !== 'head' || a.isSuper));
+  if (!list.length || !heads.data) return null;
+  return (
+    <div className="card card-pad" style={{ marginBottom: 16 }}>
+      <div className="row-wrap" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
+        <div><h2>Enlaces para compartir</h2>
+          <p className="small text-2" style={{ margin: '2px 0 0' }}>Un enlace por tipo: envíelo directo por WhatsApp. Quien se registre queda con ese tipo y su color.</p></div>
+      </div>
+      <div className="glink-grid">{list.map((t) => <GeneralLinkCard key={t.id} type={t} heads={manageable} />)}</div>
+    </div>
+  );
+}
+
 function LinksTab() {
   const a = useAuth();
   const toast = useToast();
@@ -210,6 +299,7 @@ function LinksTab() {
   const pages = data ? Math.max(1, Math.ceil(data.total / 50)) : 1;
   return (
     <>
+      {a.isAdmin && <GeneralLinks />}
       <div className="row-wrap" style={{ marginBottom: 12 }}>
         <div className="search-input" style={{ width: 260 }}><Search size={16} />
           <input className="input" placeholder="Propietario o token" value={f.q} onChange={(e) => { setF({ ...f, q: e.target.value }); setPage(1); }} /></div>
@@ -227,7 +317,7 @@ function LinksTab() {
         <select className="select" style={{ width: 140 }} value={f.status} onChange={(e) => { setF({ ...f, status: e.target.value }); setPage(1); }} aria-label="Estado">
           <option value="">Todos</option><option value="active">Activos</option><option value="disabled">Desactivados</option>
         </select>
-        {a.isAdmin && <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal({ type: 'create' })}><Plus size={15} />Nuevo enlace de registro</button>}
+        {a.isAdmin && <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal({ type: 'create' })}><Plus size={15} />Enlace con opciones</button>}
       </div>
       <div className="card">
         <ErrorBox error={error} />
@@ -242,7 +332,7 @@ function LinksTab() {
                   <tr key={l.id}>
                     <td>
                       <div className="row" style={{ gap: 6 }}>{l.kind === 'register' ? <span className="type-swatch" style={{ background: l.type_color }} /> : l.kind === 'leader' ? <Crown size={14} color="var(--leader)" /> : <Link2 size={14} className="muted" />}<span className="mono">{l.token}</span></div>
-                      {l.kind === 'register' && <div className="row-wrap" style={{ gap: 6, margin: '3px 0' }}><TypeChip name={l.type_name} color={l.type_color} /><span className="small text-2">registra {ROLE_LABEL[l.type_role]?.toLowerCase()}s</span>{l.label && <span className="small"><b>{l.label}</b></span>}</div>}
+                      {l.kind === 'register' && <div className="row-wrap" style={{ gap: 6, margin: '3px 0' }}><TypeChip name={l.type_name} color={l.type_color} /><span className="small text-2">registra {ROLE_LABEL[l.type_role]?.toLowerCase()}s</span>{l.label && <span className="small"><b>{l.label}</b></span>}{l.is_general ? <span className="badge badge-outline">General</span> : null}</div>}
                       <div className="small muted">{l.kind === 'register' ? 'Enlace de registro' : l.kind === 'leader' ? 'Enlace de líder' : 'Invitación personal'} · creado {fmtDate(l.created_at)}
                         {l.max_uses ? ` · máx. ${l.max_uses}` : ''}{l.expires_at ? ` · caduca ${fmtDate(l.expires_at)}` : ''}</div>
                     </td>

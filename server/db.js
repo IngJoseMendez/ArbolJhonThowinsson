@@ -286,6 +286,12 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 `;
 
+// v6: enlaces generales por tipo (uno por tipo, cabeza y dueño; sin nombre ni límites), listos para compartir.
+const MIGRATION_6 = `
+ALTER TABLE invite_links ADD COLUMN IF NOT EXISTS is_general SMALLINT NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS ix_links_general ON invite_links (reg_type_id, head_id, owner_person_id) WHERE is_general = 1 AND status = 'active';
+`;
+
 const nameKey = (s) => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 /** Carga inicial del catálogo de Santa Marta (sólo si el catálogo está vacío). */
@@ -311,6 +317,7 @@ const MIGRATIONS = [
   { version: 3, sql: MIGRATION_3 },
   { version: 4, sql: MIGRATION_4 },
   { version: 5, sql: MIGRATION_5 },
+  { version: 6, sql: MIGRATION_6 },
 ];
 
 let pool = null;

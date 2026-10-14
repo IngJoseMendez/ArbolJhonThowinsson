@@ -492,3 +492,11 @@ button.combo-btn:hover { background: var(--surface-2); color: var(--text); }
 .type-card.active { border-color: var(--chip); background: color-mix(in srgb, var(--chip) 10%, var(--surface)); box-shadow: 0 0 0 1px var(--chip); }
 .type-grid.compact { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px; }
 .type-grid.compact .type-card { padding: 8px 10px 8px 14px; font-size: 13px; }
+
+/* Enlaces generales por tipo */
+.glink-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.glink { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--surface); display: flex; flex-direction: column; }
+.glink-head { background: var(--type); color: var(--type-ink); padding: 10px 14px; display: flex; flex-direction: column; gap: 1px; }
+.glink-head b { font-size: 15px; }
+.glink-head .small { opacity: 0.9; }
+.glink-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; }

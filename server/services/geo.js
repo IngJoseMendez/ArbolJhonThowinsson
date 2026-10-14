@@ -16,7 +16,15 @@ export async function getArea(id) {
 }
 
 /** Opciones de un nivel, opcionalmente filtradas por padre y texto (para los selectores). */
-export async function listAreas({ level, parentId = null, localidadId = null, term = '', includeInactive = false, limit = 500 } = {}) {
+export async function listAreas({ level, parentId = null, localidadId = null, allBarrios = false, term = '', includeInactive = false, limit = 500 } = {}) {
+  if (allBarrios) {
+    // Todos los barrios y veredas con su comuna y su localidad: permite elegir el barrio sin elegir antes la localidad.
+    return q(`SELECT ${AREA_COLS.split(', ').map((c) => `b.${c}`).join(', ')}, c.name AS parent_name, c.kind AS parent_kind, c.alias AS parent_alias,
+               l.id AS localidad_id, l.name AS localidad_name, l.alias AS localidad_alias
+               FROM geo_areas b JOIN geo_areas c ON c.id = b.parent_id JOIN geo_areas l ON l.id = c.parent_id
+              WHERE b.level = 'barrio' AND b.active = 1 AND c.active = 1 AND l.active = 1
+              ORDER BY b.name_key, l.name_key LIMIT ?`).all(limit);
+  }
   if (localidadId) {
     // Barrios y veredas de una localidad, con su comuna o corregimiento (que se deduce al elegir el barrio).
     return q(`SELECT ${AREA_COLS.split(', ').map((c) => `b.${c}`).join(', ')}, c.name AS parent_name, c.kind AS parent_kind, c.alias AS parent_alias
@@ -45,10 +53,14 @@ export async function listAreas({ level, parentId = null, localidadId = null, te
  */
 export async function resolveLocation(input, { required = true } = {}) {
   const loc = { ...(input || {}) };
-  // Formulario sin comuna: si se elige un barrio del catálogo, su comuna o corregimiento se deduce.
+  // Formulario sin comuna: si se elige un barrio del catálogo, su comuna o corregimiento se deduce,
+  // y también la localidad cuando se eligió el barrio directamente.
   if (loc.barrio_id && !loc.comuna_id && !loc.comuna_text) {
     const b = await getArea(Number(loc.barrio_id));
-    if (b?.level === 'barrio') loc.comuna_id = b.parent_id;
+    if (b?.level === 'barrio') {
+      loc.comuna_id = b.parent_id;
+      if (!loc.localidad_id && !loc.localidad_text) loc.localidad_id = (await getArea(b.parent_id))?.parent_id;
+    }
   }
   const out = {
     geo_localidad_id: null, geo_comuna_id: null, geo_barrio_id: null,

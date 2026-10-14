@@ -14,6 +14,25 @@ export async function fetchAreas(level, parentId) {
 }
 export const clearGeoCache = () => cache.clear();
 
+/** Todos los barrios y veredas, con su comuna y su localidad (para elegir el barrio sin elegir antes la localidad). */
+export async function fetchAllBarrios() {
+  const key = 'barrios-todos';
+  if (!cache.has(key)) cache.set(key, api.get('/geo/areas?level=barrio&todos=1').catch((e) => { cache.delete(key); throw e; }));
+  return cache.get(key);
+}
+
+function useAllBarrios(enabled) {
+  const [state, setState] = useState({ list: [], loading: false });
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let alive = true;
+    setState((s) => ({ ...s, loading: true }));
+    fetchAllBarrios().then((list) => alive && setState({ list, loading: false })).catch(() => alive && setState({ list: [], loading: false }));
+    return () => { alive = false; };
+  }, [enabled]);
+  return state;
+}
+
 /** Barrios y veredas de toda una localidad (formulario sin comuna), con su comuna o corregimiento. */
 export async function fetchBarriosOfLocalidad(localidadId) {
   const key = `barrios-de:${localidadId}`;
@@ -74,15 +93,22 @@ const describeBarrio = (o) => (o.parent_kind === 'corregimiento' ? `Vereda · Co
  */
 function SimpleGeoSelect({ value, onChange, errors, idPrefix }) {
   const loc = useOptions('localidad', null);
-  const bar = useOptions('barrio', value.localidad, { byLocalidad: true });
+  const byLoc = useOptions('barrio', value.localidad, { byLocalidad: true });
+  // Sin localidad elegida, el barrio se busca entre todos y la localidad se completa sola.
+  const all = useAllBarrios(!value.localidad);
+  const bar = value.localidad ? byLoc : all;
   const setLocalidad = (v) => {
     const same = v && value.localidad && !isManual(v) && v.id === value.localidad.id;
     onChange(same ? { ...value, localidad: v } : { localidad: v, comuna: null, barrio: null });
   };
   const setBarrio = (o) => {
     if (!o || isManual(o)) onChange({ ...value, comuna: null, barrio: o });
-    else onChange({ ...value, comuna: { id: o.parent_id, name: o.parent_name, kind: o.parent_kind, alias: o.parent_alias }, barrio: o });
+    else {
+      const localidad = value.localidad || (o.localidad_id ? { id: o.localidad_id, name: o.localidad_name, alias: o.localidad_alias, kind: 'localidad' } : null);
+      onChange({ localidad, comuna: { id: o.parent_id, name: o.parent_name, kind: o.parent_kind, alias: o.parent_alias }, barrio: o });
+    }
   };
+  const describe = (o) => (value.localidad ? describeBarrio(o) : `${describeBarrio(o)} · ${o.localidad_name}`);
   const upperManual = isManual(value.localidad);
   const path = [value.localidad, value.barrio].filter(Boolean).map((x) => (isManual(x) ? `${x.manual} (escrito)` : x.name));
   const pending = [value.localidad, value.barrio].some((x) => isManual(x) && x.manual.trim());
@@ -101,8 +127,8 @@ function SimpleGeoSelect({ value, onChange, errors, idPrefix }) {
           </div>
         ) : (
           <Combobox id={`${idPrefix}-barrio`} label="Barrio o vereda" options={bar.list} loading={bar.loading} value={value.barrio}
-            onChange={setBarrio} disabled={!value.localidad} describe={describeBarrio} error={errors.barrio}
-            placeholder={value.localidad ? 'Buscar barrio o vereda…' : 'Elija primero la localidad'}
+            onChange={setBarrio} describe={describe} error={errors.barrio}
+            placeholder="Buscar barrio o vereda…" hint={!value.localidad ? 'Si eliges el barrio, la localidad se completa sola.' : undefined}
             manualLabel="¿Tu barrio no está aquí? Escríbelo" manualPlaceholder="Nombre del barrio o vereda" />
         )}
       </div>

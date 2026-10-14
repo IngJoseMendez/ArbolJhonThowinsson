@@ -274,18 +274,37 @@ export async function createRegisterLink(body, user, ip) {
     }
     let maxUses = body.max_uses === undefined || body.max_uses === '' || body.max_uses === null ? null : Number(body.max_uses);
     if (maxUses !== null && (!Number.isInteger(maxUses) || maxUses < 1)) throw badRequest('VALIDATION', 'Máximo de registros no válido.', { field: 'max_uses' });
-    if (type.role === 'head' && maxUses === null) maxUses = 1; // por defecto, un enlace por cabeza
+    if (type.role === 'head' && maxUses === null && !body.general) maxUses = 1; // por defecto, un enlace por cabeza
     let expires = body.expires_at || null;
     if (expires && Number.isNaN(Date.parse(expires))) throw badRequest('VALIDATION', 'Fecha de caducidad no válida.', { field: 'expires_at' });
     if (expires) expires = new Date(expires).toISOString();
     const base = `REG-${slugUpper(type.name, 2)}`;
     let token;
     do token = `${base}-${randomCode(6)}`; while (await tokenTaken(token));
-    const r = await q(`INSERT INTO invite_links (token, kind, owner_person_id, reg_type_id, head_id, label, max_uses, expires_at, created_by)
-                 VALUES (?, 'register', ?, ?, ?, ?, ?, ?, ?)`).run(token, owner?.id ?? null, type.id, headId, label, maxUses, expires, user.id);
+    const r = await q(`INSERT INTO invite_links (token, kind, owner_person_id, reg_type_id, head_id, label, max_uses, expires_at, created_by, is_general)
+                 VALUES (?, 'register', ?, ?, ?, ?, ?, ?, ?, ?)`).run(token, owner?.id ?? null, type.id, headId, label, maxUses, expires, user.id,
+      body.general ? 1 : 0);
     const id = Number(r.lastInsertRowid);
     await audit(user, 'link.create_register', 'invite_link', id, { token, reg_type: type.name, role: type.role, head_id: headId, owner_person_id: owner?.id ?? null }, ip);
     return await q('SELECT * FROM invite_links WHERE id = ?').get(id);
+  });
+}
+
+/**
+ * Enlace general de un tipo, listo para compartir: uno solo por tipo (+ cabeza para líderes y personas,
+ * + dueño para personas), sin nombre, límite ni caducidad. Si ya existe uno activo se reutiliza.
+ */
+export async function ensureGeneralLink(body, user, ip) {
+  return await tx(async () => {
+    const type = await regTypeById(Number(body.reg_type_id));
+    if (!type || !type.active) throw badRequest('VALIDATION', 'Elija un tipo de registro activo.', { field: 'reg_type_id' });
+    const headId = type.role === 'head' ? null : Number(body.head_id) || null;
+    const ownerId = type.role === 'person' ? Number(body.owner_person_id) || null : null;
+    await q('SELECT pg_advisory_xact_lock(724100, ?::int)').get(type.id); // evita duplicados si dos administradores lo piden a la vez
+    const found = await q(`SELECT * FROM invite_links WHERE kind = 'register' AND is_general = 1 AND status = 'active' AND reg_type_id = ?
+        AND head_id IS NOT DISTINCT FROM ?::int AND owner_person_id IS NOT DISTINCT FROM ?::int ORDER BY id DESC LIMIT 1`).get(type.id, headId, ownerId);
+    if (found) return found;
+    return await createRegisterLink({ reg_type_id: type.id, head_id: headId, owner_person_id: ownerId, general: true }, user, ip);
   });
 }
 

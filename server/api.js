@@ -10,7 +10,7 @@ import {
 import {
   createPerson, registerViaInvite, resolveInvite, promoteToLeader, demoteLeader, setResponsibleLeader, movePerson,
   setStatus, updatePersonData, regeneratePersonLink, integrityReport, recountCounters, getPerson, getHead, findDuplicate,
-  createRegisterLink, issuePanelToken, revokePanelToken, regTypeById,
+  createRegisterLink, ensureGeneralLink, issuePanelToken, revokePanelToken, regTypeById,
 } from './services/people.js';
 import { panelData } from './services/panel.js';
 import { treeChildren, treeSubtree, treeChildrenOf, pathToPerson, search, directory, dashboard, branchStats, NODE_SELECT } from './services/queries.js';
@@ -484,6 +484,14 @@ api.post('/links', requireRole('super_admin', 'head_admin'), async (req, res) =>
   res.status(201).json(await createRegisterLink(req.body, req.user, ip(req)));
 });
 
+// Enlace general de un tipo (se crea la primera vez y luego se reutiliza): tarjetas «enviar por WhatsApp».
+api.post('/links/general', requireRole('super_admin', 'head_admin'), async (req, res) => {
+  if (req.body.head_id && !canManageHead(req.user, Number(req.body.head_id))) throw forbidden('No administra esta cabeza.');
+  const l = await ensureGeneralLink(req.body, req.user, ip(req));
+  const uses = (await q(`SELECT COUNT(*) AS n FROM people WHERE invite_link_id = ? AND status <> 'rejected'`).get(l.id)).n;
+  res.json({ ...l, uses });
+});
+
 api.get('/links', requireAuth, async (req, res) => {
   // Los enlaces de registro pueden no tener dueño: su cabeza es k.head_id (o ninguna, si registran cabezas nuevas).
   const admin = isAdmin(req.user);
@@ -696,9 +704,10 @@ api.get('/geo/areas', geoLimiter, async (req, res) => {
   const parentId = intOrNull(req.query.parent_id, 'parent_id');
   // localidad_id con level=barrio: todos los barrios y veredas de la localidad (formulario sin comuna).
   const localidadId = level === 'barrio' ? intOrNull(req.query.localidad_id, 'localidad_id') : null;
-  if (level && level !== 'localidad' && !parentId && !localidadId && !req.user) throw badRequest('VALIDATION', 'Indique el nivel superior.');
+  const allBarrios = level === 'barrio' && req.query.todos === '1';
+  if (level && level !== 'localidad' && !parentId && !localidadId && !allBarrios && !req.user) throw badRequest('VALIDATION', 'Indique el nivel superior.');
   const all = req.query.all === '1' && req.user?.role === 'super_admin';
-  res.json(await listAreas({ level, parentId, localidadId, term: String(req.query.q || '').slice(0, 60), includeInactive: all, limit: all ? 20000 : 1000 }));
+  res.json(await listAreas({ level, parentId, localidadId, allBarrios, term: String(req.query.q || '').slice(0, 60), includeInactive: all, limit: all ? 20000 : 1000 }));
 });
 
 api.post('/geo/areas', requireRole('super_admin'), async (req, res) => res.status(201).json(await createArea(req.body, req.user, ip(req))));

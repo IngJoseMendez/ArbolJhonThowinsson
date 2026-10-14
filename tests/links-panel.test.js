@@ -199,3 +199,33 @@ test('«¿Es voto seguro?» la valora quien registra; el registro público no pu
   assert.equal((await admin.get('/api/people?secure_vote=yes&q=rosa valorada')).data.total, 1);
   assert.equal((await admin.get('/api/people?secure_vote=no&q=tomas publico')).data.total, 1);
 });
+
+test('Enlaces generales por tipo: uno por tipo (y cabeza/dueño), reutilizable y sin límite', async () => {
+  // Cabeza: el mismo enlace sirve para registrar varias cabezas
+  const g1 = await admin.post('/api/links/general', { reg_type_id: ids.concejal.id });
+  assert.equal(g1.status, 200, JSON.stringify(g1.data));
+  assert.equal(g1.data.is_general, 1);
+  assert.equal(g1.data.max_uses, null, 'sin límite');
+  const again = await admin.post('/api/links/general', { reg_type_id: ids.concejal.id });
+  assert.equal(again.data.token, g1.data.token, 'se reutiliza');
+  for (const [f, l] of [['Ana', 'Concejal Uno'], ['Beto', 'Concejal Dos']]) {
+    const r = await anon.post(`/api/public/register/${g1.data.token}`, form(f, l));
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+  }
+  assert.equal((await admin.post('/api/links/general', { reg_type_id: ids.concejal.id })).data.uses, 2);
+  // Líder: uno por cabeza
+  const gl = await admin.post('/api/links/general', { reg_type_id: ids.types.leader.id, head_id: ids.head });
+  assert.equal(gl.status, 200, JSON.stringify(gl.data));
+  assert.equal((await anon.post(`/api/public/register/${gl.data.token}`, form('Lina', 'Lider General'))).data.is_leader, true);
+  assert.equal((await admin.post('/api/links/general', { reg_type_id: ids.types.leader.id })).data.error.field, 'head_id');
+  // Persona: uno por cabeza y líder del que cuelgan
+  assert.equal((await admin.post('/api/links/general', { reg_type_id: ids.voto.id, head_id: ids.head })).data.error.field, 'owner_person_id');
+  const gp = await admin.post('/api/links/general', { reg_type_id: ids.voto.id, head_id: ids.head, owner_person_id: ids.leader.id });
+  assert.equal(gp.status, 200);
+  assert.notEqual(gp.data.token, (await admin.post('/api/links/general', { reg_type_id: ids.voto.id, head_id: ids.head, owner_person_id: ids.anaId })).data.token);
+  // Si se desactiva, se crea uno nuevo
+  await admin.post(`/api/links/${g1.data.id}/disable`, { reason: 'Se filtró el enlace' });
+  const g2 = await admin.post('/api/links/general', { reg_type_id: ids.concejal.id });
+  assert.notEqual(g2.data.token, g1.data.token);
+  assert.equal((await admin.get('/api/admin/integrity')).data.ok, true);
+});
