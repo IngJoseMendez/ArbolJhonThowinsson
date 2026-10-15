@@ -284,9 +284,21 @@ export default function Register() {
   return (
     <div className="pub" style={typeVars(type?.color)}>
       <Stage chip={chip}>
-        {copy.photo && <span className="stage-host"><img src={photoSrc(copy.photo, 68)} alt="" /></span>}
-        <p className="stage-kicker">{copy.kicker}</p>
-        <h1 className={`stage-title ${long ? 'long' : ''}`}>{copy.title}</h1>
+        {/* Con foto, quien invita firma la invitación: su foto al lado de su nombre. Sin foto, sólo el nombre. */}
+        {copy.photo ? (
+          <div className="stage-byline">
+            <span className="stage-host"><img src={photoSrc(copy.photo, 68)} alt="" /></span>
+            <div>
+              <p className="stage-kicker">{copy.kicker}</p>
+              <h1 className={`stage-title ${long ? 'long' : ''}`}>{copy.title}</h1>
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="stage-kicker">{copy.kicker}</p>
+            <h1 className={`stage-title ${long ? 'long' : ''}`}>{copy.title}</h1>
+          </>
+        )}
         <p className="stage-sub">{copy.sub}</p>
         {copy.team && <span className="stage-team"><Mark size={14} />Equipo de {copy.team}</span>}
       </Stage>
