@@ -1,8 +1,14 @@
 const dtf = new Intl.DateTimeFormat('es', { day: '2-digit', month: 'short', year: 'numeric' });
+const dtfShort = new Intl.DateTimeFormat('es', { day: 'numeric', month: 'short' });
 const dtt = new Intl.DateTimeFormat('es', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const nf = new Intl.NumberFormat('es');
 
-export const fmtDate = (s) => (s ? dtf.format(new Date(s)) : '—');
+/** «14 oct» en el año en curso; «14 oct 2025» si es de otro año. */
+export const fmtDate = (s) => {
+  if (!s) return '—';
+  const d = new Date(s);
+  return d.getFullYear() === new Date().getFullYear() ? dtfShort.format(d) : dtf.format(d);
+};
 export const fmtDateTime = (s) => (s ? dtt.format(new Date(s)) : '—');
 export const fmtNum = (n) => nf.format(n ?? 0);
 

@@ -10,7 +10,8 @@ import {
 import {
   createPerson, registerViaInvite, resolveInvite, promoteToLeader, demoteLeader, setResponsibleLeader, movePerson,
   setStatus, updatePersonData, regeneratePersonLink, integrityReport, recountCounters, getPerson, getHead, findDuplicate,
-  createRegisterLink, ensureGeneralLink, createOneTimeLink, oneTimeStats, revokeOpenOneTime, issuePanelToken, revokePanelToken, regTypeById,
+  createRegisterLink, ensureGeneralLink, createOneTimeLink, prepareOneTimeLink, markOneTimeSent, oneTimeStats, revokeOpenOneTime, issuePanelToken,
+  revokePanelToken, regTypeById,
   headPerson, setHeadRole, recoverableLeader, recoverPanel,
 } from './services/people.js';
 import { panelData, panelLeaderInvite, panelManifest } from './services/panel.js';
@@ -20,7 +21,10 @@ import {
 } from './services/geo.js';
 import { audit } from './services/audit.js';
 import {
-  badRequest, notFound, forbidden, str, intOrNull, slugLower, maskPhone, normalizePhone, normalizeDocument, AppError, sha256, normalizeText,
+  twofaStatus, startLoginChallenge, finishLoginChallenge, setupTwofa, enableTwofa, disableTwofa, renewRecoveryCodes, clearTwofa,
+} from './services/twofa.js';
+import {
+  badRequest, notFound, forbidden, str, intOrNull, slugLower, maskPhone, normalizePhone, AppError, sha256, normalizeText,
 } from './util.js';
 
 export const api = express.Router();
@@ -31,7 +35,7 @@ const mapSeq = async (arr, fn) => { const out = []; for (const x of arr) out.pus
 // ---------------------------------------------------------------------------
 // Autenticación
 // ---------------------------------------------------------------------------
-api.post('/auth/login', rateLimit({ windowMs: 15 * 60e3, max: 20 }), async (req, res) => {
+api.post('/auth/login', rateLimit({ name: 'login', windowMs: 15 * 60e3, max: 20 }), async (req, res) => {
   const username = str(req.body.username, { field: 'usuario', required: true, max: 80 });
   const password = String(req.body.password ?? '');
   const u = await q('SELECT * FROM users WHERE lower(username) = lower(?)').get(username);
@@ -39,10 +43,20 @@ api.post('/auth/login', rateLimit({ windowMs: 15 * 60e3, max: 20 }), async (req,
     await audit(null, 'auth.login_failed', 'user', u?.id ?? null, { username }, ip(req));
     throw new AppError(401, 'BAD_CREDENTIALS', 'Usuario o contraseña incorrectos.');
   }
+  // Con verificación en dos pasos, la sesión se abre sólo después del código de la app.
+  if (u.totp_enabled_at) return res.json({ ok: false, twofa: true, challenge: await startLoginChallenge(u.id) });
   const { token, expires } = await createSession(u.id);
   setSessionCookie(res, token, expires);
   await audit(u, 'auth.login', 'user', u.id, {}, ip(req));
   res.json({ ok: true });
+});
+
+api.post('/auth/login/2fa', rateLimit({ name: 'login-2fa', windowMs: 15 * 60e3, max: 30 }), async (req, res) => {
+  const r = await finishLoginChallenge(req.body.challenge, req.body.code, ip(req));
+  const { token, expires } = await createSession(r.user.id);
+  setSessionCookie(res, token, expires);
+  await audit(r.user, 'auth.login', 'user', r.user.id, { twofa: r.method }, ip(req));
+  res.json({ ok: true, ...(r.method === 'recovery' ? { recovery_left: r.remaining } : {}) });
 });
 
 api.post('/auth/logout', async (req, res) => {
@@ -51,21 +65,48 @@ api.post('/auth/logout', async (req, res) => {
   res.json({ ok: true });
 });
 
-api.get('/me', requireAuth, async (req, res) => {
-  const u = req.user;
+async function mePayload(u) {
   const heads = visibleHeadIds(u);
   let person = null;
   if (u.person) {
     const p = await getPerson(u.person.id);
     person = { id: p.id, full_name: p.full_name, code: p.code, is_leader: !!p.is_leader, is_head: !!p.is_head, head_id: p.head_id, status: p.status };
   }
-  res.json({
+  return {
     user: { id: u.id, username: u.username, display_name: u.display_name, role: u.role, role_label: ROLES[u.role], head_ids: heads },
     person,
-  });
+    twofa: await twofaStatus(u.id),
+  };
+}
+
+api.get('/me', requireAuth, async (req, res) => res.json(await mePayload(req.user)));
+// La app consulta la sesión al abrir: sin sesión responde null (no un 401 que ensucia la consola del navegador).
+api.get('/session', async (req, res) => res.json(req.user ? await mePayload(req.user) : null));
+
+// Verificación en dos pasos de la propia cuenta.
+const twofaLimiter = rateLimit({ name: 'twofa', windowMs: 15 * 60e3, max: 20, key: (req) => req.user.id });
+api.post('/me/2fa/setup', requireAuth, twofaLimiter, async (req, res) => {
+  res.json(await setupTwofa(req.user.id, req.body.password));
+});
+api.post('/me/2fa/enable', requireAuth, twofaLimiter, async (req, res) => {
+  const codes = await enableTwofa(req.user.id, req.body.code);
+  // Las demás sesiones abiertas (otros dispositivos) se cierran: a partir de ahora entran con código.
+  await q('DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?').run(req.user.id, sha256(req.sessionToken));
+  await audit(req.user, 'user.2fa_enabled', 'user', req.user.id, {}, ip(req));
+  res.json({ ok: true, recovery_codes: codes });
+});
+api.post('/me/2fa/disable', requireAuth, twofaLimiter, async (req, res) => {
+  await disableTwofa(req.user.id, req.body.password, req.body.code);
+  await audit(req.user, 'user.2fa_disabled', 'user', req.user.id, {}, ip(req));
+  res.json({ ok: true });
+});
+api.post('/me/2fa/recovery-codes', requireAuth, twofaLimiter, async (req, res) => {
+  const codes = await renewRecoveryCodes(req.user.id, req.body.code);
+  await audit(req.user, 'user.2fa_recovery_renewed', 'user', req.user.id, {}, ip(req));
+  res.json({ ok: true, recovery_codes: codes });
 });
 
-api.post('/me/password', requireAuth, rateLimit({ windowMs: 15 * 60e3, max: 10 }), async (req, res) => {
+api.post('/me/password', requireAuth, rateLimit({ name: 'password', windowMs: 15 * 60e3, max: 10, key: (req) => req.user.id }), async (req, res) => {
   const u = await q('SELECT * FROM users WHERE id = ?').get(req.user.id);
   if (!verifyPassword(String(req.body.current ?? ''), u.password_hash)) throw badRequest('BAD_PASSWORD', 'La contraseña actual no es correcta.');
   const next = String(req.body.password ?? '');
@@ -142,11 +183,15 @@ api.get('/heads/:id', requireAuth, async (req, res) => {
   const stats = await dashboard(req.user, { headId: id, days: 60 });
   const sc = scopeSql(req.user, 'l');
   const leaders = (await q(`SELECT l.id, l.full_name, l.leader_code, l.status, l.created_at, l.inviter_id, l.is_head, i.full_name AS inviter_name,
+        i.is_head AS inviter_is_head,
         (SELECT COUNT(*) FROM people a WHERE a.leader_id = l.id AND a.status <> 'rejected') AS assigned,
-        l.descendant_count AS branch
+        l.descendant_count AS branch,
+        (SELECT COUNT(*) FROM people y WHERE y.path > l.path AND y.path < CONCAT(l.path, '~') AND y.status <> 'rejected'
+           AND y.created_at >= ?) AS last7
       FROM people l LEFT JOIN people i ON i.id = l.inviter_id
       WHERE l.head_id = ? AND l.is_leader = 1 AND l.status <> 'rejected' AND ${sc.sql}
-      ORDER BY l.is_head DESC, l.depth, l.full_name`).all(id, ...sc.params)).map((l) => ({ ...l, is_head: !!l.is_head }));
+      ORDER BY l.is_head DESC, l.depth, l.full_name`).all(new Date(Date.now() - 7 * 864e5).toISOString(), id, ...sc.params))
+    .map((l) => ({ ...l, is_head: !!l.is_head, inviter_is_head: !!l.inviter_is_head }));
   const c = await headPerson(id);
   const cabeza = c && canViewPerson(req.user, { ...c, head_id: id, leader_id: null })
     ? { ...(await q(`SELECT id, code, full_name, leader_code, status, created_at, child_count, descendant_count, panel_viewed_at,
@@ -520,7 +565,7 @@ api.post('/links/general', requireRole('super_admin', 'head_admin'), async (req,
 });
 
 // Enlaces de un solo uso para cabezas y líderes: uno nuevo por cada envío.
-const oneTimeLimiter = rateLimit({ windowMs: 60e3, max: 60, key: (req) => `onetime:${req.user?.id}` });
+const oneTimeLimiter = rateLimit({ name: 'onetime', windowMs: 60e3, max: 60, key: (req) => req.user?.id });
 const oneTimeScope = async (req) => {
   const type = await regTypeById(Number(req.body?.reg_type_id ?? req.query.reg_type_id));
   if (!type || type.role === 'person') throw badRequest('VALIDATION', 'Tipo de registro no válido.', { field: 'reg_type_id' });
@@ -531,8 +576,21 @@ const oneTimeScope = async (req) => {
 };
 api.post('/links/one-time', requireRole('super_admin', 'head_admin'), oneTimeLimiter, async (req, res) => {
   const { type, headId } = await oneTimeScope(req);
+  // prepare: la invitación de este dispositivo, lista antes del toque (se reutiliza hasta que se entregue).
+  if (req.body.prepare) {
+    const device = String(req.body.device || '');
+    if (!/^[A-Za-z0-9_-]{8,40}$/.test(device)) throw badRequest('VALIDATION', 'Dispositivo no válido.', { field: 'device' });
+    const ids = (v) => (Array.isArray(v) ? v : []).map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 20);
+    const l = await prepareOneTimeLink({ regTypeId: type.id, headId, device, delivered: ids(req.body.delivered), exclude: ids(req.body.exclude) },
+      req.user, ip(req));
+    return res.json({ ...l, prepared: true, stats: await oneTimeStats(type.id, headId) });
+  }
   const l = await createOneTimeLink({ reg_type_id: type.id, head_id: headId }, req.user, ip(req));
   res.status(201).json({ ...l, stats: await oneTimeStats(type.id, headId) });
+});
+// La invitación preparada se entregó (WhatsApp, compartir o copiar).
+api.post('/links/:id/sent', requireRole('super_admin', 'head_admin'), rateLimit({ name: 'link-sent', windowMs: 60e3, max: 120, key: (req) => req.user.id }), async (req, res) => {
+  res.json(await markOneTimeSent(Number(req.params.id), { label: req.body.label }, req.user, ip(req)));
 });
 api.get('/links/one-time/stats', requireRole('super_admin', 'head_admin'), async (req, res) => {
   const { type, headId } = await oneTimeScope(req);
@@ -554,6 +612,17 @@ api.get('/links', requireAuth, async (req, res) => {
   if (req.query.kind) { where.push('k.kind = ?'); params.push(String(req.query.kind)); }
   if (req.query.reg_type_id) { where.push('k.reg_type_id = ?'); params.push(Number(req.query.reg_type_id)); }
   if (req.query.status) { where.push('k.status = ?'); params.push(String(req.query.status)); }
+  // Las invitaciones preparadas (aún no entregadas) no se listan: no se han enviado a nadie.
+  where.push('k.prepared = 0');
+  if (req.query.one_time === '1') where.push('k.one_time = 1');
+  if (req.query.one_time === '0') where.push('k.one_time = 0');
+  if (req.query.general === '1') where.push('k.is_general = 1');
+  const t = now();
+  const state = String(req.query.state || '');
+  if (state === 'open') { where.push("k.status = 'active' AND k.used_at IS NULL AND (k.expires_at IS NULL OR k.expires_at >= ?)"); params.push(t); }
+  if (state === 'used') where.push('k.used_at IS NOT NULL');
+  if (state === 'expired') { where.push("k.status = 'active' AND k.used_at IS NULL AND k.expires_at < ?"); params.push(t); }
+  if (state === 'void') where.push("k.status = 'disabled' AND k.used_at IS NULL");
   if (req.query.q) {
     where.push('(o.name_key LIKE ? OR k.token LIKE ? OR lower(k.label) LIKE ?)');
     params.push(`%${String(req.query.q).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')}%`, `%${String(req.query.q).toUpperCase()}%`,
@@ -561,24 +630,38 @@ api.get('/links', requireAuth, async (req, res) => {
   }
   const pageSize = Math.min(Number(req.query.pageSize) || 50, 200);
   const page = Math.max(Number(req.query.page) || 1, 1);
-  const base = `FROM invite_links k LEFT JOIN people o ON o.id = k.owner_person_id
+  const from = `FROM invite_links k LEFT JOIN people o ON o.id = k.owner_person_id
                 CROSS JOIN LATERAL (SELECT COALESCE(k.head_id, o.head_id) AS head_id) x
                 LEFT JOIN heads h ON h.id = x.head_id LEFT JOIN reg_types rt ON rt.id = k.reg_type_id
-                LEFT JOIN users du ON du.id = k.disabled_by WHERE ${where.join(' AND ')}`;
-  const total = (await q(`SELECT COUNT(*) n ${base}`).get(...params)).n;
+                LEFT JOIN users du ON du.id = k.disabled_by`;
+  const whereSql = `WHERE ${where.join(' AND ')}`;
+  const order = state === 'open' ? 'k.expires_at ASC, k.id DESC' : state === 'used' ? 'k.used_at DESC, k.id DESC' : 'k.status, k.id DESC';
+  const total = (await q(`SELECT COUNT(*) n ${from} ${whereSql}`).get(...params)).n;
+  // used_by: quién se registró con el enlace (la persona, para abrir su ficha desde la invitación usada).
   const rows = await q(`SELECT k.*, o.full_name AS owner_name, o.code AS owner_code, o.is_leader AS owner_is_leader, o.status AS owner_status,
         x.head_id, h.name AS head_name, h.color AS head_color, du.display_name AS disabled_by_name,
         rt.name AS type_name, rt.color AS type_color, rt.role AS type_role,
         (SELECT COUNT(*) FROM people r WHERE r.invite_link_id = k.id AND r.status <> 'rejected') AS uses,
         (SELECT COUNT(*) FROM people r WHERE r.invite_link_id = k.id AND r.status = 'pending') AS pending,
-        (SELECT MAX(created_at) FROM people r WHERE r.invite_link_id = k.id) AS last_used
-      ${base} ORDER BY k.status, k.id DESC LIMIT ? OFFSET ?`).all(...params, pageSize, (page - 1) * pageSize);
+        (SELECT MAX(created_at) FROM people r WHERE r.invite_link_id = k.id) AS last_used,
+        ub.id AS used_by_id, ub.full_name AS used_by_name, ub.head_id AS used_by_head, ub.path AS used_by_path,
+        ub.leader_id AS used_by_leader, cu.display_name AS created_by_name
+      ${from}
+      LEFT JOIN LATERAL (SELECT r.id, r.full_name, r.head_id, r.path, r.leader_id FROM people r
+        WHERE r.invite_link_id = k.id ORDER BY r.id LIMIT 1) ub ON true
+      LEFT JOIN users cu ON cu.id = k.created_by
+      ${whereSql} ORDER BY ${order} LIMIT ? OFFSET ?`).all(...params, pageSize, (page - 1) * pageSize);
   res.json({
     total, page, pageSize,
-    rows: rows.map((r) => ({
-      ...r, owner_is_leader: !!r.owner_is_leader,
-      can_manage: r.head_id ? canManageHead(req.user, r.head_id) : req.user.role === 'super_admin',
-    })),
+    rows: rows.map(({ used_by_head, used_by_path, used_by_leader, ...r }) => {
+      // Quien se registró sólo se nombra si quien mira puede ver a esa persona (pudo cambiar de estructura).
+      const seen = r.used_by_id && canViewPerson(req.user, { head_id: used_by_head, path: used_by_path, leader_id: used_by_leader });
+      return {
+        ...r, owner_is_leader: !!r.owner_is_leader,
+        used_by_id: seen ? r.used_by_id : null, used_by_name: seen ? r.used_by_name : null,
+        can_manage: r.head_id ? canManageHead(req.user, r.head_id) : req.user.role === 'super_admin',
+      };
+    }),
   });
 });
 
@@ -631,6 +714,8 @@ api.patch('/links/:id', requireAuth, async (req, res) => {
 
 api.get('/pending', requireRole('super_admin', 'head_admin'), async (req, res) => {
   const sc = scopeSql(req.user);
+  // count=1: sólo cuántos hay (para el número de la barra inferior), sin traer los registros.
+  if (req.query.count === '1') return res.json({ count: (await q(`SELECT COUNT(*) AS n FROM people p WHERE p.status = 'pending' AND ${sc.sql}`).get(...sc.params)).n });
   const rows = await q(`SELECT p.id, p.code, p.full_name, p.phone, p.city, p.created_at, p.head_id, h.name AS head_name, h.color AS head_color,
         i.full_name AS inviter_name, i.id AS inviter_id, l.full_name AS leader_name, k.token AS link_token, k.kind AS link_kind
       FROM people p JOIN heads h ON h.id = p.head_id LEFT JOIN people i ON i.id = p.inviter_id LEFT JOIN people l ON l.id = p.leader_id
@@ -654,6 +739,7 @@ api.get('/stats/dashboard', requireAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 api.get('/users', requireRole('super_admin', 'head_admin'), async (req, res) => {
   let rows = await q(`SELECT u.id, u.username, u.display_name, u.role, u.status, u.person_id, u.created_at, u.last_login_at,
+                       (u.totp_enabled_at IS NOT NULL) AS twofa,
                        p.full_name AS person_name, p.head_id AS person_head_id,
                        (SELECT string_agg(head_id::text, ',') FROM user_head_scopes s WHERE s.user_id = u.id) AS head_ids
                   FROM users u LEFT JOIN people p ON p.id = u.person_id ORDER BY u.role, u.display_name`).all();
@@ -724,6 +810,13 @@ api.patch('/users/:id', requireRole('super_admin', 'head_admin'), async (req, re
       await q('DELETE FROM sessions WHERE user_id = ?').run(target.id);
       changes.password = 'changed';
     }
+    // Celular perdido: se quita la verificación en dos pasos y la persona la vuelve a activar al entrar.
+    if (req.body.reset_2fa === true) {
+      if (target.id === req.user.id) throw badRequest('VALIDATION', 'Para quitar su propia verificación use «Mi cuenta» (pide un código).');
+      await clearTwofa(target.id);
+      await q('DELETE FROM sessions WHERE user_id = ?').run(target.id);
+      changes.twofa = 'reset';
+    }
     if (req.body.head_ids !== undefined && req.user.role === 'super_admin' && target.role === 'head_admin') {
       const ids = req.body.head_ids.map(Number).filter(Boolean);
       if (!ids.length) throw badRequest('VALIDATION', 'Asigne al menos una cabeza.');
@@ -750,7 +843,7 @@ async function locationOf(p) {
   };
 }
 
-const geoLimiter = rateLimit({ windowMs: 60e3, max: 240, key: (req) => `geo:${req.ip}` });
+const geoLimiter = rateLimit({ name: 'geo', windowMs: 60e3, max: 240 });
 // Lectura del catálogo: pública porque la usa el formulario de registro por enlace (no contiene datos personales).
 api.get('/geo/areas', geoLimiter, async (req, res) => {
   const level = ['localidad', 'comuna', 'barrio'].includes(req.query.level) ? req.query.level : null;
@@ -816,13 +909,13 @@ api.post('/admin/recount', requireRole('super_admin'), async (req, res) => res.j
 // ---------------------------------------------------------------------------
 // Panel público de solo lectura del líder (enlace secreto + PIN)
 // ---------------------------------------------------------------------------
-const panelLimiter = rateLimit({ windowMs: 60e3, max: 60, key: (req) => `panel:${req.ip}` });
+const panelLimiter = rateLimit({ name: 'panel', windowMs: 60e3, max: 60 });
 api.post('/public/panel/:token', panelLimiter, async (req, res) => {
   res.json(await panelData(req.params.token, req.body?.pin, { q: String(req.body?.q || '').slice(0, 60), page: req.body?.page }));
 });
 
 // La cabeza invita a un líder desde su panel: un enlace nuevo de un solo uso por envío.
-const headInviteLimiter = rateLimit({ windowMs: 10 * 60e3, max: 30, key: (req) => `head-invite:${req.ip}` });
+const headInviteLimiter = rateLimit({ name: 'head-invite', windowMs: 10 * 60e3, max: 30 });
 api.post('/public/panel/:token/leader-invite', headInviteLimiter, async (req, res) => {
   res.status(201).json(await panelLeaderInvite(req.params.token, req.body?.pin, ip(req)));
 });
@@ -836,8 +929,8 @@ api.get('/public/manifest', (req, res) => {
 // ---------------------------------------------------------------------------
 // Registro público mediante enlace
 // ---------------------------------------------------------------------------
-const publicLimiter = rateLimit({ windowMs: 10 * 60e3, max: 10, key: (req) => `reg:${req.ip}` });
-const lookupLimiter = rateLimit({ windowMs: 60e3, max: 60, key: (req) => `inv:${req.ip}` });
+const publicLimiter = rateLimit({ name: 'reg', windowMs: 10 * 60e3, max: 10 });
+const lookupLimiter = rateLimit({ name: 'inv', windowMs: 60e3, max: 60 });
 
 const firstName = (p) => (p.first_names || p.full_name || '').split(' ')[0];
 
@@ -871,7 +964,7 @@ api.get('/public/invite/:token', lookupLimiter, async (req, res) => {
 });
 
 // Volver al panel con el enlace de registro ya usado (si se perdió el enlace del panel o se recargó la página).
-const recoverLimiter = rateLimit({ windowMs: 10 * 60e3, max: 20, key: (req) => `recover:${req.ip}` });
+const recoverLimiter = rateLimit({ name: 'recover', windowMs: 10 * 60e3, max: 20 });
 api.post('/public/recover/:token', recoverLimiter, async (req, res) => {
   res.json(await recoverPanel(req.params.token, req.body || {}, ip(req)));
 });

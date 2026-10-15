@@ -181,28 +181,27 @@ export default function Register() {
   // ---- Volver al panel con el link de registro ya usado
   if (!done && inv && !inv.valid && inv.recoverable) return <BackToPanel token={token} />;
 
+  // ---- Cargando: sólo la cabecera. La hoja aparece con el contenido final, sin empujar nada (sin saltos al cargar).
+  if (!done && loading) {
+    return <div className="pub"><Stage><div className="stage-skeleton" aria-label="Cargando" /></Stage></div>;
+  }
+
   // ---- Estados sin formulario
-  if (!done && (loading || error || (inv && !inv.valid))) {
+  if (!done && (error || (inv && !inv.valid))) {
     return (
       <div className="pub">
         <Stage>
-          {loading ? <div className="stage-skeleton" aria-label="Cargando" /> : (
-            <>
-              <p className="stage-kicker">{error ? 'Enlace no encontrado' : 'Enlace no disponible'}</p>
-              <h1 className="stage-title long">{error ? 'Este enlace no existe' : 'Este enlace ya no sirve'}</h1>
-            </>
-          )}
+          <p className="stage-kicker">{error ? 'Enlace no encontrado' : 'Enlace no disponible'}</p>
+          <h1 className="stage-title long">{error ? 'Este enlace no existe' : 'Este enlace ya no sirve'}</h1>
         </Stage>
         <div className="pub-right">
           <main className="pub-sheet">
             <div className="sheet-inner">
-              {loading ? <div className="loading-block"><span className="spinner" /></div> : (
-                <div className="sheet-card state-card warn">
-                  <span className="state-icon"><Link2Off size={26} /></span>
-                  <h2 className="sheet-title">{error ? 'Revisa el enlace' : 'Pide un enlace nuevo'}</h2>
-                  <p className="sheet-lead">{error ? 'Puede que se haya copiado incompleto.' : inv.reason} Pídele un enlace nuevo a la persona que te invitó.</p>
-                </div>
-              )}
+              <div className="sheet-card state-card warn">
+                <span className="state-icon"><Link2Off size={26} /></span>
+                <h2 className="sheet-title">{error ? 'Revisa el enlace' : 'Pide un enlace nuevo'}</h2>
+                <p className="sheet-lead">{error ? 'Puede que se haya copiado incompleto.' : inv.reason} Pídele un enlace nuevo a la persona que te invitó.</p>
+              </div>
             </div>
           </main>
           <Foot />

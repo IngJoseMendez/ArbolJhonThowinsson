@@ -1,6 +1,6 @@
 // Service worker del equipo Thowinsson: la app abre rápido y, sin conexión, muestra su última versión.
 // Nunca guarda respuestas de la API: los datos personales siempre vienen del servidor.
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL = `thw-shell-${VERSION}`;
 const ASSETS = `thw-assets-${VERSION}`;
 const PRECACHE = ['/', '/manifest.webmanifest', '/favicon.svg', '/brand/icon-192.png', '/brand/john-hero.webp', '/brand/john-face.webp'];

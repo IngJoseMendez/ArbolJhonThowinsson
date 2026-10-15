@@ -213,7 +213,7 @@ export async function assertEmailDomain(email, { enabled } = {}) {
 let dnsCheck = { at: 0, ok: false };
 async function dnsWorks(withTimeout) {
   if (Date.now() - dnsCheck.at < 10 * 60e3) return dnsCheck.ok;
-  let ok = false;
+  let ok;
   try { ok = (await withTimeout(dns.promises.resolveMx('gmail.com'))).length > 0; } catch { ok = false; }
   dnsCheck = { at: Date.now(), ok };
   return ok;

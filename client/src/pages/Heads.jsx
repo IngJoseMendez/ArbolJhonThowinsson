@@ -64,7 +64,7 @@ function HeadCard({ h, onOpen }) {
   const structure = h.cabeza_name && h.name !== `Cabeza ${h.cabeza_name}` ? h.name : null;
   return (
     <div className="card head-card" onClick={onOpen} style={{ opacity: h.status === 'archived' ? 0.6 : 1, '--hc': h.color }}
-      role="link" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && onOpen()} aria-label={`Abrir ${name}`}>
+      role="link" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && onOpen()}>
       <span className="stripe" style={{ background: h.color }} />
       <div className="head-card-top">
         <span className={`head-avatar ${h.cabeza_name ? '' : 'vacant'}`} aria-hidden="true">

@@ -39,6 +39,7 @@ seguridad programadas de Postgres.
    | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (referencia a la URL **privada**, `*.railway.internal`) |
    | `ADMIN_USER` | Usuario del administrador general |
    | `ADMIN_PASSWORD` | Contraseña robusta (obligatoria en producción; nunca se genera una aleatoria) |
+   | `TOTP_KEY` | Recomendada: texto aleatorio largo para cifrar las claves de la verificación en dos pasos |
 
 4. *Settings → Networking → Generate Domain* para obtener la URL pública (o conecte su dominio).
 5. En el servicio **Postgres → Backups**, active copias **diarias y semanales**.
@@ -60,6 +61,7 @@ URL públicas (`*.proxy.rlwy.net`) usan TLS automáticamente.
    |---|---|
    | `ADMIN_USER` | Usuario del administrador general (por ejemplo `admin`) |
    | `ADMIN_PASSWORD` | Contraseña robusta del administrador general |
+   | `TOTP_KEY` | Recomendada: texto aleatorio largo para cifrar las claves de la verificación en dos pasos |
 
 4. En *Settings → Functions* elija la región de las funciones igual que la de la base de datos.
 5. Despliegue (*Redeploy* si las variables se añadieron después). Entre en `https://su-proyecto.vercel.app/login` y
@@ -101,6 +103,7 @@ Usuarios de ejemplo creados por `npm run seed`:
 | `maria` | `Maria1234!` | Persona registrada (María Gómez, no es líder) |
 
 Desarrollo con recarga: `npm run dev:server` y, en otra terminal, `npm run dev:client` (Vite en :5173 con proxy a la API).
+Revisión automática del código (ESLint 10, también detecta componentes usados sin importar): `npm run lint`.
 
 Pruebas: necesitan un PostgreSQL en el que el usuario pueda crear bases de datos (`CREATEDB`). Cada archivo de
 pruebas crea una base temporal y la elimina al terminar.
@@ -112,7 +115,9 @@ N=20000 npm run seed:large       # genera una cabeza masiva para probar el árbo
 
 Variables de entorno: `DATABASE_URL` (o `POSTGRES_URL`), `DATABASE_SSL`, `DB_POOL_SIZE`, `PORT`, `ADMIN_USER`,
 `PHONE_MOBILE_PREFIXES` (por defecto `300-305,310-324,333,350-351`), `EMAIL_DNS_CHECK` (`1`/`0`; activo en producción),
-`ADMIN_PASSWORD`, `TRUST_PROXY` (detrás de un proxy inverso propio; en Vercel se activa automáticamente),
+`ADMIN_PASSWORD`, `TOTP_KEY` (cifra las claves de la verificación en dos pasos; si cambia o se pierde, cada cuenta
+entra con un código de recuperación o un administrador general le quita la verificación),
+`TRUST_PROXY` (detrás de un proxy inverso propio; en Vercel se activa automáticamente),
 `PHONE_COUNTRY_CODE` (por defecto `57`) y `PHONE_NATIONAL_LENGTH` (por defecto `10`). Con estas dos últimas,
 `+57 300 123 4567` y `3001234567` se tratan como el mismo número.
 En producción (`NODE_ENV=production`, como en Vercel) la cookie de sesión se marca como `Secure`.
@@ -332,11 +337,48 @@ Todas las consultas de personas pasan por `scopeSql()` (`server/permissions.js`)
 `canManagePerson` / `canManageHead`. Un recurso fuera del alcance responde 404, para no revelar que existe.
 
 Otras medidas: contraseñas con `scrypt`, sesión en una cookie `HttpOnly` y `SameSite=Lax` con el token guardado
-como hash, verificación de origen en las peticiones que modifican datos, límites de peticiones en el acceso y en el
-registro, cabeceras de seguridad, y validación y normalización de todas las entradas. Las acciones sensibles se
-registran en `audit_log` y los cambios de cada persona en `person_history`.
+como hash, verificación de origen en las peticiones que modifican datos, y validación y normalización de todas las
+entradas. Las acciones sensibles se registran en `audit_log` y los cambios de cada persona en `person_history`.
+
+- **Verificación en dos pasos** (recomendada para la coordinación): en *Mi cuenta* se activa con cualquier app de
+  autenticación (Google Authenticator, Microsoft Authenticator…) escaneando un código QR o abriendo el enlace en el
+  mismo celular. Al entrar se pide la contraseña y luego el código de 6 dígitos (TOTP, RFC 6238). Se entregan 8
+  códigos de recuperación de un solo uso (16 caracteres, `XXXX-XXXX-XXXX-XXXX`; se guardan con una huella por cuenta y
+  no dependen de `TOTP_KEY`). Un código no vale dos veces, cada intento de acceso admite 5 códigos y cada cuenta 10
+  errados cada 15 minutos, también con peticiones simultáneas (el intento se aparta antes de comprobar el código). Si
+  alguien pierde el celular y los códigos, un administrador general le quita la verificación en *Usuarios y roles*
+  (queda en la auditoría). Con `TOTP_KEY` las claves se guardan cifradas (AES-256-GCM).
+- **Límites de intentos en la base de datos** (acceso, registro, PIN del panel, recuperación, invitaciones): valen
+  igual con varias instancias del servidor, como en Vercel.
+- **Cabeceras de seguridad** iguales en Express y en Vercel (`server/security.js`; una prueba comprueba que
+  `vercel.json` las repite): política de contenido (CSP) que sólo permite scripts, estilos, imágenes y conexiones del
+  propio dominio, HTTPS obligatorio (HSTS), sin marcos (`frame-ancestors 'none'`), `nosniff`, `Referrer-Policy` y
+  `Cross-Origin-Opener-Policy`. Los enlaces de registro y los paneles llevan `X-Robots-Tag: noindex`.
+- **Rendimiento:** respuestas comprimidas (en Vercel lo hace su CDN) y la aplicación se descarga por pantallas: quien
+  abre un enlace de registro o su panel no descarga la coordinación.
 
 ## Interfaz
+
+### En el celular (iPhone y Android)
+
+La coordinación tiene su propia app para el celular (se instala desde el navegador y abre como una app):
+
+- **Barra inferior:** Inicio, Cabezas, **Invitar** (en el centro, siempre a la vista), Personas y Más. «Atrás» de
+  Android cierra primero la hoja abierta; desde una pestaña vuelve al Inicio y otra vez sale de la app.
+- **Inicio:** el total de la red con la foto de John, lo nuevo de la semana y desde la última visita, «Para hoy»
+  (por aprobar, invitaciones por vencer, cabezas sin líderes), cómo crece cada equipo y quiénes acaban de llegar.
+- **Invitar:** cabeza (administrador general), líder (eligiendo la cabeza) y el enlace para personas. Las invitaciones
+  de un solo uso quedan **preparadas en el dispositivo**: el botón de WhatsApp es un enlace real y abre WhatsApp en un
+  toque; al volver aparece «Invitación enviada… [Anular]». En la app instalada del iPhone se abre WhatsApp directo.
+- **Cabezas y cada cabeza:** su persona al frente, cuánto creció en la semana, «Invitar un líder» en un toque, y sus
+  líderes, resumen y árbol (una sola fila de herramientas; filtros y ficha rápida en hojas).
+- **Personas:** búsqueda, filtros rápidos y completos en una hoja, carga continua al bajar. **Ficha:** WhatsApp, llamar,
+  su enlace y el árbol a un toque; todas las acciones en el menú ⋯. **Por aprobar:** aprobar a un toque o rechazar con
+  motivo. **Enlaces:** en tarjetas (sin usar, usadas, generales), con reenviar, copiar y anular.
+- Hojas que suben desde abajo, buscador global, modo oscuro, tirar hacia abajo para actualizar (app instalada),
+  transiciones entre pantallas y vibración corta en Android al enviar o aprobar. Todo respeta «reducir movimiento».
+
+### En el computador
 
 - **Dashboard:** totales, personas por cabeza y por líder, registros recientes con su invitador, y crecimiento
   acumulado por cabeza con tooltip.

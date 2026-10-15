@@ -1,0 +1,50 @@
+import { CAMPAIGN } from '../brand/Brand.jsx';
+import { isIOSStandalone, isPhoneNow } from './device.js';
+
+// Enlaces a WhatsApp y mensajes para las personas invitadas (se les habla de tú).
+
+/** Celular colombiano con indicativo: los últimos 10 dígitos con 57 adelante (o vacío si no es un celular). */
+export function normalizePhone57(p) {
+  const d = String(p ?? '').replace(/\D/g, '').slice(-10);
+  return d.length === 10 ? `57${d}` : '';
+}
+
+/**
+ * Enlace que abre WhatsApp con el mensaje escrito (y el chat de esa persona si se da su celular).
+ * En la app instalada del iPhone, wa.me se queda en la página de WhatsApp dentro de Safari: allí se abre la app directo.
+ */
+export function waUrl(text, phone) {
+  const ph = phone ? normalizePhone57(phone) : '';
+  if (isIOSStandalone()) return `whatsapp://send?text=${encodeURIComponent(text)}${ph ? `&phone=${ph}` : ''}`;
+  return `https://wa.me/${ph}?text=${encodeURIComponent(text)}`;
+}
+
+/** En el celular WhatsApp se abre en la misma ventana (la app queda donde estaba); en el computador, en otra pestaña. */
+export const extLinkProps = () => (isPhoneNow() ? {} : { target: '_blank', rel: 'noopener noreferrer' });
+
+const hello = (name) => `Hola${name ? `, ${String(name).trim().split(/\s+/)[0]}` : ''}.`;
+
+/** Invitación personal de un solo uso para ser cabeza o líder. */
+export function inviteText({ role, name, cabeza, url }) {
+  const what = role === 'head'
+    ? `Te invito a ser cabeza del equipo de ${CAMPAIGN}: tendrás tu propio equipo de líderes y personas.`
+    : `Te invito a ser líder en el equipo de ${CAMPAIGN}${cabeza ? ` con ${cabeza}` : ''}.`;
+  return `${hello(name)} ${what} Este enlace es personal y sirve para una sola persona, no lo reenvíes: ${url}`;
+}
+
+/** Recordatorio de una invitación que aún no se ha usado (el mismo enlace). */
+export function reminderText({ role, name, cabeza, url }) {
+  const what = role === 'head' ? 'cabeza del equipo' : 'líder en el equipo';
+  return `${hello(name)} Te recuerdo tu invitación para ser ${what} de ${CAMPAIGN}${role !== 'head' && cabeza ? ` con ${cabeza}` : ''}. Es solo para ti: ${url}`;
+}
+
+/** El panel privado de un líder o una cabeza. */
+export function panelText({ name, url }) {
+  return `${hello(name)} Este es tu panel del equipo de ${CAMPAIGN}: ahí ves cómo crece tu equipo. Es privado, no lo reenvíes. `
+    + `Para entrar te pedirá los últimos 4 dígitos de tu cédula: ${url}`;
+}
+
+/** El enlace propio de una persona o un líder, enviado a esa misma persona. */
+export function ownLinkText({ name, url }) {
+  return `${hello(name)} Este es tu enlace para invitar personas al equipo de ${CAMPAIGN}: ${url}`;
+}

@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +11,7 @@ import { q } from './db.js';
 import { api } from './api.js';
 import { AppError } from './util.js';
 import { resolveInvite, headPerson } from './services/people.js';
+import { securityHeaders } from './security.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -39,13 +41,9 @@ export function createApp() {
   if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY);
   else if (ON_VERCEL || ON_RAILWAY) app.set('trust proxy', true); // detrás del proxy del proveedor
 
-  app.use((req, res, next) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('Referrer-Policy', 'same-origin');
-    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-    next();
-  });
+  app.use(securityHeaders);
+  // Respuestas comprimidas (gzip/brotli). En Vercel lo hace su CDN.
+  if (!ON_VERCEL) app.use(compression());
 
   // Protección CSRF básica: las peticiones que modifican datos deben ser JSON y del mismo origen.
   app.use('/api', (req, res, next) => {
@@ -94,6 +92,7 @@ export function createApp() {
       setHeaders: (res, file) => {
         if (file.endsWith(`${path.sep}sw.js`)) res.setHeader('Cache-Control', 'no-cache');
         else if (file.includes(`${path.sep}assets${path.sep}`)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        else if (file.includes(`${path.sep}brand${path.sep}`)) res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
       },
     }));
     let indexHtml = null;
@@ -117,7 +116,6 @@ export function createApp() {
     });
   }
 
-  // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, _next) => {
     if (err.type === 'entity.parse.failed') err = new AppError(400, 'BAD_JSON', 'JSON no válido.');
     if (err.type === 'entity.too.large') err = new AppError(413, 'TOO_LARGE', 'Petición demasiado grande.');

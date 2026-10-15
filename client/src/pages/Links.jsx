@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import LeaderPicker from '../components/LeaderPicker.jsx';
 import { Link } from 'react-router-dom';
 import { Ban, Check, CheckCircle2, Clock, Copy, Crown, ExternalLink, Link2, Palette, Plus, Power, Search, Settings2, XCircle } from 'lucide-react';
@@ -9,8 +9,11 @@ import { fmtDate, fmtNum, inviteUrl, relTime, phoneDisplay } from '../lib/format
 import { useQueryState } from '../lib/useParams.js';
 import { ConfirmModal, ErrorBox, Loading, Modal, PersonLink, PersonPicker, ShareLink, copyText, useAsync, useToast, Empty, WhatsAppIcon } from '../components/ui.jsx';
 import { Mark, CAMPAIGN } from '../brand/Brand.jsx';
+import { useOneTimeInvite } from '../lib/invites.js';
+import { teamName, useTeams } from '../lib/teams.js';
+import { extLinkProps, inviteText, waUrl } from '../lib/whatsapp.js';
 
-function LimitsModal({ link, onClose, onDone }) {
+export function LimitsModal({ link, onClose, onDone }) {
   const [maxUses, setMaxUses] = useState(link.max_uses ?? '');
   const [expires, setExpires] = useState(link.expires_at ? link.expires_at.slice(0, 10) : '');
   const [err, setErr] = useState(null);
@@ -63,7 +66,6 @@ function CreateLinkModal({ onClose, onDone }) {
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState(null);
-  const headName = heads.data?.find((h) => String(h.id) === String(headId))?.name;
   const save = async () => {
     setBusy(true); setErr(null);
     try {
@@ -106,7 +108,7 @@ function CreateLinkModal({ onClose, onDone }) {
           <div className="grid g-2">
             <div className="field"><label>Cabeza</label>
               <select className="select" value={headId} onChange={(e) => { setHeadId(e.target.value); setOwner(null); }}>
-                <option value="">Seleccione…</option>{heads.data?.filter((h) => h.status === 'active').map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+                <option value="">Seleccione…</option>{heads.data?.filter((h) => h.status === 'active').map((h) => <option key={h.id} value={h.id}>{teamName(h)}</option>)}
               </select></div>
             <div className="field"><label>{type.role === 'person' ? 'Cuelgan de' : 'Padrino (opcional)'}</label>
               <PersonPicker headId={headId || undefined} value={owner} onChange={setOwner} disabled={!headId} filter={(p) => p.status === 'active'}
@@ -154,7 +156,7 @@ function TypeModal({ type, onClose, onDone }) {
   );
 }
 
-function TypesTab() {
+export function TypesTab() {
   const a = useAuth();
   const toast = useToast();
   const types = useRegTypes();
@@ -269,9 +271,9 @@ function GeneralLinkCard({ type, heads }) {
 }
 
 /**
- * Tarjeta de un tipo de cabeza o de líder: cada envío genera un enlace personal de un solo uso
- * (caduca a los 7 días). Si la persona lo reenvía, nadie más puede registrarse con él.
- * Los líderes quedan con la cabeza de la estructura elegida (si la tiene).
+ * Tarjeta de un tipo de cabeza o de líder: cada envío es un enlace personal de un solo uso (caduca a los 7 días).
+ * La invitación ya está preparada, así el botón de WhatsApp es un enlace real (abre WhatsApp al primer clic) y al
+ * enviarla se prepara la siguiente. Si la persona la reenvía, nadie más puede registrarse con ella.
  */
 export function OneTimeLinkCard({ type, heads, cabezaName }) {
   const toast = useToast();
@@ -281,44 +283,11 @@ export function OneTimeLinkCard({ type, heads, cabezaName }) {
   const validHead = !needsHead ? '' : heads.some((h) => String(h.id) === String(headId)) ? headId : onlyHead;
   const head = heads.find((h) => String(h.id) === String(validHead));
   const ready = !needsHead || !!validHead;
-  const scope = { reg_type_id: type.id, head_id: needsHead ? Number(validHead) : null };
-  const [stats, setStats] = useState(null);
-  const [last, setLast] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(null);
-  const [confirm, setConfirm] = useState(false);
-
-  const loadStats = () => api.get(`/links/one-time/stats${qs(scope)}`).then(setStats).catch(() => setStats(null));
-  useEffect(() => { setLast(null); setErr(null); if (ready) loadStats(); }, [type.id, validHead]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const generate = async () => {
-    const l = await api.post('/links/one-time', scope);
-    setStats(l.stats); setLast(l); setErr(null);
-    return l;
-  };
   const cabeza = cabezaName ?? head?.cabeza_name ?? null;
-  const messageFor = (url) => (type.role === 'head'
-    ? `Hola, te invito a ser cabeza del equipo de ${CAMPAIGN}: tendrás tu propio equipo de líderes y personas. `
-    : `Hola, te invito a ser líder en el equipo de ${CAMPAIGN}${cabeza ? ` con ${cabeza}` : ''}. `)
-    + `Este enlace es personal y sirve para una sola persona, no lo reenvíes: ${url}`;
-  const sendWhatsApp = async () => {
-    // La ventana se abre en el mismo toque (si no, el navegador la bloquea) y se dirige a WhatsApp con el enlace nuevo.
-    const w = window.open('about:blank', '_blank');
-    setBusy(true);
-    try {
-      const l = await generate();
-      const wa = `https://wa.me/?text=${encodeURIComponent(messageFor(inviteUrl(l.token)))}`;
-      if (w) { w.opener = null; w.location.href = wa; } else window.location.href = wa;
-    } catch (e) { w?.close(); setErr(e); } finally { setBusy(false); }
-  };
-  const copyNew = async () => {
-    setBusy(true);
-    try {
-      const l = await generate();
-      if (await copyText(inviteUrl(l.token))) toast('Enlace nuevo de un solo uso copiado');
-      else toast('Enlace generado: cópielo abajo', 'error');
-    } catch (e) { setErr(e); } finally { setBusy(false); }
-  };
+  const [confirm, setConfirm] = useState(false);
+  const makeText = useCallback(({ url, name }) => inviteText({ role: type.role, name, cabeza, url }), [type.role, cabeza]);
+  const invite = useOneTimeInvite({ typeId: type.id, headId: needsHead ? Number(validHead) : null, role: type.role, cabeza, makeText, enabled: ready });
+  const stats = invite.stats;
 
   return (
     <div className="glink" style={{ '--chip': type.color, ...typeVars(type.color) }}>
@@ -338,16 +307,16 @@ export function OneTimeLinkCard({ type, heads, cabezaName }) {
         {ready && (
           <>
             <div className="row-wrap" style={{ gap: 6 }}>
-              <button type="button" className="btn btn-sm btn-wa" disabled={busy} onClick={sendWhatsApp}>{busy ? <span className="spinner" /> : <WhatsAppIcon size={14} />}WhatsApp</button>
-              <button type="button" className="btn btn-sm" disabled={busy} onClick={copyNew}><Copy size={14} />Copiar</button>
+              {invite.ready
+                ? <a className="btn btn-sm btn-wa" href={waUrl(invite.text())} {...extLinkProps()} onClick={() => invite.onSend()}><WhatsAppIcon size={14} />WhatsApp</a>
+                : <button type="button" className="btn btn-sm btn-wa" disabled>{invite.error ? 'No disponible' : <><span className="spinner" />Preparando…</>}</button>}
+              <button type="button" className="btn btn-sm" disabled={!invite.ready}
+                onClick={() => invite.copy().then((ok) => toast(ok ? 'Invitación copiada: péguela en el chat' : 'No se pudo copiar', ok ? 'ok' : 'error'))}>
+                <Copy size={14} />Copiar
+              </button>
+              {invite.error && <button type="button" className="btn btn-sm btn-ghost" onClick={invite.retry}>Reintentar</button>}
             </div>
-            <span className="small muted">Cada envío crea un enlace nuevo para una sola persona; caduca en 7 días si no se usa.</span>
-            {last && (
-              <div className="link-box" title="Último enlace generado">
-                <code>{inviteUrl(last.token)}</code>
-                <button type="button" className="btn btn-sm btn-icon" aria-label="Copiar último enlace" onClick={async () => { if (await copyText(inviteUrl(last.token))) toast('Enlace copiado'); }}><Copy size={14} /></button>
-              </div>
-            )}
+            <span className="small muted">Cada envío es un enlace nuevo para una sola persona; caduca en 7 días si no se usa.</span>
             {stats && (
               <div className="small text-2 row-wrap" style={{ gap: 8 }}>
                 <span><b className="tnum">{fmtNum(stats.sent || 0)}</b> enviados</span>
@@ -358,11 +327,10 @@ export function OneTimeLinkCard({ type, heads, cabezaName }) {
             )}
           </>
         )}
-        {err && <span className="small" style={{ color: 'var(--critical)' }}>{err.message}</span>}
       </div>
       {confirm && <ConfirmModal title={`Anular enlaces sin usar · ${type.name}`} danger confirmLabel="Anular"
-        message={`Los ${stats.open} enlaces de un solo uso enviados que aún nadie ha usado dejarán de funcionar. Úselo si alguno llegó a quien no debía.`}
-        onConfirm={async () => { const r = await api.post('/links/one-time/revoke-open', scope); toast(`${r.revoked} enlaces anulados`); setLast(null); loadStats(); }}
+        message={`Los ${stats.open} enlaces de un solo uso enviados que aún nadie ha usado dejarán de funcionar${type.role === 'leader' && cabeza ? `, también los que ${cabeza.split(' ')[0]} envió desde su panel` : ''}. Úselo si alguno llegó a quien no debía.`}
+        onConfirm={async () => { const r = await invite.revokeOpen(); toast(`${r.revoked} enlaces anulados`); }}
         onClose={() => setConfirm(false)} />}
     </div>
   );
@@ -391,6 +359,7 @@ function GeneralLinks() {
 
 function LinksTab() {
   const a = useAuth();
+  const teams = useTeams();
   const toast = useToast();
   const types = useRegTypes();
   const [f, setF] = useState({ q: '', kind: '', status: '', head_id: '', reg_type_id: '' });
@@ -408,7 +377,7 @@ function LinksTab() {
         <div className="search-input" style={{ width: 260 }}><Search size={16} />
           <input className="input" placeholder="Propietario o token" value={f.q} onChange={(e) => { setF({ ...f, q: e.target.value }); setPage(1); }} /></div>
         <select className="select" style={{ width: 170 }} value={f.head_id} onChange={(e) => { setF({ ...f, head_id: e.target.value }); setPage(1); }} aria-label="Cabeza">
-          <option value="">Todas las cabezas</option>{heads.data?.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+          <option value="">Todas las cabezas</option>{heads.data?.map((h) => <option key={h.id} value={h.id}>{teamName(h)}</option>)}
         </select>
         <select className="select" style={{ width: 170 }} value={f.kind} onChange={(e) => { setF({ ...f, kind: e.target.value }); setPage(1); }} aria-label="Tipo">
           <option value="">Todos los enlaces</option><option value="register">Enlaces de registro</option><option value="leader">Enlaces de líder</option><option value="person">Invitaciones personales</option>
@@ -441,7 +410,7 @@ function LinksTab() {
                         {l.max_uses ? ` · máx. ${l.max_uses}` : ''}{l.expires_at ? ` · caduca ${fmtDate(l.expires_at)}` : ''}</div>
                     </td>
                     <td>{l.owner_person_id ? <PersonLink id={l.owner_person_id} name={l.owner_name} isLeader={l.owner_is_leader} /> : <span className="muted small">{l.type_role === 'head' ? 'Nueva cabeza' : 'Directo a la cabeza'}</span>}</td>
-                    <td>{l.head_name ? <span className="row nowrap"><span className="dot" style={{ background: l.head_color }} />{l.head_name}</span> : <span className="muted small">Crea una nueva</span>}</td>
+                    <td>{l.head_name ? <span className="row nowrap"><span className="dot" style={{ background: l.head_color }} />{teams.name(l.head_id) || l.head_name}</span> : <span className="muted small">Crea una nueva</span>}</td>
                     <td className="tnum"><b>{fmtNum(l.uses)}</b>{l.pending > 0 && <span className="badge badge-warning" style={{ marginLeft: 6 }}>{l.pending} pend.</span>}</td>
                     <td className="small">{l.last_used ? relTime(l.last_used) : <span className="muted">Nunca</span>}</td>
                     <td>{l.disabled_reason === 'auto:usado'
@@ -489,6 +458,7 @@ function LinksTab() {
 
 function PendingTab() {
   const toast = useToast();
+  const teams = useTeams();
   const { data, loading, error, reload } = useAsync(() => api.get('/pending'), []);
   const [modal, setModal] = useState(null);
   if (loading && !data) return <Loading />;
@@ -504,7 +474,7 @@ function PendingTab() {
               {data.map((p) => (
                 <tr key={p.id}>
                   <td><Link to={`/personas/${p.id}`}><b>{p.full_name}</b></Link><div className="small muted">{phoneDisplay(p.phone)}{p.city ? ` · ${p.city}` : ''}</div></td>
-                  <td><span className="row nowrap"><span className="dot" style={{ background: p.head_color }} />{p.head_name}</span></td>
+                  <td><span className="row nowrap"><span className="dot" style={{ background: p.head_color }} />{teams.name(p.head_id) || p.head_name}</span></td>
                   <td><PersonLink id={p.inviter_id} name={p.inviter_name} />{p.leader_name && <div className="small muted">Líder: {p.leader_name}</div>}</td>
                   <td className="mono small">{p.link_token}</td>
                   <td className="small">{relTime(p.created_at)}</td>

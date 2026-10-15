@@ -149,7 +149,7 @@ export default function Panel() {
                 ) : (
                   <>
                     <div className="row" style={{ gap: 14 }}>
-                      <span className="pin-photo"><JohnPhoto variant="face" eager alt="" /></span>
+                      <span className="pin-photo"><JohnPhoto variant="face" sizes="76px" eager alt="" /></span>
                       <div>
                         <h2 className="sheet-title">Entra a tu panel</h2>
                         <p className="sheet-lead">Escribe los <b>últimos 4 dígitos de tu cédula</b>.</p>

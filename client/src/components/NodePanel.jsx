@@ -5,14 +5,18 @@ import { fmtDate, fmtNum, METHOD } from '../lib/format.js';
 import { Avatar, Loading, RoleBadge, StatusBadge, ShareLink, PersonLink, useAsync, ErrorBox, LocationText } from './ui.jsx';
 
 /** Ficha resumida de un nodo dentro del explorador del árbol. */
-export default function NodePanel({ personId, headName, onClose, onFocus, onHighlight, onRegisterInvitee, canRegister, onExpandLevel, onExpandAll, onCollapseAll, busy }) {
+export default function NodePanel({ personId, onClose, onFocus, onHighlight, onRegisterInvitee, canRegister, onExpandLevel, onExpandAll, onCollapseAll, busy, asSheet }) {
   const { data, loading, error } = useAsync(() => api.get(`/people/${personId}`), [personId]);
+  // Dentro de una hoja del celular: sin marco ni cabecera propios (la hoja ya los tiene).
+  const Wrap = asSheet ? 'div' : 'aside';
   return (
-    <aside className="side-panel" aria-label="Ficha del nodo">
-      <div className="card-head" style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
-        <h3>Ficha rápida</h3>
-        <button className="btn btn-ghost btn-sm btn-icon" onClick={onClose} aria-label="Cerrar"><X size={16} /></button>
-      </div>
+    <Wrap className={asSheet ? 'node-sheet' : 'side-panel'} aria-label="Ficha del nodo">
+      {!asSheet && (
+        <div className="card-head" style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
+          <h3>Ficha rápida</h3>
+          <button className="btn btn-ghost btn-sm btn-icon" onClick={onClose} aria-label="Cerrar"><X size={16} /></button>
+        </div>
+      )}
       {loading && <Loading />}
       <div style={{ padding: 16 }}><ErrorBox error={error} /></div>
       {data && (() => {
@@ -71,6 +75,6 @@ export default function NodePanel({ personId, headName, onClose, onFocus, onHigh
           </div>
         );
       })()}
-    </aside>
+    </Wrap>
   );
 }

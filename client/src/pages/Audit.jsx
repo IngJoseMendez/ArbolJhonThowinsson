@@ -13,6 +13,8 @@ const ACTIONS = {
   'link.update': 'Límites de enlace', 'link.regenerate': 'Enlace regenerado', 'head.create': 'Cabeza creada', 'head.update': 'Cabeza editada',
   'user.create': 'Usuario creado', 'user.update': 'Usuario editado', 'user.password_change': 'Cambio de contraseña', 'auth.login': 'Inicio de sesión',
   'auth.login_failed': 'Inicio de sesión fallido', 'admin.recount': 'Reparación de contadores',
+  'auth.2fa_failed': 'Código de verificación errado', 'user.2fa_enabled': 'Verificación en dos pasos activada',
+  'user.2fa_disabled': 'Verificación en dos pasos desactivada', 'user.2fa_recovery_renewed': 'Códigos de recuperación renovados',
 };
 
 export default function Audit() {

@@ -1,83 +1,71 @@
-import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Suspense, useEffect, useState } from 'react';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Network, GitBranch, Crown, Users, Link2, ShieldCheck, ScrollText, LogOut, Moon, Sun, UserPlus, UserCircle, MapPin, Ellipsis,
+  LayoutDashboard, Network, GitBranch, Crown, Users, Link2, ShieldCheck, ScrollText, LogOut, Moon, Sun, UserPlus, UserCircle, MapPin,
 } from 'lucide-react';
 import { useAuth } from '../auth.jsx';
-import { api } from '../api.js';
-import { Avatar, PersonPicker } from './ui.jsx';
+import { Avatar, Loading, PersonPicker } from './ui.jsx';
 import RegisterPersonModal from './RegisterPersonModal.jsx';
-import { Logo, Monogram, Mark } from '../brand/Brand.jsx';
+import ErrorBoundary from './ErrorBoundary.jsx';
+import PhoneShell, { usePhoneCounts } from './m/PhoneShell.jsx';
+import { Logo } from '../brand/Brand.jsx';
+import { useIsPhone } from '../lib/device.js';
+import { useTheme } from '../lib/theme.js';
+import { invalidate } from '../lib/cache.js';
 
-/** Secciones de la aplicación según el rol (la barra inferior del celular muestra las primeras). */
+/** Secciones de la aplicación según el rol. */
 function sections(a, counts) {
   const role = a.user.role;
   if (role === 'member') {
     return [
-      { to: `/personas/${a.person?.id}`, icon: UserCircle, label: 'Mi ficha', short: 'Mi ficha' },
-      { to: '/arbol', icon: GitBranch, label: 'Mi rama', short: 'Mi rama' },
+      { to: `/personas/${a.person?.id}`, icon: UserCircle, label: 'Mi ficha' },
+      { to: '/arbol', icon: GitBranch, label: 'Mi rama' },
     ];
   }
   const list = [
-    { to: '/', end: true, icon: LayoutDashboard, label: 'Inicio', short: 'Inicio' },
-    { to: '/arbol', icon: GitBranch, label: 'Árbol', short: 'Árbol' },
-    { to: '/cabezas', icon: Network, label: 'Cabezas', short: 'Cabezas' },
-    { to: '/personas', icon: Users, label: 'Personas', short: 'Personas' },
-    { to: '/lideres', icon: Crown, label: 'Líderes', short: 'Líderes' },
-    { to: '/enlaces', icon: Link2, label: 'Enlaces e invitaciones', short: 'Enlaces', count: counts.pending },
-    { to: counts.geo ? '/ubicaciones?tab=verificar' : '/ubicaciones', match: '/ubicaciones', icon: MapPin, label: 'Ubicaciones', short: 'Ubicaciones', count: counts.geo, countTitle: 'Ubicaciones por verificar' },
+    { to: '/', end: true, icon: LayoutDashboard, label: 'Inicio' },
+    { to: '/arbol', icon: GitBranch, label: 'Árbol' },
+    { to: '/cabezas', icon: Network, label: 'Cabezas' },
+    { to: '/personas', icon: Users, label: 'Personas' },
+    { to: '/lideres', icon: Crown, label: 'Líderes' },
+    { to: '/enlaces', icon: Link2, label: 'Enlaces e invitaciones', count: counts.pending, countTitle: 'Registros por aprobar' },
+    { to: counts.geo ? '/ubicaciones?tab=verificar' : '/ubicaciones', match: '/ubicaciones', icon: MapPin, label: 'Ubicaciones', count: counts.geo, countTitle: 'Ubicaciones por verificar' },
   ];
-  if (role === 'leader' && a.person) list.push({ to: `/personas/${a.person.id}`, icon: UserCircle, label: 'Mi ficha', short: 'Mi ficha' });
+  if (role === 'leader' && a.person) list.push({ to: `/personas/${a.person.id}`, icon: UserCircle, label: 'Mi ficha' });
   return list;
 }
 
+/** En el celular, la app (barra inferior, hojas, pantallas propias); en el computador, menú lateral y barra superior. */
 export default function Layout() {
+  return useIsPhone() ? <PhoneShell /> : <DesktopLayout />;
+}
+
+function DesktopLayout() {
   const a = useAuth();
   const nav = useNavigate();
   const loc = useLocation();
-  const [more, setMore] = useState(false);
-  const [pending, setPending] = useState(0);
-  const [geoPending, setGeoPending] = useState(0);
+  const theme = useTheme();
   const [registering, setRegistering] = useState(false);
-  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || '');
-
-  useEffect(() => setMore(false), [loc.pathname, loc.search]);
+  const counts = usePhoneCounts(a.isAdmin);
+  // Los números del menú se actualizan al cambiar de sección y cada minuto con la ventana a la vista.
+  useEffect(() => { if (a.isAdmin) invalidate('counts:'); }, [loc.pathname, a.isAdmin]);
   useEffect(() => {
-    if (!a.isAdmin) return;
-    api.get('/pending').then((r) => setPending(r.length)).catch(() => {});
-    api.get('/geo/pending').then((r) => setGeoPending(r.reduce((n, g) => n + g.people, 0))).catch(() => {});
-  }, [a.isAdmin, loc.pathname]);
-  useEffect(() => {
-    if (!more) return undefined;
-    const k = (e) => e.key === 'Escape' && setMore(false);
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, [more]);
+    if (!a.isAdmin) return undefined;
+    const t = setInterval(() => { if (document.visibilityState === 'visible') invalidate('counts:'); }, 60e3);
+    return () => clearInterval(t);
+  }, [a.isAdmin]);
 
-  const isDark = theme ? theme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const toggleTheme = () => {
-    const next = isDark ? 'light' : 'dark';
-    document.documentElement.dataset.theme = next;
-    try { localStorage.setItem('theme', next); } catch { /* */ }
-    setTheme(next);
-  };
   const logout = async () => { await a.logout(); nav('/login'); };
-
-  const items = sections(a, { pending, geo: geoPending });
+  const items = sections(a, counts);
   const admin = a.isAdmin ? [
     { to: '/usuarios', icon: ShieldCheck, label: 'Usuarios y roles' },
     ...(a.isSuper ? [{ to: '/auditoria', icon: ScrollText, label: 'Auditoría' }] : []),
   ] : [];
-  // Celular: cuatro accesos directos y «Más» con el resto.
-  const tabs = items.length <= 5 ? items : items.slice(0, 4);
-  const rest = items.length <= 5 ? [] : items.slice(4);
-  const restCount = rest.reduce((n, i) => n + (i.count || 0), 0);
-  const restActive = rest.some((i) => loc.pathname.startsWith(i.match || i.to)) || admin.some((i) => loc.pathname.startsWith(i.to));
-  const link = (i, cls) => (
-    <NavLink key={i.label} to={i.to} end={i.end} className={({ isActive }) => `${cls || ''} ${isActive || (i.match && loc.pathname.startsWith(i.match)) ? 'active' : ''}`}>
-      <i.icon size={cls === 'tab' ? 22 : 19} strokeWidth={cls === 'tab' ? 1.9 : 2} />
-      {cls === 'tab' ? i.short : i.label}
-      {i.count > 0 && <span className={cls === 'tab' ? 'tab-count' : 'count'} title={i.countTitle}>{i.count}</span>}
+  const link = (i) => (
+    <NavLink key={i.label} to={i.to} end={i.end} className={({ isActive }) => (isActive || (i.match && loc.pathname.startsWith(i.match)) ? 'active' : '')}>
+      <i.icon size={19} strokeWidth={2} />
+      {i.label}
+      {i.count > 0 && <span className="count" title={i.countTitle}>{i.count}</span>}
     </NavLink>
   );
 
@@ -89,69 +77,44 @@ export default function Layout() {
           <span className="brand-sub">Equipo John Thowinsson</span>
         </div>
         <nav className="nav" aria-label="Principal">
-          {items.map((i) => link(i))}
+          {items.map(link)}
           {admin.length > 0 && (
             <>
               <div className="nav-section">Administración</div>
-              {admin.map((i) => link(i))}
+              {admin.map(link)}
             </>
           )}
         </nav>
         <div className="sidebar-foot">
-          <Avatar name={a.user.display_name} />
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="ellipsis" style={{ fontWeight: 600 }}>{a.user.display_name}</div>
-            <div className="small muted ellipsis">{a.user.role_label}</div>
-          </div>
-          <button className="btn btn-ghost btn-sm btn-icon" onClick={toggleTheme} aria-label="Cambiar tema" title="Cambiar tema">
-            {isDark ? <Sun size={16} /> : <Moon size={16} />}
+          <Link to="/cuenta" className="sidebar-user" title="Mi cuenta: contraseña y verificación en dos pasos">
+            <Avatar name={a.user.display_name} />
+            <span style={{ minWidth: 0, flex: 1 }}>
+              <span className="ellipsis" style={{ fontWeight: 600, display: 'block' }}>{a.user.display_name}</span>
+              <span className="small muted ellipsis" style={{ display: 'block' }}>{a.user.role_label}</span>
+            </span>
+          </Link>
+          <button className="btn btn-ghost btn-sm btn-icon" onClick={theme.toggle} aria-label="Cambiar tema" title="Cambiar tema">
+            {theme.dark ? <Sun size={16} /> : <Moon size={16} />}
           </button>
           <button className="btn btn-ghost btn-sm btn-icon" title="Cerrar sesión" aria-label="Cerrar sesión" onClick={logout}><LogOut size={16} /></button>
         </div>
       </aside>
       <div className="main">
         <header className="topbar">
-          <span className="topbar-brand" aria-hidden="true"><Monogram /></span>
           <div className="topbar-search" style={{ width: 440, maxWidth: '100%' }}>
             <PersonPicker placeholder="Buscar por nombre, código o celular…" value={null}
               onChange={(p) => p && nav(`/personas/${p.id}`)} />
           </div>
-          <div className="spacer hide-mobile" />
+          <div className="spacer" />
           {a.isAdmin && (
-            <button className="btn btn-primary" onClick={() => setRegistering(true)} aria-label="Registrar persona">
-              <UserPlus size={17} /><span className="hide-sm">Registrar persona</span>
+            <button className="btn btn-primary" onClick={() => setRegistering(true)}>
+              <UserPlus size={17} />Registrar persona
             </button>
           )}
         </header>
-        <Outlet />
-      </div>
-
-      <nav className="tabbar" aria-label="Secciones" style={{ '--tabs': tabs.length + 1 }}>
-        {tabs.map((i) => link(i, 'tab'))}
-        <button type="button" className={restActive || more ? 'active' : ''} onClick={() => setMore(true)} aria-haspopup="dialog" aria-expanded={more}>
-          <Ellipsis size={22} strokeWidth={1.9} />Más
-          {restCount > 0 && <span className="tab-count">{restCount}</span>}
-        </button>
-      </nav>
-      <div className={`more-sheet ${more ? 'open' : ''}`} role="dialog" aria-modal="true" aria-label="Más opciones" hidden={!more}>
-        <div className="more-back" onClick={() => setMore(false)} />
-        <div className="more-panel">
-          <div className="sheet-grip" />
-          <div className="more-user">
-            <Avatar name={a.user.display_name} size="lg" />
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div className="ellipsis" style={{ fontWeight: 600, fontSize: 17 }}>{a.user.display_name}</div>
-              <div className="small muted">{a.user.role_label}</div>
-            </div>
-            <Mark size={26} style={{ color: 'var(--sky)' }} />
-          </div>
-          <div className="more-list">
-            {rest.map((i) => link(i))}
-            {admin.map((i) => link(i))}
-            <button type="button" onClick={toggleTheme}>{isDark ? <Sun size={19} /> : <Moon size={19} />}{isDark ? 'Tema claro' : 'Tema oscuro'}</button>
-            <button type="button" onClick={logout}><LogOut size={19} />Cerrar sesión</button>
-          </div>
-        </div>
+        <ErrorBoundary key={loc.pathname}>
+          <Suspense fallback={<Loading />}><Outlet /></Suspense>
+        </ErrorBoundary>
       </div>
       {registering && <RegisterPersonModal onClose={() => setRegistering(false)} onCreated={(p) => nav(`/personas/${p.id}`)} />}
     </div>

@@ -337,6 +337,67 @@ export async function createOneTimeLink(body, user, ip) {
   return await createRegisterLink({ reg_type_id: type.id, head_id: type.role === 'head' ? null : body.head_id, oneTime: true }, user, ip);
 }
 
+// Preparar y marcar enviada se hacen de a una por persona (mismo candado): una invitación recién entregada nunca vuelve
+// a salir como la siguiente.
+const inviterLock = (userId) => q('SELECT pg_advisory_xact_lock(724102, ?::int)').get(userId);
+
+/** Marca entregada una invitación preparada (dentro de la transacción y con el candado). Devuelve si ya lo estaba. */
+async function markSentLocked(l, label, user, ip) {
+  if (!l.prepared) {
+    if (label && !l.label) await q('UPDATE invite_links SET label = ? WHERE id = ?').run(label, l.id);
+    return true;
+  }
+  await q('UPDATE invite_links SET prepared = 0, prepared_key = NULL, expires_at = ?, label = COALESCE(?, label) WHERE id = ?')
+    .run(new Date(Date.now() + ONE_TIME_DAYS * 864e5).toISOString(), label, l.id);
+  await audit(user, 'link.sent', 'invite_link', l.id, { token: l.token, ...(label ? { label } : {}) }, ip);
+  return false;
+}
+
+/**
+ * Invitación de un solo uso preparada en un dispositivo: existe antes del toque, así el botón de WhatsApp es un enlace
+ * real (un toque, sin ventanas en blanco). No cuenta como enviada hasta que se entrega (markOneTimeSent) o alguien se
+ * registra con ella. Se reutiliza mientras siga sin entregar, activa y con más de un día de vigencia.
+ * `delivered`: las que el dispositivo ya entregó sin que su aviso llegara (sin conexión, por ejemplo); se marcan
+ * enviadas aquí mismo, así nunca vuelven como la siguiente. `exclude`: las que otra pestaña del mismo dispositivo
+ * acaba de entregar (su propio aviso las marcará); tampoco se ofrecen.
+ */
+export async function prepareOneTimeLink({ regTypeId, headId, device, delivered = [], exclude = [] }, user, ip) {
+  return await tx(async () => {
+    await inviterLock(user.id);
+    for (const id of delivered) {
+      const l = await q('SELECT * FROM invite_links WHERE id = ? AND one_time = 1 AND created_by = ? FOR UPDATE').get(id, user.id);
+      if (l && l.status === 'active' && !l.used_at) await markSentLocked(l, null, user, ip);
+    }
+    const found = await q(`SELECT * FROM invite_links WHERE one_time = 1 AND prepared = 1 AND status = 'active' AND used_at IS NULL
+        AND created_by = ? AND prepared_key = ? AND reg_type_id = ? AND head_id IS NOT DISTINCT FROM ?::int AND expires_at > ?
+        AND NOT (id = ANY(?::int[])) ORDER BY id DESC LIMIT 1`)
+      .get(user.id, device, regTypeId, headId, new Date(Date.now() + 864e5).toISOString(), exclude);
+    if (found) return found;
+    const l = await createOneTimeLink({ reg_type_id: regTypeId, head_id: headId }, user, ip);
+    await q('UPDATE invite_links SET prepared = 1, prepared_key = ? WHERE id = ?').run(device, l.id);
+    return { ...l, prepared: 1, prepared_key: device };
+  });
+}
+
+/**
+ * La invitación preparada se entregó (WhatsApp, compartir o copiar): desde ahora cuenta como enviada y vence en 7 días.
+ * `already_sent`: ya se había entregado antes (desde otra pestaña, por ejemplo). Una invitación anulada o ya usada
+ * responde LINK_CLOSED: quien la reciba no podrá usarla.
+ */
+export async function markOneTimeSent(id, { label } = {}, user, ip) {
+  return await tx(async () => {
+    await inviterLock(user.id);
+    const l = await q('SELECT * FROM invite_links WHERE id = ? FOR UPDATE').get(id);
+    if (!l || !l.one_time) throw notFound('Invitación no encontrada.');
+    if (l.created_by !== user.id) throw forbidden('Esta invitación la preparó otra persona.');
+    if (l.status !== 'active' || l.used_at) throw conflict('LINK_CLOSED', 'Esa invitación ya no sirve: se anuló o ya se usó.');
+    const text = str(label, { field: 'nombre', key: 'label', max: 60 }) || null;
+    const already = await markSentLocked(l, text, user, ip);
+    const after = await q('SELECT id, token, label, expires_at FROM invite_links WHERE id = ?').get(l.id);
+    return { ok: true, already_sent: already, ...after, stats: await oneTimeStats(l.reg_type_id, l.head_id) };
+  });
+}
+
 /**
  * Enlace de un solo uso con el que la cabeza de una estructura invita a un líder (desde su panel, sin cuenta).
  * El líder que se registre colgará de ella. Caduca a los 7 días si no se usa.
@@ -374,16 +435,21 @@ export async function oneTimeStats(regTypeId, headId) {
       SUM(CASE WHEN used_at IS NOT NULL THEN 1 ELSE 0 END) AS used,
       SUM(CASE WHEN used_at IS NULL AND status = 'active' AND (expires_at IS NULL OR expires_at >= ?) THEN 1 ELSE 0 END) AS open,
       SUM(CASE WHEN used_at IS NULL AND status = 'active' AND expires_at < ? THEN 1 ELSE 0 END) AS expired
-    FROM invite_links WHERE one_time = 1 AND reg_type_id = ? AND head_id IS NOT DISTINCT FROM ?::int`).get(now(), now(), regTypeId, headId);
+    FROM invite_links WHERE one_time = 1 AND prepared = 0 AND reg_type_id = ? AND head_id IS NOT DISTINCT FROM ?::int`).get(now(), now(), regTypeId, headId);
 }
 
-/** Desactiva los enlaces de un solo uso que siguen sin usar (por ejemplo, si se enviaron a quien no debía). */
+/**
+ * Desactiva los enlaces de un solo uso que siguen sin usar (por ejemplo, si se enviaron a quien no debía). También
+ * apaga las invitaciones preparadas en los dispositivos (por si alguna se entregó sin quedar marcada): cada dispositivo
+ * prepara una nueva. La cifra devuelta cuenta sólo las enviadas.
+ */
 export async function revokeOpenOneTime(regTypeId, headId, user, ip) {
-  const r = await q(`UPDATE invite_links SET status = 'disabled', disabled_at = ?, disabled_by = ?, disabled_reason = 'Anulado: enlaces sin usar'
-      WHERE one_time = 1 AND used_at IS NULL AND status = 'active' AND reg_type_id = ? AND head_id IS NOT DISTINCT FROM ?::int`)
-    .run(now(), user.id, regTypeId, headId);
-  await audit(user, 'link.revoke_one_time', 'reg_type', regTypeId, { head_id: headId, count: r.changes }, ip);
-  return { revoked: r.changes };
+  const rows = await q(`UPDATE invite_links SET status = 'disabled', disabled_at = ?, disabled_by = ?, disabled_reason = 'Anulado: enlaces sin usar'
+      WHERE one_time = 1 AND used_at IS NULL AND status = 'active' AND reg_type_id = ? AND head_id IS NOT DISTINCT FROM ?::int
+      RETURNING prepared`).all(now(), user.id, regTypeId, headId);
+  const revoked = rows.filter((r) => !r.prepared).length;
+  await audit(user, 'link.revoke_one_time', 'reg_type', regTypeId, { head_id: headId, count: revoked, prepared: rows.length - revoked }, ip);
+  return { revoked };
 }
 
 // ---------------------------------------------------------------------------
@@ -595,8 +661,9 @@ export async function registerViaInvite(token, body, ip) {
     }
     if (locked.one_time) {
       // Usado: queda apagado para siempre, aunque después se rechace el registro.
-      await q(`UPDATE invite_links SET status = 'disabled', used_at = ?, disabled_at = ?, disabled_reason = 'auto:usado' WHERE id = ?`)
-        .run(now(), now(), link.id);
+      // Una invitación preparada que alguien usa cuenta como enviada y usada.
+      await q(`UPDATE invite_links SET status = 'disabled', used_at = ?, disabled_at = ?, disabled_reason = 'auto:usado', prepared = 0, prepared_key = NULL
+               WHERE id = ?`).run(now(), now(), link.id);
     }
     const panelToken = person.is_leader ? await issuePanelToken(person.id) : null;
     return { person, owner, head: targetHead, type, role, panelToken };

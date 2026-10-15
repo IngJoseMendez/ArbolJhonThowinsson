@@ -16,7 +16,7 @@ async function request(method, url, body) {
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
-  let data = null;
+  let data;
   try { data = text ? JSON.parse(text) : null; } catch { data = null; }
   if (!res.ok) {
     if (res.status === 401 && !url.startsWith('/auth') && !url.startsWith('/public')) {

@@ -18,8 +18,8 @@
     { "src": "/brand/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "Árbol", "url": "/arbol", "icons": [{ "src": "/brand/icon-192.png", "sizes": "192x192" }] },
-    { "name": "Personas", "url": "/personas", "icons": [{ "src": "/brand/icon-192.png", "sizes": "192x192" }] },
-    { "name": "Enlaces", "url": "/enlaces", "icons": [{ "src": "/brand/icon-192.png", "sizes": "192x192" }] }
+    { "name": "Invitar una cabeza", "short_name": "Invitar", "url": "/invitar?que=cabeza", "icons": [{ "src": "/brand/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Por aprobar", "url": "/pendientes", "icons": [{ "src": "/brand/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Buscar persona", "short_name": "Personas", "url": "/personas", "icons": [{ "src": "/brand/icon-192.png", "sizes": "192x192" }] }
   ]
 }

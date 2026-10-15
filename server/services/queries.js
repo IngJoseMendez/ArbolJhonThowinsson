@@ -1,6 +1,6 @@
 // Consultas de lectura: nodos del árbol, búsqueda, directorio y estadísticas.
 import { q, pathUpper } from '../db.js';
-import { scopeSql, canSeeContact, canViewPerson, visibleHeadIds } from '../permissions.js';
+import { scopeSql, canSeeContact, visibleHeadIds } from '../permissions.js';
 import { normalizeText, normalizePhone, maskPhone } from '../util.js';
 import { ancestorIds } from './people.js';
 
@@ -225,7 +225,7 @@ export async function dashboard(user, { headId = null, days = 90 } = {}) {
       WHERE l.is_leader = 1 AND l.status <> 'rejected' AND ${scl.sql} ${headId ? 'AND l.head_id = ?' : ''}
       ORDER BY assigned DESC, branch DESC LIMIT 12`).all(...scl.params, ...ep);
 
-  const recent = await q(`SELECT p.id, p.code, p.full_name, p.is_leader, p.is_head = 1 AS is_head, p.status, p.registration_method, p.created_at,
+  const recent = await q(`SELECT p.id, p.code, p.full_name, p.is_leader, p.is_head = 1 AS is_head, p.status, p.registration_method, p.created_at, p.head_id,
         h.name AS head_name, h.color AS head_color, i.full_name AS inviter_name, i.id AS inviter_id, l.full_name AS leader_name
       FROM people p JOIN heads h ON h.id = p.head_id LEFT JOIN people i ON i.id = p.inviter_id LEFT JOIN people l ON l.id = p.leader_id
       WHERE ${w} AND p.status <> 'rejected' ORDER BY p.created_at DESC, p.id DESC LIMIT 12`).all(...wp);

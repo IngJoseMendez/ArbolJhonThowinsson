@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { KeyRound, Plus, Power, ShieldCheck } from 'lucide-react';
+import { KeyRound, Plus, Power, ShieldCheck, ShieldOff } from 'lucide-react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { fmtDate, relTime } from '../lib/format.js';
-import { ErrorBox, Loading, Modal, PersonPicker, useAsync, useToast } from '../components/ui.jsx';
+import { ConfirmModal, ErrorBox, Loading, Modal, PersonPicker, useAsync, useToast } from '../components/ui.jsx';
+import { teamName } from '../lib/teams.js';
 
 const ROLES = { super_admin: 'Administrador general', head_admin: 'Administrador de cabeza', leader: 'Líder', member: 'Persona registrada' };
 const ROLE_HELP = {
@@ -45,7 +46,7 @@ function UserModal({ heads, onClose, onDone }) {
               {heads.map((h) => (
                 <label key={h.id} className="check"><input type="checkbox" checked={f.head_ids.includes(h.id)}
                   onChange={(e) => setF({ ...f, head_ids: e.target.checked ? [...f.head_ids, h.id] : f.head_ids.filter((x) => x !== h.id) })} />
-                  <span className="row"><span className="dot" style={{ background: h.color }} />{h.name}</span></label>
+                  <span className="row"><span className="dot" style={{ background: h.color }} />{teamName(h)}</span></label>
               ))}
             </div>
           </div>
@@ -94,7 +95,7 @@ function HeadsModal({ user, heads, onClose, onDone }) {
       <div className="stack" style={{ gap: 6 }}>
         {heads.map((h) => (
           <label key={h.id} className="check"><input type="checkbox" checked={ids.includes(h.id)} onChange={(e) => setIds(e.target.checked ? [...ids, h.id] : ids.filter((x) => x !== h.id))} />
-            <span className="row"><span className="dot" style={{ background: h.color }} />{h.name}</span></label>
+            <span className="row"><span className="dot" style={{ background: h.color }} />{teamName(h)}</span></label>
         ))}
         <ErrorBox error={err} />
       </div>
@@ -109,7 +110,7 @@ export default function Users() {
   const heads = useAsync(() => api.get('/heads'), []);
   const [modal, setModal] = useState(null);
   const done = (m) => { toast(m); reload(); };
-  const headName = (id) => heads.data?.find((h) => h.id === id)?.name || `#${id}`;
+  const headName = (id) => teamName(heads.data?.find((h) => h.id === id)) || `#${id}`;
   return (
     <div className="page">
       <div className="page-head">
@@ -119,7 +120,7 @@ export default function Users() {
           <button className="btn btn-primary" onClick={() => setModal({ type: 'new' })}><Plus size={16} />Nuevo usuario</button>
         </div>
       </div>
-      <div className="grid g-4" style={{ marginBottom: 16 }}>
+      <div className="grid g-4 roles-help" style={{ marginBottom: 16 }}>
         {Object.entries(ROLES).map(([k, v]) => (
           <div key={k} className="card card-pad"><div className="row" style={{ gap: 8 }}><ShieldCheck size={16} color="var(--accent)" /><b>{v}</b></div><div className="small muted" style={{ marginTop: 6 }}>{ROLE_HELP[k]}</div></div>
         ))}
@@ -142,12 +143,16 @@ export default function Users() {
                       {(u.role === 'leader' || u.role === 'member') && <Link to={`/personas/${u.person_id}`}>{u.person_name}</Link>}
                     </td>
                     <td className="small">{u.last_login_at ? relTime(u.last_login_at) : <span className="muted">Nunca</span>}<div className="muted">Alta {fmtDate(u.created_at)}</div></td>
-                    <td>{u.status === 'active' ? <span className="badge badge-good">Activo</span> : <span className="badge badge-muted">Desactivado</span>}</td>
+                    <td><div className="row-wrap" style={{ gap: 4 }}>
+                      {u.status === 'active' ? <span className="badge badge-good">Activo</span> : <span className="badge badge-muted">Desactivado</span>}
+                      {u.twofa && <span className="badge badge-outline" title="Entra con contraseña y código del celular"><ShieldCheck size={12} />2 pasos</span>}
+                    </div></td>
                     <td>
                       {u.id !== a.user.id && (
                         <div className="row nowrap" style={{ gap: 4 }}>
                           {a.isSuper && u.role === 'head_admin' && <button className="btn btn-sm" onClick={() => setModal({ type: 'heads', user: u })}>Cabezas</button>}
                           <button className="btn btn-sm btn-icon" title="Restablecer contraseña" aria-label="Restablecer contraseña" onClick={() => setModal({ type: 'pw', user: u })}><KeyRound size={14} /></button>
+                          {u.twofa && <button className="btn btn-sm btn-icon" title="Quitar la verificación en dos pasos (celular perdido)" aria-label="Quitar la verificación en dos pasos" onClick={() => setModal({ type: 'reset2fa', user: u })}><ShieldOff size={14} /></button>}
                           <button className="btn btn-sm" onClick={async () => { try { await api.patch(`/users/${u.id}`, { status: u.status === 'active' ? 'disabled' : 'active' }); done('Usuario actualizado'); } catch (e) { toast(e.message, 'error'); } }}>
                             <Power size={14} />{u.status === 'active' ? 'Desactivar' : 'Activar'}
                           </button>
@@ -165,6 +170,9 @@ export default function Users() {
       {modal?.type === 'pw' && <PasswordModal user={modal.user} onClose={() => setModal(null)} onDone={done} />}
       {modal?.type === 'self' && <PasswordModal self onClose={() => setModal(null)} onDone={done} />}
       {modal?.type === 'heads' && <HeadsModal user={modal.user} heads={heads.data || []} onClose={() => setModal(null)} onDone={done} />}
+      {modal?.type === 'reset2fa' && <ConfirmModal title={`Quitar la verificación en dos pasos de ${modal.user.display_name}`} danger confirmLabel="Quitar"
+        message="Úselo si perdió el celular y sus códigos de recuperación. Se cerrarán sus sesiones; al entrar sólo se le pedirá la contraseña y podrá activarla de nuevo en Mi cuenta."
+        onConfirm={async () => { await api.patch(`/users/${modal.user.id}`, { reset_2fa: true }); done('Verificación en dos pasos quitada'); }} onClose={() => setModal(null)} />}
     </div>
   );
 }

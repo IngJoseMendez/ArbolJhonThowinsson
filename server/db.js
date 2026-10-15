@@ -332,6 +332,36 @@ ALTER TABLE people ADD COLUMN IF NOT EXISTS panel_fails INT NOT NULL DEFAULT 0;
 ALTER TABLE people ADD COLUMN IF NOT EXISTS panel_locked_until TEXT;
 `;
 
+// v10: límites de intentos en la base de datos (valen igual con varias instancias del servidor) y verificación en
+// dos pasos (código de una app de autenticación) para las cuentas de la coordinación.
+const MIGRATION_10 = `
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key       VARCHAR(200) PRIMARY KEY,
+  count     INT NOT NULL,
+  reset_at  BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_rate_limits_reset ON rate_limits (reset_at);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(255);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled_at TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_last_step BIGINT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_recovery TEXT;
+CREATE TABLE IF NOT EXISTS login_challenges (
+  token_hash  CHAR(64) PRIMARY KEY,
+  user_id     INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at  TEXT NOT NULL,
+  fails       INT NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ix_login_challenges_user ON login_challenges (user_id);
+`;
+
+// v11: invitaciones de un solo uso «preparadas» en el dispositivo de quien invita. Existen antes del toque, así el botón
+// de WhatsApp es un enlace real (un solo toque). No cuentan como enviadas hasta que se entregan o alguien se registra.
+const MIGRATION_11 = `
+ALTER TABLE invite_links ADD COLUMN IF NOT EXISTS prepared SMALLINT NOT NULL DEFAULT 0;
+ALTER TABLE invite_links ADD COLUMN IF NOT EXISTS prepared_key VARCHAR(40);
+CREATE INDEX IF NOT EXISTS ix_links_prepared ON invite_links (created_by, prepared_key) WHERE prepared = 1;
+`;
+
 /**
  * Cuelga de la cabeza `head` (persona ra\u00edz) los dem\u00e1s l\u00edderes ra\u00edz de su estructura, con sus ramas completas.
  * `exec(sql, params)` ejecuta con par\u00e1metros $1\u2026; sirve tanto en la migraci\u00f3n como dentro de una transacci\u00f3n.
@@ -390,6 +420,8 @@ const MIGRATIONS = [
   { version: 7, sql: MIGRATION_7 },
   { version: 8, sql: MIGRATION_8, after: adoptAllRootLeaders },
   { version: 9, sql: MIGRATION_9 },
+  { version: 10, sql: MIGRATION_10 },
+  { version: 11, sql: MIGRATION_11 },
 ];
 
 let pool = null;

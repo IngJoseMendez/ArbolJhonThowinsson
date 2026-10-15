@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
-  ChevronDown, ChevronsDown, ChevronsUp, Filter, GitBranch, List, Network, X, Crown, RefreshCw, MapPin,
+  ChevronDown, ChevronsDown, ChevronsUp, Filter, GitBranch, List, Network, X, Crown, RefreshCw, MapPin, MoreHorizontal, Search,
 } from 'lucide-react';
+import Sheet, { ActionSheet } from './m/Sheet.jsx';
 import { api, qs } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { TreeStore, getCachedTree, putCachedTree, loadTreeState, saveTreeState } from '../lib/treeStore.js';
@@ -21,7 +22,7 @@ const emptyFilters = { status: '', from: '', to: '', geo: emptyGeo, geoPending: 
  * (cabeza, foco, persona, vista, expandir=todo). El estado de expansión, zoom, selección y filtros se
  * conserva al navegar a otra página y volver (memoria) y al recargar (sessionStorage).
  */
-export default function TreeExplorerView({ heads, params, setParams, lockHead }) {
+export default function TreeExplorerView({ heads, params, setParams, lockHead, compact }) {
   const a = useAuth();
   const toast = useToast();
   const headId = Number(params.cabeza) || heads[0]?.id;
@@ -41,6 +42,7 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead })
   const [leaders, setLeaders] = useState([]);
   const [focusNode, setFocusNode] = useState(null);
   const [registerFor, setRegisterFor] = useState(null);
+  const [sheet, setSheet] = useState(null); // celular: 'locate' | 'filters' | 'more'
   const [initialTransform, setInitialTransform] = useState(null);
   const canvas = useRef(null);
   const pendingLocate = useRef(Number(params.persona) || null);
@@ -209,7 +211,8 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead })
   // ---- Expansión jerárquica
   const targetKey = store && selected && store.get(`p${selected}`) ? `p${selected}` : store?.rootKey;
   const targetNode = store && targetKey ? store.get(targetKey) : null;
-  const targetName = targetNode ? (targetNode.kind === 'head' ? targetNode.data.name : targetNode.data.full_name) : '';
+  const targetName = targetNode ? (targetNode.kind === 'head'
+    ? (targetNode.data.cabeza_name ? `Equipo de ${targetNode.data.cabeza_name}` : targetNode.data.name) : targetNode.data.full_name) : '';
   const targetHasKids = targetNode && (targetNode.kind === 'head' || targetNode.data.child_count > 0);
 
   async function runExpandAll(s, key) {
@@ -243,7 +246,7 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead })
       if (geoPending && d.geo_status !== 'pending') return true;
       return false;
     };
-  }, [filters, geoIds.localidad, geoIds.comuna, geoIds.barrio]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filters, geoIds.localidad, geoIds.comuna, geoIds.barrio]);
 
   const matchCount = useMemo(() => {
     if (!store || !isDimmed) return null;
@@ -258,9 +261,46 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead })
 
   if (!head) return <div className="page"><ErrorBox error={{ message: 'No hay cabezas disponibles.' }} /></div>;
 
+  // Celular: una sola fila de herramientas; filtros, búsqueda y acciones de rama en hojas.
+  const filterFields = (
+    <>
+      <div className="field"><label>Estado</label>
+        <select className="select" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
+          <option value="">Todos</option><option value="active">Activas</option><option value="pending">Pendientes</option><option value="inactive">Inactivas</option>
+        </select>
+      </div>
+      <div className="grid g-2" style={{ gap: 8 }}>
+        <div className="field"><label>Desde</label><input type="date" className="input" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} /></div>
+        <div className="field"><label>Hasta</label><input type="date" className="input" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} /></div>
+      </div>
+      <div className="field"><label className="row" style={{ gap: 6 }}><MapPin size={14} />Ubicación</label>
+        <div className="stack" style={{ gap: 8 }}>
+          <GeoSelect mode="filter" idPrefix="tf" value={filters.geo} onChange={(geo) => setFilters({ ...filters, geo })} />
+        </div>
+      </div>
+      <label className="check"><input type="checkbox" checked={filters.geoPending} onChange={(e) => setFilters({ ...filters, geoPending: e.target.checked })} />
+        <span className="small">Sólo ubicaciones pendientes de verificación</span></label>
+    </>
+  );
+  const filterBadge = activeFilters + (focusNode ? 1 : 0);
+  const compactBar = compact && (
+    <div className="tree-bar m-tree-bar">
+      <button type="button" className="btn btn-sm" onClick={() => setSheet('locate')}><Search size={15} />Localizar</button>
+      <button type="button" className={`btn btn-sm ${filterBadge ? 'btn-primary' : ''}`} onClick={() => setSheet('filters')}>
+        <Filter size={15} />{filterBadge ? `Filtros ${filterBadge}` : 'Filtros'}
+      </button>
+      <div className="seg" role="tablist" aria-label="Vista">
+        <button className={view === 'arbol' ? 'active' : ''} onClick={() => setParams({ vista: null })}>Mapa</button>
+        <button className={view === 'lista' ? 'active' : ''} onClick={() => setParams({ vista: 'lista' })}>Lista</button>
+      </div>
+      <button type="button" className="btn btn-sm btn-icon" aria-label="Acciones de la rama" onClick={() => setSheet('more')} disabled={!store}><MoreHorizontal size={18} /></button>
+    </div>
+  );
+
   return (
     <>
-      <div className="tree-bar">
+      {compactBar}
+      {!compact && <div className="tree-bar">
         {!lockHead && (
           <select className="select" style={{ width: 180 }} value={headId} aria-label="Cabeza"
             onChange={(e) => { setSelected(null); setParams({ cabeza: e.target.value, foco: null, persona: null }); }}>
@@ -282,8 +322,8 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead })
           <button className={view === 'arbol' ? 'active' : ''} onClick={() => setParams({ vista: null })}><Network size={14} />Árbol</button>
           <button className={view === 'lista' ? 'active' : ''} onClick={() => setParams({ vista: 'lista' })}><List size={14} />Lista</button>
         </div>
-      </div>
-      {store && (
+      </div>}
+      {store && (!compact || progress) && (
         <div className="tree-bar tree-actions" style={{ paddingTop: 6, paddingBottom: 6 }}>
           <span className="small muted ellipsis" style={{ maxWidth: 260 }} title={targetName}>
             Rama: <b style={{ color: 'var(--text)' }}>{targetName}</b>{selected ? '' : ' (raíz)'}
@@ -322,7 +362,7 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead })
         </div>
       )}
       <div className="tree-shell">
-        {showFilters && (
+        {showFilters && !compact && (
           <div className="card card-pad filters-panel stack" style={{ boxShadow: 'var(--shadow-lg)', width: 340 }}>
             <div className="row"><h3>Filtros</h3><span className="spacer" /><button className="btn btn-ghost btn-sm btn-icon" onClick={() => setShowFilters(false)} aria-label="Cerrar"><X size={16} /></button></div>
             <div className="field"><label>Estado</label>
@@ -357,8 +397,21 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead })
             headColor={head.color} scrollToId={scrollToId} onSelect={(n) => setSelected(n.data.id)}
             onExpandAll={(key) => runExpandAll(store, key)} onCollapseAll={(key) => store.collapseBranch(key)} />
         )}
-        {selected && (
-          <NodePanel personId={selected} headName={head.name} onClose={() => setSelected(null)}
+        {selected && compact && (
+          <Sheet title="Ficha rápida" onClose={() => setSelected(null)}>
+            <NodePanel asSheet personId={selected} onClose={() => setSelected(null)}
+              canRegister={a.canManageHead(headId)}
+              onRegisterInvitee={(p) => { setSelected(null); setRegisterFor({ id: p.id, full_name: p.full_name, head_id: p.head_id, is_leader: p.is_leader, code: p.code, leader_code: p.leader_code, leader_name: null, status: p.status }); }}
+              onFocus={(id) => { setSelected(null); setParams({ foco: id, persona: null }); }}
+              onHighlight={(id) => { setSelected(null); highlight(id); }}
+              onExpandLevel={() => { expandLevel(`p${selected}`); setSelected(null); }}
+              onExpandAll={() => { runExpandAll(store, `p${selected}`); setSelected(null); }}
+              onCollapseAll={() => { collapseAll(`p${selected}`); setSelected(null); }}
+              busy={!!progress} />
+          </Sheet>
+        )}
+        {selected && !compact && (
+          <NodePanel personId={selected} onClose={() => setSelected(null)}
             canRegister={a.canManageHead(headId)}
             onRegisterInvitee={(p) => setRegisterFor({ id: p.id, full_name: p.full_name, head_id: p.head_id, is_leader: p.is_leader, code: p.code, leader_code: p.leader_code, leader_name: null, status: p.status })}
             onFocus={(id) => { setSelected(null); setParams({ foco: id, persona: null }); }}
@@ -369,6 +422,43 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead })
             busy={!!progress} />
         )}
       </div>
+      {sheet === 'locate' && (
+        <Sheet title="Localizar en el árbol" subtitle="Escriba el nombre, la cédula o el celular." onClose={() => setSheet(null)}>
+          {({ close }) => <PersonPicker headId={a.isSuper ? undefined : headId} value={null} placeholder="Buscar y localizar…"
+            onChange={(p) => { close(); onSearchPick(p); }} />}
+        </Sheet>
+      )}
+      {sheet === 'filters' && (
+        <Sheet title="Filtros del árbol" subtitle="Atenúan a quienes no coinciden, sin romper la estructura." onClose={() => setSheet(null)}
+          footer={({ close }) => <>
+            <button type="button" className="btn" onClick={() => { setFilters(emptyFilters); setParams({ foco: null }); }}>Limpiar</button>
+            <button type="button" className="btn btn-primary" onClick={close}>Listo</button>
+          </>}>
+          <div className="stack">
+            {!lockHead && heads.length > 1 && (
+              <div className="field"><label htmlFor="tree-head-m">Cabeza</label>
+                <select id="tree-head-m" className="select" value={headId}
+                  onChange={(e) => { setSelected(null); setParams({ cabeza: e.target.value, foco: null, persona: null }); }}>
+                  {heads.map((h) => <option key={h.id} value={h.id}>{h.cabeza_name || h.name}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="field"><label htmlFor="tree-leader-m">Rama de un líder</label>
+              <LeaderPicker id="tree-leader-m" leaders={leaders} compact placeholder="Todos los líderes"
+                value={focusNode?.is_leader ? focusNode.id : ''} onChange={(id) => setParams({ foco: id || null, persona: null })} />
+            </div>
+            {filterFields}
+          </div>
+        </Sheet>
+      )}
+      {sheet === 'more' && store && (
+        <ActionSheet title={`Rama: ${targetName}`} onClose={() => setSheet(null)} groups={[[
+          { label: 'Abrir un nivel', icon: ChevronDown, disabled: !targetHasKids || !!progress, onSelect: () => expandLevel(targetKey) },
+          { label: 'Abrir todos los niveles', icon: ChevronsDown, disabled: !targetHasKids || !!progress, onSelect: () => runExpandAll(store, targetKey) },
+          { label: 'Cerrar todo', icon: ChevronsUp, disabled: !!progress, onSelect: () => collapseAll(targetKey) },
+          { label: 'Actualizar', icon: RefreshCw, disabled: !!progress, onSelect: () => refreshStore(store) },
+        ]]} />
+      )}
       {registerFor && (
         <RegisterPersonModal defaultHeadId={headId} defaultInviter={registerFor} onClose={() => setRegisterFor(null)}
           onCreated={async (p) => {

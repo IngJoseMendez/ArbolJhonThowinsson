@@ -16,7 +16,7 @@ const isDesktop = () => typeof window !== 'undefined' && window.matchMedia('(min
  * - iPhone y Mac: Apple no deja instalar desde la página; se muestran los dos toques.
  * - Navegador dentro de otra app: se ofrece abrirlo en Chrome o en Safari, donde sí se puede.
  */
-export default function InstallPrompt({ appName = 'Mi panel' }) {
+export default function InstallPrompt({ appName = 'Mi panel', formal = false }) {
   const inst = useInstall();
   const toast = useToast();
   const [open, setOpen] = useState(false);
@@ -40,7 +40,7 @@ export default function InstallPrompt({ appName = 'Mi panel' }) {
   const close = () => setOpen(false);
   const later = () => { snoozeInstall(3); close(); };
   const install = async () => {
-    if (await inst.prompt()) { close(); toast(`Listo: ${appName} ya está en tu ${isDesktop() ? 'computador' : 'pantalla de inicio'}`); }
+    if (await inst.prompt()) { close(); toast(`Listo: ${appName} ya está en ${formal ? 'su' : 'tu'} ${isDesktop() ? 'computador' : 'pantalla de inicio'}`); }
   };
   const openInChrome = () => {
     const { host, pathname, search, href } = window.location;
@@ -48,27 +48,34 @@ export default function InstallPrompt({ appName = 'Mi panel' }) {
   };
   const copyLink = async () => { if (await copyText(window.location.href)) toast('Enlace copiado: pégalo en Safari'); };
 
-  const text = {
+  // La coordinación habla de usted; los paneles de líderes y cabezas, de tú.
+  const text = (formal ? {
+    prompt: isDesktop() ? 'Téngalo a mano en su computador, como una app.' : 'Ábralo con un toque desde su pantalla de inicio, como una app.',
+    ios: 'Téngalo en su pantalla de inicio, como una app. Son dos toques.',
+    mac: 'Téngalo en el Dock de su Mac, como una app.',
+    'ios-inapp': 'Para instalarlo, ábralo en Safari.',
+    'android-inapp': 'Para instalarlo, ábralo en Chrome.',
+  } : {
     prompt: isDesktop() ? 'Tenlo a mano en tu computador, como una app.' : 'Ábrelo con un toque desde tu pantalla de inicio, como una app.',
     ios: 'Tenlo en tu pantalla de inicio, como una app. Son dos toques.',
     mac: 'Tenlo en el Dock de tu Mac, como una app.',
     'ios-inapp': 'Para instalarlo, ábrelo en Safari.',
     'android-inapp': 'Para instalarlo, ábrelo en Chrome.',
-  }[mode];
+  })[mode];
 
   return (
     <div className={`install-pop ${open ? 'open' : ''}`} role="dialog" aria-modal="false" aria-labelledby="install-pop-title" aria-hidden={!open}>
       <span className="install-icon"><Monogram /></span>
       <div className="install-pop-text">
-        <b id="install-pop-title">Instala {appName}</b>
+        <b id="install-pop-title">{formal ? 'Instale' : 'Instala'} {appName}</b>
         <span>{text}</span>
         {steps && mode === 'ios' && (
           <ol className="install-steps">
-            <li>Toca <Share size={15} aria-label="Compartir" /> <b>Compartir</b> (en iPhone reciente está dentro de <b>···</b>).</li>
-            <li>Elige <SquarePlus size={15} aria-hidden="true" /> <b>Agregar a inicio</b> y luego <b>Agregar</b>.</li>
+            <li>{formal ? 'Toque' : 'Toca'} <Share size={15} aria-label="Compartir" /> <b>Compartir</b> (en iPhone reciente está dentro de <b>···</b>).</li>
+            <li>{formal ? 'Elija' : 'Elige'} <SquarePlus size={15} aria-hidden="true" /> <b>Agregar a inicio</b> y luego <b>Agregar</b>.</li>
           </ol>
         )}
-        {steps && mode === 'mac' && <ol className="install-steps"><li>En la barra de menú elige <b>Archivo › Agregar al Dock</b>.</li></ol>}
+        {steps && mode === 'mac' && <ol className="install-steps"><li>En la barra de menú {formal ? 'elija' : 'elige'} <b>Archivo › Agregar al Dock</b>.</li></ol>}
         <div className="install-pop-actions">
           {mode === 'prompt' && <button type="button" className="btn btn-sm btn-primary" onClick={install} tabIndex={open ? 0 : -1}><Download size={15} />Instalar</button>}
           {(mode === 'ios' || mode === 'mac') && !steps && <button type="button" className="btn btn-sm btn-primary" onClick={() => setSteps(true)} tabIndex={open ? 0 : -1}><SquarePlus size={15} />Ver cómo</button>}

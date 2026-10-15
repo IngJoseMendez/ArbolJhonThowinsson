@@ -112,7 +112,7 @@ test('3-4. Selección dependiente validada en el servidor', async () => {
 test('5-6. Ubicación escrita a mano: pendiente, separada del catálogo y revisable', async () => {
   const post = (name, location) => admin.post('/api/people', { ...person({ full_name: name, location }), head_id: ids.head, inviter_id: ids.leader });
   const b1 = await post('Barrio Nuevo Uno', { localidad_id: g.L2.id, comuna_id: g.C3.id, barrio_text: 'Villa Esperanza Nueva' });
-  const b2 = await post('Barrio Nuevo Dos', { localidad_id: g.L2.id, comuna_id: g.C3.id, barrio_text: 'Villa Esperanza Nueva' });
+  await post('Barrio Nuevo Dos', { localidad_id: g.L2.id, comuna_id: g.C3.id, barrio_text: 'Villa Esperanza Nueva' });
   const lx = await post('Localidad Manual', { localidad_text: 'Rural Sierra', comuna_text: 'Vereda X' });
   assert.equal(b1.status, 201); assert.equal(lx.status, 201);
   assert.equal(b1.data.geo_status, 'pending');

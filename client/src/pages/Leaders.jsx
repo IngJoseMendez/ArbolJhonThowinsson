@@ -3,12 +3,14 @@ import { Link } from 'react-router-dom';
 import { Crown, GitBranch, Search, Users, UserCheck, Link2 } from 'lucide-react';
 import { api, qs } from '../api.js';
 import { fmtNum, fmtDate } from '../lib/format.js';
+import { teamName, useTeams } from '../lib/teams.js';
 import { Avatar, ErrorBox, Loading, ShareLink, useAsync, Empty, StatusBadge, RoleBadge } from '../components/ui.jsx';
 
 export default function Leaders() {
   const [headId, setHeadId] = useState('');
   const [term, setTerm] = useState('');
   const heads = useAsync(() => api.get('/heads'), []);
+  const teams = useTeams();
   const { data, loading, error } = useAsync(() => api.get(`/leaders${qs({ head_id: headId, q: term.length >= 2 ? term : '' })}`), [headId, term.length >= 2 ? term : '']);
   return (
     <div className="page">
@@ -22,7 +24,7 @@ export default function Leaders() {
         </div>
         <select className="select" style={{ width: 220 }} value={headId} onChange={(e) => setHeadId(e.target.value)} aria-label="Cabeza">
           <option value="">Todas las cabezas</option>
-          {heads.data?.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+          {heads.data?.map((h) => <option key={h.id} value={h.id}>{teamName(h)}</option>)}
         </select>
         {data && <span className="muted">{fmtNum(data.length)} líderes</span>}
       </div>
@@ -37,7 +39,7 @@ export default function Leaders() {
               <div style={{ minWidth: 0, flex: 1 }}>
                 <Link to={`/personas/${l.id}`}><h2 className="ellipsis">{l.full_name}</h2></Link>
                 <div className="row" style={{ gap: 6 }}>{l.is_head && <RoleBadge isHead />}<span className="mono muted">{l.leader_code}</span></div>
-                <div className="row small" style={{ marginTop: 4 }}><span className="dot" style={{ background: l.head_color }} />{l.head_name}
+                <div className="row small" style={{ marginTop: 4 }}><span className="dot" style={{ background: l.head_color }} />{teams.name(l.head_id) || l.head_name}
                   {l.supervisor_name && <span className="muted">· bajo {l.supervisor_name}</span>}</div>
               </div>
               {l.status !== 'active' && <StatusBadge status={l.status} />}

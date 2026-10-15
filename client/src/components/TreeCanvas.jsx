@@ -285,7 +285,7 @@ function HeadNode({ it, n, color, detail, onToggle }) {
         <path d="M12 6v6M12 12l-7 7M12 12l7 7M12 12v7" strokeWidth={2} fill="none" />
         <circle cx={12} cy={5} r={3} stroke="none" /><circle cx={5} cy={19} r={2.6} stroke="none" /><circle cx={12} cy={19} r={2.6} stroke="none" /><circle cx={19} cy={19} r={2.6} stroke="none" />
       </g>
-      <text className="node-name" x={60} y={detail ? 30 : 42} fontSize={15}>{trunc(d.name, 20)}</text>
+      <text className="node-name" x={60} y={detail ? 30 : 42} fontSize={15}>{trunc(d.cabeza_name ? `Equipo de ${d.cabeza_name}` : d.name, 22)}</text>
       {detail && <text className="node-sub" x={60} y={50}>{d.cabeza_name ? 'Estructura' : 'Estructura sin cabeza'}{d.people != null ? ` · ${fmtNum(d.people)} personas` : ''}</text>}
       <g className="node-toggle" transform={`translate(${NODE_W - 2},${it.h / 2})`} onClick={onToggle} role="button" aria-label={n.expanded ? 'Contraer' : 'Expandir'}>
         <rect x={-2} y={-12} width={30} height={24} rx={12} fill={n.expanded ? color : 'var(--surface)'} stroke={color} />

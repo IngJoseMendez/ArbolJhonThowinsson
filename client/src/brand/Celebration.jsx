@@ -81,7 +81,7 @@ export function Credential({ role, name, typeName, team, code, since }) {
       <Mark className="credential-watermark" />
       <div className="credential-top">
         <Logo tone="sky" className="credential-logo" />
-        <span className="credential-john"><JohnPhoto variant="face" eager alt="" /></span>
+        <span className="credential-john"><JohnPhoto variant="face" sizes="40px" eager alt="" /></span>
       </div>
       <div className="credential-body">
         <span className="credential-avatar" aria-hidden="true">{initials(name)}</span>

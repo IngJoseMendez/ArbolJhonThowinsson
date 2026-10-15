@@ -19,9 +19,8 @@ export async function generateLarge(n, headName) {
   const start = Date.now() - 365 * 864e5;
   for (let i = 0; i < n; i++) {
     let inviter = null;
-    let leader = false;
-    if (i < 10) leader = true;
-    else {
+    let leader = i < 10;
+    if (!leader) {
       // Preferencia por nodos recientes => ramas profundas; algunos nodos acumulan muchos invitados.
       const idx = rnd() < 0.15 ? Math.floor(rnd() * Math.min(nodes.length, 50)) : nodes.length - 1 - Math.floor(rnd() * Math.min(nodes.length, 400));
       inviter = nodes[idx];

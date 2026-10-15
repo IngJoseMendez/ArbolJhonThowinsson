@@ -9,6 +9,8 @@ import '@fontsource/zilla-slab/latin-700.css';
 import App from './App.jsx';
 import { ToastProvider } from './components/ui.jsx';
 import { registerServiceWorker, launchToPanel } from './lib/pwa.js';
+import { reloadOnce } from './lib/lazyPage.js';
+import { applyPlatform } from './lib/device.js';
 import './styles.css';
 
 try {
@@ -16,7 +18,10 @@ try {
   if (t) document.documentElement.dataset.theme = t;
 } catch { /* sin almacenamiento */ }
 
+applyPlatform();
 registerServiceWorker();
+// Una pestaña abierta con la versión anterior que pide archivos ya reemplazados: se recarga una vez.
+window.addEventListener('vite:preloadError', (e) => { if (reloadOnce()) e.preventDefault(); });
 // La app instalada en el celular de un líder o una cabeza abre directo su panel.
 launchToPanel();
 

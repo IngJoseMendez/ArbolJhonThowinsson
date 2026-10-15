@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowDown, ArrowUp, Crown, GitBranch, Search, Users, X, MapPin } from 'lucide-react';
+import { ArrowDown, ArrowUp, GitBranch, Search, Users, X, MapPin } from 'lucide-react';
 import GeoSelect, { emptyGeo, geoFromIds } from '../components/GeoSelect.jsx';
 import LeaderPicker from '../components/LeaderPicker.jsx';
 import { useRegTypes } from '../lib/regTypes.js';
+import { teamName, useTeams } from '../lib/teams.js';
 import { api, qs } from '../api.js';
 import { fmtDate, fmtNum, phoneDisplay } from '../lib/format.js';
 import { useQueryState } from '../lib/useParams.js';
-import { Avatar, ErrorBox, Loading, PersonLink, StatusBadge, useAsync, Empty } from '../components/ui.jsx';
+import { Avatar, ErrorBox, Loading, PersonLink, RoleIcon, StatusBadge, useAsync, Empty } from '../components/ui.jsx';
 
 const COLS = [
   { key: 'full_name', label: 'Persona', sort: true },
@@ -25,6 +26,7 @@ export default function People() {
   const [params, setParams] = useQueryState();
   const [term, setTerm] = useState(params.q || '');
   const heads = useAsync(() => api.get('/heads'), []);
+  const teams = useTeams();
   const types = useRegTypes();
   const leaders = useAsync(() => api.get(`/leaders${qs({ head_id: params.head_id })}`), [params.head_id]);
   const query = { sort: 'created_at', dir: 'desc', page: 1, pageSize: 25, ...params };
@@ -63,7 +65,7 @@ export default function People() {
           </div>
           <select className="select" style={{ width: 170 }} value={params.head_id || ''} onChange={setFilter('head_id')} aria-label="Cabeza">
             <option value="">Todas las cabezas</option>
-            {heads.data?.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+            {heads.data?.map((h) => <option key={h.id} value={h.id}>{teamName(h)}</option>)}
           </select>
           <div style={{ width: 230, maxWidth: '100%' }}>
             <LeaderPicker id="df-leader" leaders={leaders.data} loading={leaders.loading} compact placeholder="Cualquier líder"
@@ -134,7 +136,7 @@ export default function People() {
                         </div>
                       </div>
                     </td>
-                    <td><span className="row nowrap"><span className="dot" style={{ background: r.head_color }} />{r.head_name}</span></td>
+                    <td><span className="row nowrap"><span className="dot" style={{ background: r.head_color }} />{teams.name(r.head_id) || r.head_name}</span></td>
                     <td><PersonLink id={r.leader_id} name={r.leader_name} isLeader /></td>
                     <td>{r.inviter_id ? <PersonLink id={r.inviter_id} name={r.inviter_name} /> : <span className="muted small">Cabeza</span>}</td>
                     <td className="small">

@@ -7,7 +7,8 @@ import { api, qs } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { fmtNum, fmtDate } from '../lib/format.js';
 import { useQueryState } from '../lib/useParams.js';
-import GeoSelect, { emptyGeo, geoToApi, clearGeoCache, fetchAreas } from '../components/GeoSelect.jsx';
+import GeoSelect, { geoToApi, clearGeoCache, fetchAreas } from '../components/GeoSelect.jsx';
+import { teamName } from '../lib/teams.js';
 import Combobox from '../components/Combobox.jsx';
 import { ErrorBox, Loading, Modal, Empty, useAsync, useToast } from '../components/ui.jsx';
 
@@ -59,7 +60,7 @@ function StatsTab() {
       <div className="row-wrap">
         <select className="select" style={{ width: 220 }} value={headId} onChange={(e) => setHeadId(e.target.value)} aria-label="Cabeza">
           <option value="">Todas las cabezas</option>
-          {heads.data?.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+          {heads.data?.map((h) => <option key={h.id} value={h.id}>{teamName(h)}</option>)}
         </select>
         <label className="check"><input type="checkbox" checked={hideEmpty} onChange={(e) => setHideEmpty(e.target.checked)} /><span className="small">Ocultar ubicaciones sin personas</span></label>
         <button className="btn btn-sm btn-ghost" onClick={() => setOpen(new Set(data?.areas.filter((a) => a.level !== 'barrio').map((a) => a.id)))}>Expandir todo</button>

@@ -4,11 +4,13 @@ import { Crown, GitBranch, Network, Users, Clock, UserPlus, Link2, Layers } from
 import { api, qs } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { fmtNum, relTime, METHOD } from '../lib/format.js';
+import { useTeams } from '../lib/teams.js';
 import { GrowthChart, BarList } from '../components/Charts.jsx';
 import { Avatar, ErrorBox, Loading, StatTile, StatusBadge, useAsync, Empty, PersonLink, RoleIcon } from '../components/ui.jsx';
 
 export function DashboardBody({ headId, days, compact }) {
   const nav = useNavigate();
+  const teams = useTeams();
   const { data, loading, error } = useAsync(() => api.get(`/stats/dashboard${qs({ head_id: headId, days })}`), [headId, days]);
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox error={error} />;
@@ -55,7 +57,7 @@ export function DashboardBody({ headId, days, compact }) {
             {data.perLeader.length ? (
               <BarList onClick={(it) => nav(`/personas/${it.key}`)} items={data.perLeader.map((l) => ({
                 key: l.id, label: l.full_name, value: l.assigned, dot: l.head_color,
-                tip: [['Cabeza', l.head_name], ['Código', l.leader_code], ['Personas en su rama', fmtNum(l.branch)]],
+                tip: [['Equipo', teams.name(l.head_id) || l.head_name], ['Código', l.leader_code], ['Personas en su rama', fmtNum(l.branch)]],
               }))} valueLabel="Asignadas" />
             ) : <Empty icon={Crown} title="Sin líderes todavía" />}
           </div>
@@ -75,7 +77,7 @@ export function DashboardBody({ headId, days, compact }) {
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <div className="row small" style={{ justifyContent: 'flex-end' }}><span className="dot" style={{ background: r.head_color }} />{r.head_name}</div>
+                  <div className="row small" style={{ justifyContent: 'flex-end' }}><span className="dot" style={{ background: r.head_color }} />{teams.name(r.head_id) || r.head_name}</div>
                   <div className="small muted">{relTime(r.created_at)}</div>
                 </div>
                 {r.status !== 'active' && <StatusBadge status={r.status} />}

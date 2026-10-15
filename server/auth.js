@@ -84,18 +84,26 @@ export function clearSessionCookie(res) {
   res.setHeader('Set-Cookie', `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
 }
 
-/** Limitador de peticiones en memoria por clave (IP + ruta). */
-export function rateLimit({ windowMs, max, key = (req) => req.ip }) {
-  const hits = new Map();
-  return (req, _res, next) => {
+/**
+ * Límite de peticiones por clave (IP, usuario…) guardado en la base de datos: vale igual con varias instancias del
+ * servidor (Vercel crea varias y cada una tendría su propia cuenta en memoria). `name` separa cada límite.
+ */
+export function rateLimit({ name, windowMs, max, key = (req) => req.ip }) {
+  return async (req, res, next) => {
     if (process.env.DISABLE_RATE_LIMIT === '1') return next();
-    const k = key(req);
     const t = Date.now();
-    let e = hits.get(k);
-    if (!e || e.reset < t) { e = { count: 0, reset: t + windowMs }; hits.set(k, e); }
-    e.count++;
-    if (hits.size > 10000) for (const [kk, v] of hits) if (v.reset < t) hits.delete(kk);
-    if (e.count > max) return next(new AppError(429, 'RATE_LIMITED', 'Demasiados intentos. Espere unos minutos e inténtelo de nuevo.'));
+    const k = `${name}:${key(req) ?? '-'}`.slice(0, 200);
+    const row = await q(`INSERT INTO rate_limits (key, count, reset_at) VALUES (?, 1, ?)
+        ON CONFLICT (key) DO UPDATE SET
+          count = CASE WHEN rate_limits.reset_at <= ? THEN 1 ELSE rate_limits.count + 1 END,
+          reset_at = CASE WHEN rate_limits.reset_at <= ? THEN EXCLUDED.reset_at ELSE rate_limits.reset_at END
+        RETURNING count, reset_at`).get(k, t + windowMs, t, t);
+    // Limpieza ocasional de contadores vencidos.
+    if (Math.random() < 0.02) q('DELETE FROM rate_limits WHERE reset_at < ?').run(t).catch(() => {});
+    if (row.count > max) {
+      res.setHeader('Retry-After', String(Math.max(1, Math.ceil((row.reset_at - t) / 1000))));
+      throw new AppError(429, 'RATE_LIMITED', 'Demasiados intentos. Espere unos minutos e inténtelo de nuevo.');
+    }
     next();
   };
 }

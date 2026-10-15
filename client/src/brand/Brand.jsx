@@ -42,18 +42,22 @@ export function Monogram({ className = '', title = 'Thowinsson', ...rest }) {
 }
 
 const PHOTOS = {
-  face: { w: 320, h: 320, src: '/brand/john-face' },
+  face: { w: 320, h: 320, src: '/brand/john-face', widths: [160, 320] },
   hero: { w: 720, h: 900, src: '/brand/john-hero' },
 };
 
-/** Foto de John Thowinsson (rostro para avatares o retrato para las cabeceras). */
-export function JohnPhoto({ variant = 'face', className = '', alt = 'John Thowinsson', eager, ...rest }) {
+/**
+ * Foto de John Thowinsson (rostro para avatares o retrato para las cabeceras).
+ * sizes: ancho con que se muestra el rostro; el navegador elige la versión más liviana que se vea nítida.
+ */
+export function JohnPhoto({ variant = 'face', className = '', alt = 'John Thowinsson', eager, sizes = '104px', ...rest }) {
   const p = PHOTOS[variant];
+  const set = (ext) => (p.widths ? p.widths.map((w) => `${p.src}${w === p.w ? '' : `-${w}`}.${ext} ${w}w`).join(', ') : `${p.src}.${ext}`);
   return (
     <picture className={className}>
-      <source type="image/webp" srcSet={`${p.src}.webp`} />
-      <img src={`${p.src}.jpg`} alt={alt} width={p.w} height={p.h} loading={eager ? 'eager' : 'lazy'} decoding="async"
-        fetchPriority={eager ? 'high' : undefined} {...rest} />
+      <source type="image/webp" srcSet={set('webp')} sizes={p.widths ? sizes : undefined} />
+      <img src={`${p.src}.jpg`} srcSet={p.widths ? set('jpg') : undefined} sizes={p.widths ? sizes : undefined} alt={alt} width={p.w} height={p.h}
+        loading={eager ? 'eager' : 'lazy'} decoding="async" fetchPriority={eager ? 'high' : undefined} {...rest} />
     </picture>
   );
 }

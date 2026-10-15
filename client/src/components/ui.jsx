@@ -1,37 +1,57 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { Check, Copy, Crown, Search, Share2, X, AlertCircle, CheckCircle2, Clock, CircleSlash, Ban, ExternalLink } from 'lucide-react';
 import { api, qs } from '../api.js';
 import { STATUS, initials, inviteUrl } from '../lib/format.js';
 import { Mark, CAMPAIGN } from '../brand/Brand.jsx';
+import { extLinkProps, waUrl } from '../lib/whatsapp.js';
+import Sheet from './m/Sheet.jsx';
 
 // ---------------------------------------------------------------- Toasts
+// Avisos breves. Van fuera de #root: siguen tocables mientras una hoja deja el resto de la app inactivo.
+// toast(mensaje, 'ok' | 'error', { action: { label, onClick }, duration })
 const ToastCtx = createContext(() => {});
 export function ToastProvider({ children }) {
   const [items, setItems] = useState([]);
-  const push = useCallback((msg, kind = 'ok') => {
+  const dismiss = useCallback((id) => setItems((x) => x.filter((t) => t.id !== id)), []);
+  const push = useCallback((msg, kind = 'ok', opts = {}) => {
     const id = Math.random();
-    setItems((x) => [...x, { id, msg, kind }]);
-    setTimeout(() => setItems((x) => x.filter((t) => t.id !== id)), kind === 'error' ? 6000 : 3200);
-  }, []);
+    setItems((x) => [...x.slice(-2), { id, msg, kind, action: opts.action }]);
+    setTimeout(() => dismiss(id), opts.duration ?? (kind === 'error' || opts.action ? 6000 : 3200));
+    return id;
+  }, [dismiss]);
   return (
     <ToastCtx.Provider value={push}>
       {children}
-      <div className="toasts" role="status" aria-live="polite">
-        {items.map((t) => (
-          <div key={t.id} className={`toast ${t.kind === 'error' ? 'error' : ''}`}>
-            {t.kind === 'error' ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
-            <span>{t.msg}</span>
-          </div>
-        ))}
-      </div>
+      {createPortal(
+        <div className="toasts" role="status" aria-live="polite">
+          {items.map((t) => (
+            <div key={t.id} className={`toast ${t.kind === 'error' ? 'error' : ''}`}>
+              {t.kind === 'error' ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
+              <span>{t.msg}</span>
+              {t.action && <button type="button" className="toast-action" onClick={() => { dismiss(t.id); t.action.onClick(); }}>{t.action.label}</button>}
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )}
     </ToastCtx.Provider>
   );
 }
 export const useToast = () => useContext(ToastCtx);
 
 // ---------------------------------------------------------------- Modal
-export function Modal({ title, subtitle, onClose, children, footer, wide }) {
+/** En la app del celular, los diálogos son hojas que suben desde abajo (mismas propiedades). */
+export function Modal(props) {
+  if (typeof document !== 'undefined' && document.documentElement.classList.contains('m-phone')) {
+    const { title, subtitle, onClose, children, footer } = props;
+    return <Sheet title={title} subtitle={subtitle} onClose={onClose} footer={footer} size={props.wide ? 'large' : 'auto'}>{children}</Sheet>;
+  }
+  return <CenteredModal {...props} />;
+}
+
+function CenteredModal({ title, subtitle, onClose, children, footer, wide }) {
   useEffect(() => {
     const k = (e) => e.key === 'Escape' && onClose?.();
     window.addEventListener('keydown', k);
@@ -182,12 +202,13 @@ export function ShareLink({ token, ownerName, compact, asOwner, big }) {
     if (navigator.share) { try { await navigator.share({ title: `Equipo ${CAMPAIGN}`, text: message }); } catch { /* cancelado */ } }
     else copy();
   };
-  const wa = `https://wa.me/?text=${encodeURIComponent(message)}`;
+  // En la app instalada del iPhone abre WhatsApp directo; en el celular, en la misma ventana.
+  const wa = waUrl(message);
   if (big) {
     return (
       <div className="stack" style={{ gap: 10 }}>
         <div className="share-actions">
-          <a className="btn btn-lg btn-wa" href={wa} target="_blank" rel="noopener noreferrer"><WhatsAppIcon size={20} />Enviar por WhatsApp</a>
+          <a className="btn btn-lg btn-wa" href={wa} {...extLinkProps()}><WhatsAppIcon size={20} />Enviar por WhatsApp</a>
           <button type="button" className="btn" onClick={copy}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? 'Copiado' : 'Copiar link'}</button>
           <button type="button" className="btn" onClick={share}><Share2 size={16} />Compartir</button>
         </div>
@@ -202,7 +223,7 @@ export function ShareLink({ token, ownerName, compact, asOwner, big }) {
         <button type="button" className="btn btn-sm" onClick={copy} aria-label="Copiar enlace">{copied ? <Check size={14} /> : <Copy size={14} />}{!compact && 'Copiar'}</button>
       </div>
       <div className="row-wrap">
-        <a className="btn btn-sm btn-wa" href={wa} target="_blank" rel="noopener noreferrer"><WhatsAppIcon size={14} />WhatsApp</a>
+        <a className="btn btn-sm btn-wa" href={wa} {...extLinkProps()}><WhatsAppIcon size={14} />WhatsApp</a>
         <button type="button" className="btn btn-sm" onClick={share}><Share2 size={14} />Compartir</button>
         <a className="btn btn-sm btn-ghost" href={`/registro/${token}`} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} />Ver formulario</a>
       </div>

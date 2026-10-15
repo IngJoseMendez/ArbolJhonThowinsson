@@ -52,7 +52,7 @@ export default function TreeList({ store, version, selectedId, pathIds, isDimmed
               <div key={n.key} className="trow" style={{ ...style, fontWeight: 650 }} onClick={() => store.toggle(n.key)}>
                 <button className="twisty" aria-label="Expandir">{n.expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</button>
                 <span className="dot" style={{ background: headColor, width: 12, height: 12 }} />
-                <Network size={15} />{n.data.name}
+                <Network size={15} />{n.data.cabeza_name ? `Equipo de ${n.data.cabeza_name}` : n.data.name}
                 <span className="muted small" style={{ fontWeight: 400 }}>{n.data.people != null ? `${fmtNum(n.data.people)} personas` : ''}</span>
               </div>
             );

@@ -1,7 +1,10 @@
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-/** Parámetros de búsqueda como objeto, con actualización parcial (null elimina). */
+/**
+ * Parámetros de búsqueda como objeto, con actualización parcial (null elimina). Con una hoja abierta (celular) se
+ * reemplaza su entrada del historial en lugar de agregar otra.
+ */
 export function useQueryState() {
   const [sp, setSp] = useSearchParams();
   const params = useMemo(() => Object.fromEntries(sp.entries()), [sp]);
@@ -12,7 +15,7 @@ export function useQueryState() {
         if (v === null || v === undefined || v === '') next.delete(k); else next.set(k, String(v));
       }
       return next;
-    }, { replace });
+    }, { replace: replace || !!window.history.state?.mSheet });
   }, [setSp]);
   return [params, set];
 }

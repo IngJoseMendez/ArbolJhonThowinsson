@@ -1,0 +1,3 @@
+# Equipo John Thowinsson. Los enlaces de registro y los paneles llevan además «noindex».
+User-agent: *
+Disallow: /api/
