@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Archive, Plus, Network, Users, Crown, Clock, TrendingUp } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Archive, Plus, Network, Send } from 'lucide-react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
-import { fmtNum, HEAD_COLORS } from '../lib/format.js';
+import { fmtNum, HEAD_COLORS, initials } from '../lib/format.js';
 import { ErrorBox, Loading, Modal, useAsync, useToast, Empty } from '../components/ui.jsx';
+import { Mark } from '../brand/Brand.jsx';
 
 export function HeadFormModal({ head, usedColors = [], onClose, onSaved }) {
   const a = useAuth();
@@ -29,7 +30,7 @@ export function HeadFormModal({ head, usedColors = [], onClose, onSaved }) {
     catch (ex) { setErr(ex); }
   };
   return (
-    <Modal title={head ? 'Editar cabeza' : 'Nueva cabeza'} subtitle="Cada cabeza es una estructura independiente con su propio árbol." onClose={onClose}
+    <Modal title={head ? 'Editar estructura' : 'Nueva estructura'} subtitle="Cada estructura es independiente, con su propio árbol. Su cabeza es la persona que la encabeza: regístrela después con el tipo «Cabeza» o desígnela desde su ficha." onClose={onClose}
       footer={<>
         {head && a.isSuper && <button className="btn btn-danger" style={{ marginRight: 'auto' }} onClick={archive}><Archive size={15} />{head.status === 'archived' ? 'Reactivar' : 'Archivar'}</button>}
         <button className="btn" onClick={onClose}>Cancelar</button>
@@ -57,6 +58,46 @@ export function HeadFormModal({ head, usedColors = [], onClose, onSaved }) {
   );
 }
 
+/** La cabeza es una persona: la tarjeta la muestra a ella al frente de su estructura. */
+function HeadCard({ h, onOpen }) {
+  const name = h.cabeza_name || h.name;
+  const structure = h.cabeza_name && h.name !== `Cabeza ${h.cabeza_name}` ? h.name : null;
+  return (
+    <div className="card head-card" onClick={onOpen} style={{ opacity: h.status === 'archived' ? 0.6 : 1, '--hc': h.color }}
+      role="link" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && onOpen()} aria-label={`Abrir ${name}`}>
+      <span className="stripe" style={{ background: h.color }} />
+      <div className="head-card-top">
+        <span className={`head-avatar ${h.cabeza_name ? '' : 'vacant'}`} aria-hidden="true">
+          {h.cabeza_name ? initials(h.cabeza_name) : <Network size={24} />}
+          {h.cabeza_name && <Mark />}
+        </span>
+        <div style={{ minWidth: 0 }}>
+          <div className="head-name clamp-2">{name}</div>
+          <div className="head-struct ellipsis">
+            {h.cabeza_name ? (structure || 'Cabeza de su estructura') : 'Estructura sin cabeza asignada'}
+            {h.region ? ` · ${h.region}` : ''}{h.status === 'archived' ? ' · Archivada' : ''}
+          </div>
+        </div>
+      </div>
+      {(h.requires_approval || !h.person_invites_enabled || h.cabeza_status === 'inactive') && (
+        <div className="head-tags">
+          {h.cabeza_status === 'inactive' && <span className="badge badge-muted">Cabeza inactiva</span>}
+          {h.requires_approval && <span className="badge badge-warning">Aprueba registros</span>}
+          {!h.person_invites_enabled && <span className="badge">Sin invitaciones personales</span>}
+        </div>
+      )}
+      {h.people != null && (
+        <div className="head-metrics">
+          <div><b className="tnum">{fmtNum(h.leaders)}</b><span>líderes</span></div>
+          <div><b className="tnum">{fmtNum(h.people)}</b><span>personas</span></div>
+          <div><b className="tnum">+{fmtNum(h.last30)}</b><span>en 30 días</span></div>
+          <div><b className="tnum">{fmtNum(h.pending)}</b><span>pendientes</span></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Heads() {
   const a = useAuth();
   const nav = useNavigate();
@@ -65,39 +106,19 @@ export default function Heads() {
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>Cabezas</h1><p>Estructuras principales. Cada una tiene su propio árbol, líderes y estadísticas.</p></div>
-        {a.isSuper && <button className="btn btn-primary" onClick={() => setCreating(true)}><Plus size={16} />Nueva cabeza</button>}
+        <div><h1>Cabezas</h1><p>Cada cabeza es una persona al frente de su estructura: de ella salen sus líderes y, de cada líder, sus personas.</p></div>
+        {a.isSuper && (
+          <div className="row-wrap">
+            <Link className="btn btn-primary" to="/enlaces"><Send size={16} />Invitar una cabeza</Link>
+            <button className="btn" onClick={() => setCreating(true)}><Plus size={16} />Nueva estructura</button>
+          </div>
+        )}
       </div>
       {loading && <Loading />}
       <ErrorBox error={error} />
-      {data && data.length === 0 && <div className="card"><Empty icon={Network} title="Aún no hay cabezas">{a.isSuper && <button className="btn btn-primary" onClick={() => setCreating(true)}>Crear la primera</button>}</Empty></div>}
+      {data && data.length === 0 && <div className="card"><Empty icon={Network} title="Aún no hay cabezas">{a.isSuper && <Link className="btn btn-primary" to="/enlaces">Invitar la primera</Link>}</Empty></div>}
       <div className="grid g-auto">
-        {data?.map((h) => (
-          <div key={h.id} className="card card-pad head-card stack" onClick={() => nav(`/cabezas/${h.id}`)} style={{ opacity: h.status === 'archived' ? 0.6 : 1 }}
-            role="link" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && nav(`/cabezas/${h.id}`)}>
-            <span className="stripe" style={{ background: h.color }} />
-            <div className="row">
-              <div className="brand-logo" style={{ background: h.color }}><Network size={17} /></div>
-              <div style={{ minWidth: 0 }}>
-                <h2 className="ellipsis">{h.name}</h2>
-                <div className="small muted">{h.region || 'Sin región'}{h.status === 'archived' && ' · Archivada'}</div>
-              </div>
-            </div>
-            {h.description && <div className="small text-2" style={{ minHeight: 20 }}>{h.description}</div>}
-            {h.people != null && (
-              <div className="grid g-2" style={{ gap: 10 }}>
-                <div className="row small"><Users size={14} className="muted" /><b className="tnum">{fmtNum(h.people)}</b> personas</div>
-                <div className="row small"><Crown size={14} color="var(--leader)" /><b className="tnum">{fmtNum(h.leaders)}</b> líderes</div>
-                <div className="row small"><TrendingUp size={14} className="muted" /><b className="tnum">+{fmtNum(h.last30)}</b> en 30 días</div>
-                <div className="row small"><Clock size={14} className="muted" /><b className="tnum">{fmtNum(h.pending)}</b> pendientes</div>
-              </div>
-            )}
-            <div className="row-wrap">
-              {h.requires_approval && <span className="badge badge-warning">Requiere aprobación</span>}
-              {!h.person_invites_enabled && <span className="badge">Invitaciones personales desactivadas</span>}
-            </div>
-          </div>
-        ))}
+        {data?.map((h) => <HeadCard key={h.id} h={h} onOpen={() => nav(`/cabezas/${h.id}`)} />)}
       </div>
       {creating && <HeadFormModal usedColors={(data || []).map((h) => h.color)} onClose={() => setCreating(false)} onSaved={(h) => { reload(); if (h?.id) nav(`/cabezas/${h.id}`); }} />}
     </div>

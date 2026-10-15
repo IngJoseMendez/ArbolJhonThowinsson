@@ -47,4 +47,4 @@ export function inkFor(hex) {
 /** Variables CSS para teñir una página o tarjeta con el color del tipo. */
 export const typeVars = (color) => (color ? { '--type': color, '--type-ink': inkFor(color), '--type-soft': `${color}1f` } : undefined);
 
-export const SWATCHES = ['#2563eb', '#7c3aed', '#d97706', '#16a34a', '#0ea5e9', '#be123c', '#db2777', '#0f766e', '#ea580c', '#4b5563'];
+export const SWATCHES = ['#05204a', '#1d4f91', '#2f9be0', '#60b6e8', '#e0a422', '#16a34a', '#be123c', '#db2777', '#0f766e', '#4b5563'];

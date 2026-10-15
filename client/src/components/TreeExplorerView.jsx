@@ -264,7 +264,7 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead })
         {!lockHead && (
           <select className="select" style={{ width: 180 }} value={headId} aria-label="Cabeza"
             onChange={(e) => { setSelected(null); setParams({ cabeza: e.target.value, foco: null, persona: null }); }}>
-            {heads.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+            {heads.map((h) => <option key={h.id} value={h.id}>{h.cabeza_name || h.name}</option>)}
           </select>
         )}
         <div style={{ width: 240, maxWidth: '100%' }}>
@@ -289,11 +289,11 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead })
             Rama: <b style={{ color: 'var(--text)' }}>{targetName}</b>{selected ? '' : ' (raíz)'}
           </span>
           <button className="btn btn-sm" disabled={!targetHasKids || !!progress} onClick={() => expandLevel(targetKey)}
-            title="Abre sólo el siguiente nivel de la rama"><ChevronDown size={14} />Expandir nivel</button>
+            title="Abre sólo el siguiente nivel de la rama"><ChevronDown size={14} /><span className="hide-sm">Expandir nivel</span><span className="show-sm">Nivel</span></button>
           <button className="btn btn-sm" disabled={!targetHasKids || !!progress} onClick={() => runExpandAll(store, targetKey)}
-            title="Abre recursivamente todos los niveles descendientes"><ChevronsDown size={14} />Expandir todo</button>
+            title="Abre recursivamente todos los niveles descendientes"><ChevronsDown size={14} /><span className="hide-sm">Expandir todo</span><span className="show-sm">Todo</span></button>
           <button className="btn btn-sm" disabled={!!progress} onClick={() => collapseAll(targetKey)}
-            title="Cierra todos los niveles descendientes de la rama"><ChevronsUp size={14} />Contraer todo</button>
+            title="Cierra todos los niveles descendientes de la rama"><ChevronsUp size={14} /><span className="hide-sm">Contraer todo</span><span className="show-sm">Contraer</span></button>
           <button className="btn btn-sm btn-ghost" disabled={!!progress} onClick={() => refreshStore(store)} title="Actualizar datos sin perder las ramas abiertas">
             <RefreshCw size={14} /><span className="hide-sm">Actualizar</span>
           </button>

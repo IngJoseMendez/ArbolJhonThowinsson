@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Crown, GitBranch, Search, Users, UserCheck, Link2 } from 'lucide-react';
 import { api, qs } from '../api.js';
 import { fmtNum, fmtDate } from '../lib/format.js';
-import { Avatar, ErrorBox, Loading, ShareLink, useAsync, Empty, StatusBadge } from '../components/ui.jsx';
+import { Avatar, ErrorBox, Loading, ShareLink, useAsync, Empty, StatusBadge, RoleBadge } from '../components/ui.jsx';
 
 export default function Leaders() {
   const [headId, setHeadId] = useState('');
@@ -13,7 +13,7 @@ export default function Leaders() {
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>Líderes</h1><p>Líderes oficiales designados por un administrador. Cada uno tiene identificador y enlace de registro propios.</p></div>
+        <div><h1>Líderes</h1><p>Cada líder tiene su link para sumar personas y su panel. Las cabezas aparecen primero en su estructura.</p></div>
       </div>
       <div className="row-wrap" style={{ marginBottom: 16 }}>
         <div className="search-input" style={{ width: 300, maxWidth: '100%' }}>
@@ -33,10 +33,10 @@ export default function Leaders() {
         {data?.map((l) => (
           <div key={l.id} className="card card-pad stack" style={{ gap: 14 }}>
             <div className="row" style={{ gap: 12 }}>
-              <Avatar name={l.full_name} leader size="lg" />
+              <Avatar name={l.full_name} leader head={l.is_head} size="lg" />
               <div style={{ minWidth: 0, flex: 1 }}>
                 <Link to={`/personas/${l.id}`}><h2 className="ellipsis">{l.full_name}</h2></Link>
-                <div className="mono muted">{l.leader_code}</div>
+                <div className="row" style={{ gap: 6 }}>{l.is_head && <RoleBadge isHead />}<span className="mono muted">{l.leader_code}</span></div>
                 <div className="row small" style={{ marginTop: 4 }}><span className="dot" style={{ background: l.head_color }} />{l.head_name}
                   {l.supervisor_name && <span className="muted">· bajo {l.supervisor_name}</span>}</div>
               </div>
@@ -47,7 +47,7 @@ export default function Leaders() {
               <div className="card" style={{ padding: 10, boxShadow: 'none' }}><div className="small muted row"><Users size={13} />En su rama</div><b style={{ fontSize: 18 }} className="tnum">{fmtNum(l.branch)}</b></div>
               <div className="card" style={{ padding: 10, boxShadow: 'none' }}><div className="small muted row"><Link2 size={13} />Por su enlace</div><b style={{ fontSize: 18 }} className="tnum">{fmtNum(l.link_uses)}</b></div>
             </div>
-            {l.link_token ? <ShareLink token={l.link_token} ownerName={l.full_name} headName={l.head_name} compact /> : <div className="alert alert-warn small">Enlace desactivado</div>}
+            {l.link_token ? <ShareLink token={l.link_token} ownerName={l.full_name} compact /> : <div className="alert alert-warn small">Enlace desactivado</div>}
             <div className="row-wrap">
               <Link className="btn btn-sm" to={`/arbol?cabeza=${l.head_id}&foco=${l.id}`}><GitBranch size={14} />Ver rama</Link>
               <Link className="btn btn-sm" to={`/personas?leader_id=${l.id}`}><Users size={14} />Personas asignadas</Link>

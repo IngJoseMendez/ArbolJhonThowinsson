@@ -12,6 +12,8 @@ import RegisterPersonModal from '../components/RegisterPersonModal.jsx';
 import GeoSelect, { geoFromPerson, geoToApi } from '../components/GeoSelect.jsx';
 import LeaderPicker from '../components/LeaderPicker.jsx';
 import PanelLinkBox from '../components/PanelLinkBox.jsx';
+import { OneTimeLinkCard } from './Links.jsx';
+import { Mark } from '../brand/Brand.jsx';
 import { useRegTypes } from '../lib/regTypes.js';
 import {
   cedulaError, formatCedula, formatMobile, formatName, mobileError, normalizeCedula, normalizeMobile,
@@ -33,6 +35,8 @@ const HISTORY = {
   reactivated: 'Reactivada',
   data_updated: 'Datos actualizados',
   link_regenerated: 'Enlace de invitación regenerado',
+  head_assigned: 'Designada como cabeza de la estructura',
+  head_removed: 'Dejó de ser la cabeza de la estructura',
   location_changed: 'Ubicación corregida',
   location_verified: 'Ubicación verificada',
 };
@@ -45,11 +49,13 @@ function HistoryDetail({ h, names }) {
   const hn = (id) => names.heads[id] || `#${id}`;
   switch (h.change_type) {
     case 'registered':
-      return <>{METHOD[d.method]} en {d.head || hn(d.head_id)}. {d.inviter_id ? <>Invitado por <b>{pn(d.inviter_id)}</b>. </> : 'Cuelga directamente de la cabeza. '}
-        {d.leader_id ? <>Líder responsable: <b>{pn(d.leader_id)}</b>{d.leader_mode === 'manual' ? ' (asignado)' : ''}.</> : ''}{d.is_leader ? ` Registrado como líder (${d.leader_code}).` : ''}</>;
+      return <>{METHOD[d.method]} en {d.head || hn(d.head_id)}. {d.inviter_id ? <>Invitado por <b>{pn(d.inviter_id)}</b>. </> : d.is_head ? 'Es la raíz de su estructura. ' : 'Cuelga directamente de la estructura. '}
+        {d.leader_id ? <>Líder responsable: <b>{pn(d.leader_id)}</b>{d.leader_mode === 'manual' ? ' (asignado)' : ''}.</> : ''}{d.is_head ? ' Registrada como cabeza de la estructura.' : d.is_leader ? ` Registrado como líder (${d.leader_code}).` : ''}</>;
     case 'promoted_leader': return <>Código asignado: <span className="mono">{d.leader_code}</span></>;
+    case 'head_assigned': return d.adopted ? <>{d.adopted} líderes que colgaban de la estructura pasaron a colgar de ella.</> : null;
     case 'leader_changed': return <>De <b>{pn(d.from)}</b> a <b>{pn(d.to)}</b> {d.automatic ? '(recalculado automáticamente)' : d.mode === 'manual' ? '(asignación manual)' : '(automático)'}</>;
     case 'moved': case 'moved_head':
+      if (d.adopted_by_head) return <>Pasó a colgar de la cabeza <b>{pn(d.to_inviter_id)}</b> con toda su rama ({d.branch_size} personas).</>;
       if (d.via_branch_of) return <>Movida junto con la rama de <b>{pn(d.via_branch_of)}</b>: {hn(d.from_head_id)} → {hn(d.to_head_id)}</>;
       return <>{d.from_head_id !== d.to_head_id ? <>{hn(d.from_head_id)} → {hn(d.to_head_id)}. </> : ''}Invitador: {pn(d.from_inviter_id)} → <b>{pn(d.to_inviter_id)}</b>. Rama movida: {d.branch_size} personas.</>;
     case 'location_changed': case 'location_verified':
@@ -76,7 +82,8 @@ function EditModal({ p, types = [], onClose, onDone }) {
     ...names, phone: p.phone || '', document_id: p.document_id || '', address: p.address || '',
     supports: p.supports || '', secure_vote: p.secure_vote || '', reg_type_id: p.reg_type_id ? String(p.reg_type_id) : '', notes: p.notes || '', reason: '',
   });
-  const typeOptions = types.filter((t) => (t.active || t.id === p.reg_type_id) && (p.is_leader ? t.role !== 'person' : t.role === 'person'));
+  const role = p.is_head ? 'head' : p.is_leader ? 'leader' : 'person';
+  const typeOptions = types.filter((t) => (t.active || t.id === p.reg_type_id) && t.role === role);
   const [err, setErr] = useState(null);
   const [errors, setErrors] = useState({});
   const set = (k, fmt = (x) => x) => (e) => setF({ ...f, [k]: fmt(e.target.value) });
@@ -183,14 +190,15 @@ function MoveModal({ p, head, onClose, onDone }) {
         {p.is_leader && (
           <div className="seg">
             <button className={!toHead ? 'active' : ''} onClick={() => setToHead(false)}>Debajo de otra persona</button>
-            <button className={toHead ? 'active' : ''} onClick={() => setToHead(true)}>Directamente bajo una cabeza</button>
+            <button className={toHead ? 'active' : ''} onClick={() => setToHead(true)}>Con la cabeza de una estructura</button>
           </div>
         )}
         {toHead ? (
-          <div className="field"><label>Cabeza destino</label>
+          <div className="field"><label>Estructura destino</label>
             <select className="select" value={headId} onChange={(e) => setHeadId(e.target.value)}>
-              {heads.data?.filter((h) => h.can_manage && h.status === 'active').map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
-            </select></div>
+              {heads.data?.filter((h) => h.can_manage && h.status === 'active').map((h) => <option key={h.id} value={h.id}>{h.cabeza_name ? `${h.cabeza_name} (cabeza)` : h.name}</option>)}
+            </select>
+            <span className="hint">Si la estructura tiene cabeza, el líder quedará colgando de ella.</span></div>
         ) : (
           <div className="field"><label>Nuevo invitador</label>
             <PersonPicker headId={a.isSuper ? undefined : p.head_id} value={target} onChange={setTarget} filter={(x) => x.id !== p.id && x.status === 'active'} />
@@ -264,6 +272,7 @@ export default function Person() {
   const [modal, setModal] = useState(null);
   const [panelToken, setPanelToken] = useState(null);
   const types = useRegTypes();
+  const leaderType = types.list.find((t) => t.builtin && t.role === 'leader');
   const done = (msg) => { toast(msg); reload(); };
 
   if (loading && !data) return <Loading />;
@@ -277,15 +286,16 @@ export default function Person() {
       {/* Cabecera */}
       <div className="card card-pad" style={{ marginBottom: 16 }}>
         <div className="row-wrap" style={{ gap: 16, alignItems: 'flex-start' }}>
-          <Avatar name={p.full_name} leader={p.is_leader} size="lg" />
+          <Avatar name={p.full_name} leader={p.is_leader} head={p.is_head} size="lg" />
           <div style={{ flex: 1, minWidth: 220 }}>
             <h1>{p.full_name}</h1>
             <div className="row-wrap" style={{ marginTop: 8 }}>
-              <RoleBadge isLeader={p.is_leader} code={p.leader_code} />
-              {types.byId[p.reg_type_id] && <span className="type-chip" style={{ '--chip': types.byId[p.reg_type_id].color }} title="Tipo de registro">{types.byId[p.reg_type_id].name}</span>}
+              <RoleBadge isLeader={p.is_leader} isHead={p.is_head} code={p.is_head ? null : p.leader_code} />
+              {types.byId[p.reg_type_id] && !(types.byId[p.reg_type_id].builtin && types.byId[p.reg_type_id].role !== 'person' && (p.is_head || p.is_leader))
+                && <span className="type-chip" style={{ '--chip': types.byId[p.reg_type_id].color }} title="Tipo de registro">{types.byId[p.reg_type_id].name}</span>}
               {!p.is_leader && invitees.length > 0 && <span className="badge" title="Ha invitado a otras personas sin ser líder oficial"><Send size={12} />Invita a otras personas · no es líder</span>}
               <StatusBadge status={p.status} />
-              <HeadPill name={head.name} color={head.color} />
+              {!p.is_head && <HeadPill name={head.cabeza ? `Equipo de ${head.cabeza.full_name}` : head.name} color={head.color} />}
               <span className="badge badge-outline mono">{p.code}</span>
             </div>
           </div>
@@ -305,9 +315,11 @@ export default function Person() {
               </>}
               <button className="btn btn-sm" onClick={() => setModal('edit')}><Pencil size={14} />Editar datos</button>
               {p.status === 'active' && !p.is_leader && <button className="btn btn-sm" onClick={() => setModal('promote')}><Crown size={14} />Designar como líder</button>}
-              {p.is_leader && <button className="btn btn-sm" onClick={() => setModal('demote')}><Crown size={14} />Retirar liderazgo</button>}
-              <button className="btn btn-sm" onClick={() => setModal('leader')}><UserCheck size={14} />Cambiar líder responsable</button>
-              {p.status !== 'rejected' && <button className="btn btn-sm" onClick={() => setModal('move')}><MoveRight size={14} />Mover rama</button>}
+              {perm.super && p.is_leader && !p.is_head && !inviter && !head.cabeza && p.status === 'active' && <button className="btn btn-sm" onClick={() => setModal('make-head')}><Mark size={13} />Designar como cabeza</button>}
+              {perm.super && p.is_head && <button className="btn btn-sm" onClick={() => setModal('unmake-head')}><Mark size={13} />Quitar como cabeza</button>}
+              {p.is_leader && !p.is_head && <button className="btn btn-sm" onClick={() => setModal('demote')}><Crown size={14} />Retirar liderazgo</button>}
+              {!p.is_head && <button className="btn btn-sm" onClick={() => setModal('leader')}><UserCheck size={14} />Cambiar líder responsable</button>}
+              {p.status !== 'rejected' && !p.is_head && <button className="btn btn-sm" onClick={() => setModal('move')}><MoveRight size={14} />Mover rama</button>}
               {p.status === 'active' && <button className="btn btn-sm btn-danger" onClick={() => setModal('deactivate')}><Power size={14} />Desactivar</button>}
               {p.status === 'inactive' && <button className="btn btn-sm" onClick={() => setModal('reactivate')}><Power size={14} />Reactivar</button>}
               {!data.account && p.status === 'active' && <button className="btn btn-sm" onClick={() => setModal('account')}><KeyRound size={14} />Crear acceso</button>}
@@ -319,14 +331,16 @@ export default function Person() {
 
       {/* Relaciones (no se confunden) */}
       <div className="grid g-4" style={{ marginBottom: 16 }}>
-        <Rel icon={Network} color={head.color} label="Pertenencia · Cabeza" sub="Estructura a la que pertenece">{head.name}</Rel>
+        <Rel icon={Network} color={head.color} label="Estructura" sub={p.is_head ? 'La encabeza' : head.cabeza ? 'Su cabeza' : 'Sin cabeza asignada'}>
+          {p.is_head || !head.cabeza ? head.name : <PersonLink id={head.cabeza.id} name={head.cabeza.full_name} isHead />}
+        </Rel>
         <Rel icon={Crown} color="var(--leader)" label="Responsabilidad · Líder"
           sub={leader ? (p.leader_mode === 'manual' ? 'Asignado manualmente' : 'Líder más cercano en su cadena') : 'Sin líder por encima'}>
-          {leader ? <PersonLink id={leader.id} name={leader.full_name} isLeader /> : '—'}
+          {leader ? <PersonLink id={leader.id} name={leader.full_name} isLeader isHead={leader.is_head} /> : '—'}
         </Rel>
         <Rel icon={Send} color="var(--series-1)" label="Invitación directa · Invitado por"
           sub={data.via_link ? `Mediante el enlace ${data.via_link.token}` : p.registration_method === 'manual' ? 'Asignado en registro manual' : ''}>
-          {inviter ? <PersonLink id={inviter.id} name={inviter.full_name} isLeader={inviter.is_leader} /> : 'Cuelga de la cabeza'}
+          {inviter ? <PersonLink id={inviter.id} name={inviter.full_name} isLeader={inviter.is_leader} isHead={inviter.is_head} /> : p.is_head ? 'Nadie: es la cabeza' : 'Cuelga de la estructura'}
         </Rel>
         <Rel icon={ClipboardList} color="var(--text-2)" label="Registro"
           sub={p.registration_method === 'manual' ? `Por ${data.registered_by?.display_name || '—'}` : 'Autorregistro con enlace'}>
@@ -346,8 +360,8 @@ export default function Person() {
                   <span key={c.id} className="row" style={{ gap: 4 }}>
                     <ChevronRight size={14} className="sep" />
                     {c.id === p.id
-                      ? <span className="crumb current">{c.is_leader && <Crown size={12} />}{c.full_name}</span>
-                      : <Link to={`/personas/${c.id}`} className={`crumb ${c.is_leader ? 'leader' : ''}`}>{c.is_leader && <Crown size={12} />}{c.full_name}</Link>}
+                      ? <span className="crumb current">{c.is_head ? <Mark size={11} /> : c.is_leader && <Crown size={12} />}{c.full_name}</span>
+                      : <Link to={`/personas/${c.id}`} className={`crumb ${c.is_head ? 'head' : c.is_leader ? 'leader' : ''}`}>{c.is_head ? <Mark size={11} /> : c.is_leader && <Crown size={12} />}{c.full_name}</Link>}
                   </span>
                 ))}
               </div>
@@ -404,12 +418,12 @@ export default function Person() {
         <div className="stack" style={{ gap: 16 }}>
           {/* Enlace */}
           <div className="card card-pad stack">
-            <h2 className="row">{p.is_leader ? <><Crown size={16} color="var(--leader)" />Enlace de líder</> : <><Link2 size={16} />Invitación personal</>}</h2>
+            <h2 className="row">{p.is_head ? <><Mark size={15} className="role-icon" />Su link para personas</> : p.is_leader ? <><Crown size={16} color="var(--leader)" />Enlace de líder</> : <><Link2 size={16} />Invitación personal</>}</h2>
             {activeLink ? (
               <>
-                <ShareLink token={activeLink.token} ownerName={p.full_name} headName={head.name} />
+                <ShareLink token={activeLink.token} ownerName={p.full_name} />
                 <div className="small muted">{fmtNum(activeLink.uses)} registros con este enlace{activeLink.pending ? ` · ${activeLink.pending} pendientes` : ''}{activeLink.last_used ? ` · último ${relTime(activeLink.last_used)}` : ''}</div>
-                <div className="small muted">Quien se registre con él quedará vinculado a {p.full_name.split(' ')[0]} como invitador, en {head.name}. La cabeza y el invitador se validan en el servidor.</div>
+                <div className="small muted">Quien se registre con él quedará con {p.full_name.split(' ')[0]} como invitador. La estructura y el invitador se validan en el servidor.</div>
               </>
             ) : (
               <div className="small muted">{p.status !== 'active' ? 'Disponible cuando la persona esté activa.' : !p.is_leader && !head.person_invites_enabled ? 'Las invitaciones personales están deshabilitadas en esta cabeza.' : 'No tiene enlace activo.'}</div>
@@ -420,10 +434,14 @@ export default function Person() {
             {p.is_leader === false && <div className="alert alert-info small"><Info size={14} />Invitar no convierte a nadie en líder.</div>}
           </div>
 
+          {p.is_head && perm.manage && p.status === 'active' && leaderType && (
+            <OneTimeLinkCard type={leaderType} heads={[{ ...head, status: 'active', can_manage: true, cabeza_name: p.full_name }]} cabezaName={p.full_name} />
+          )}
+
           {p.is_leader && perm.manage && (
             <div className="card card-pad stack">
               <h2 className="row"><Eye size={16} />Panel de gestión</h2>
-              <p className="small text-2" style={{ margin: 0 }}>Enlace privado de solo lectura para que {p.full_name.split(' ')[0]} vea su red sin usuario ni contraseña. Se abre con los últimos 4 dígitos de su cédula.</p>
+              <p className="small text-2" style={{ margin: 0 }}>Enlace privado de solo lectura para que {p.full_name.split(' ')[0]} vea {p.is_head ? 'todo su equipo e invite a sus líderes' : 'su red'} sin usuario ni contraseña. Se abre con los últimos 4 dígitos de su cédula.</p>
               {p.panel_active
                 ? <div className="small">Activo desde {fmtDate(p.panel_created_at)} · {p.panel_viewed_at ? `abierto ${relTime(p.panel_viewed_at)}` : 'aún no lo ha abierto'}</div>
                 : <div className="small muted">Sin enlace de panel.</div>}
@@ -494,9 +512,17 @@ export default function Person() {
         onConfirm={async () => { await api.post(`/people/${p.id}/panel/revoke`); done('Panel desactivado'); }} onClose={() => setModal(null)} />}
       {panelToken && (
         <Modal title="Enlace del panel" onClose={() => setPanelToken(null)} footer={<button className="btn btn-primary" onClick={() => setPanelToken(null)}>Listo</button>}>
-          <PanelLinkBox token={panelToken} />
+          <PanelLinkBox token={panelToken} head={p.is_head} />
         </Modal>
       )}
+      {modal === 'make-head' && <ConfirmModal title={`Designar a ${p.full_name} como cabeza`} reason confirmLabel="Designar cabeza"
+        message={<>Será la cabeza de <b>{head.name}</b>: invitará líderes y personas desde su panel. Los demás líderes que cuelgan directamente de la estructura pasarán a colgar de {p.full_name.split(' ')[0]}, con sus ramas.</>}
+        onConfirm={async (reason) => { const r = await api.post(`/people/${p.id}/head-role`, { is_head: true, reason }); done(r.adopted ? `Ahora es la cabeza: ${r.adopted} líderes cuelgan de ella` : 'Ahora es la cabeza de la estructura'); }}
+        onClose={() => setModal(null)} />}
+      {modal === 'unmake-head' && <ConfirmModal title="Quitar como cabeza" reason danger confirmLabel="Quitar como cabeza"
+        message={<>{p.full_name} seguirá siendo líder raíz y conservará su rama, pero ya no invitará líderes desde su panel. La estructura quedará sin cabeza hasta designar otra.</>}
+        onConfirm={async (reason) => { await api.post(`/people/${p.id}/head-role`, { is_head: false, reason }); done('Ya no es la cabeza de la estructura'); }}
+        onClose={() => setModal(null)} />}
       {modal === 'location' && <LocationModal p={p} location={data.location} onClose={() => setModal(null)} onDone={done} />}
       {modal === 'move' && <MoveModal p={p} head={head} onClose={() => setModal(null)} onDone={done} />}
       {modal === 'leader' && <LeaderModal p={p} onClose={() => setModal(null)} onDone={done} />}

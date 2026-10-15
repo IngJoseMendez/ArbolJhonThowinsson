@@ -11,8 +11,9 @@ import {
   createPerson, registerViaInvite, resolveInvite, promoteToLeader, demoteLeader, setResponsibleLeader, movePerson,
   setStatus, updatePersonData, regeneratePersonLink, integrityReport, recountCounters, getPerson, getHead, findDuplicate,
   createRegisterLink, ensureGeneralLink, createOneTimeLink, oneTimeStats, revokeOpenOneTime, issuePanelToken, revokePanelToken, regTypeById,
+  headPerson, setHeadRole,
 } from './services/people.js';
-import { panelData } from './services/panel.js';
+import { panelData, panelLeaderInvite, panelManifest } from './services/panel.js';
 import { treeChildren, treeSubtree, treeChildrenOf, pathToPerson, search, directory, dashboard, branchStats, NODE_SELECT } from './services/queries.js';
 import {
   listAreas, getArea, createArea, updateArea, importAreas, pendingGroups, resolvePendingGroup, locationStats, setPersonLocation,
@@ -56,7 +57,7 @@ api.get('/me', requireAuth, async (req, res) => {
   let person = null;
   if (u.person) {
     const p = await getPerson(u.person.id);
-    person = { id: p.id, full_name: p.full_name, code: p.code, is_leader: !!p.is_leader, head_id: p.head_id, status: p.status };
+    person = { id: p.id, full_name: p.full_name, code: p.code, is_leader: !!p.is_leader, is_head: !!p.is_head, head_id: p.head_id, status: p.status };
   }
   res.json({
     user: { id: u.id, username: u.username, display_name: u.display_name, role: u.role, role_label: ROLES[u.role], head_ids: heads },
@@ -84,13 +85,17 @@ const headCounts = `
   (SELECT COUNT(*) FROM people p WHERE p.head_id = h.id AND p.status = 'pending') AS pending,
   (SELECT COUNT(*) FROM people p WHERE p.head_id = h.id AND p.status <> 'rejected' AND p.created_at >= ?) AS last30`;
 
+// La cabeza (persona) de cada estructura, si la tiene.
+const headCabeza = `LEFT JOIN people c ON c.head_id = h.id AND c.is_head = 1 AND c.status <> 'rejected'`;
+const cabezaCols = 'c.id AS cabeza_id, c.full_name AS cabeza_name, c.status AS cabeza_status';
+
 api.get('/heads', requireAuth, async (req, res) => {
   const ids = visibleHeadIds(req.user);
   const since = new Date(Date.now() - 30 * 864e5).toISOString();
   let rows;
-  if (ids === null) rows = await q(`SELECT h.*, ${headCounts} FROM heads h ORDER BY h.status, h.name`).all(since);
+  if (ids === null) rows = await q(`SELECT h.*, ${cabezaCols}, ${headCounts} FROM heads h ${headCabeza} ORDER BY h.status, h.name`).all(since);
   else if (!ids.length) rows = [];
-  else rows = await q(`SELECT h.*, ${headCounts} FROM heads h WHERE h.id IN (${ids.map(() => '?').join(',')}) ORDER BY h.status, h.name`).all(since, ...ids);
+  else rows = await q(`SELECT h.*, ${cabezaCols}, ${headCounts} FROM heads h ${headCabeza} WHERE h.id IN (${ids.map(() => '?').join(',')}) ORDER BY h.status, h.name`).all(since, ...ids);
   // Líderes y personas sólo ven totales de su alcance, no de toda la cabeza.
   if (!isAdmin(req.user)) rows = rows.map((r) => ({ ...r, people: null, leaders: null, pending: null, last30: null }));
   res.json(rows.map((r) => ({ ...r, requires_approval: !!r.requires_approval, person_invites_enabled: !!r.person_invites_enabled, can_manage: canManageHead(req.user, r.id) })));
@@ -136,16 +141,21 @@ api.get('/heads/:id', requireAuth, async (req, res) => {
   if (!h || !canViewHead(req.user, id)) throw notFound('Cabeza no encontrada.');
   const stats = await dashboard(req.user, { headId: id, days: 60 });
   const sc = scopeSql(req.user, 'l');
-  const leaders = await q(`SELECT l.id, l.full_name, l.leader_code, l.status, l.created_at, l.inviter_id, i.full_name AS inviter_name,
+  const leaders = (await q(`SELECT l.id, l.full_name, l.leader_code, l.status, l.created_at, l.inviter_id, l.is_head, i.full_name AS inviter_name,
         (SELECT COUNT(*) FROM people a WHERE a.leader_id = l.id AND a.status <> 'rejected') AS assigned,
         l.descendant_count AS branch
       FROM people l LEFT JOIN people i ON i.id = l.inviter_id
       WHERE l.head_id = ? AND l.is_leader = 1 AND l.status <> 'rejected' AND ${sc.sql}
-      ORDER BY l.depth, l.full_name`).all(id, ...sc.params);
+      ORDER BY l.is_head DESC, l.depth, l.full_name`).all(id, ...sc.params)).map((l) => ({ ...l, is_head: !!l.is_head }));
+  const c = await headPerson(id);
+  const cabeza = c && canViewPerson(req.user, { ...c, head_id: id, leader_id: null })
+    ? { ...(await q(`SELECT id, code, full_name, leader_code, status, created_at, child_count, descendant_count, panel_viewed_at,
+          panel_token_hash IS NOT NULL AS panel_active FROM people WHERE id = ?`).get(c.id)) }
+    : null;
   res.json({
     head: { ...h, requires_approval: !!h.requires_approval, person_invites_enabled: !!h.person_invites_enabled },
     can_manage: canManageHead(req.user, id),
-    stats, leaders,
+    cabeza, stats, leaders,
   });
 });
 
@@ -244,13 +254,18 @@ api.post('/people', requireRole('super_admin', 'head_admin'), async (req, res) =
   const headId = intOrNull(req.body.head_id, 'head_id');
   if (!headId) throw badRequest('VALIDATION', 'Debe seleccionar la cabeza.', { field: 'head_id' });
   assert(canManageHead(req.user, headId), 'No administra esta cabeza.');
+  const regTypeId = intOrNull(req.body.reg_type_id, 'reg_type_id');
+  // Un tipo de cabeza registra a la cabeza de la estructura (sólo el administrador general).
+  const isHead = !!req.body.is_head || (regTypeId ? (await regTypeById(regTypeId))?.role === 'head' : false);
+  if (isHead && req.user.role !== 'super_admin') throw forbidden('Sólo el administrador general registra cabezas.');
   const p = await createPerson({
     data: req.body,
     headId,
     inviterId: intOrNull(req.body.inviter_id, 'inviter_id'),
     isLeader: !!req.body.is_leader,
+    isHead,
     leaderOverrideId: intOrNull(req.body.leader_id, 'leader_id'),
-    regTypeId: intOrNull(req.body.reg_type_id, 'reg_type_id'),
+    regTypeId,
     method: 'manual',
     user: req.user,
     status: 'active',
@@ -280,8 +295,9 @@ api.get('/people/:id', requireAuth, async (req, res) => {
   const manage = canManagePerson(u, p);
   const contact = canSeeContact(u, p);
   const head = await getHead(p.head_id);
-  const leader = p.leader_id ? await q('SELECT id, full_name, leader_code, code FROM people WHERE id = ?').get(p.leader_id) : null;
-  const inviter = p.inviter_id ? await q('SELECT id, full_name, code, is_leader, leader_code FROM people WHERE id = ?').get(p.inviter_id) : null;
+  const cabeza = await headPerson(p.head_id);
+  const leader = p.leader_id ? await q('SELECT id, full_name, leader_code, code, is_head FROM people WHERE id = ?').get(p.leader_id) : null;
+  const inviter = p.inviter_id ? await q('SELECT id, full_name, code, is_leader, is_head, leader_code FROM people WHERE id = ?').get(p.inviter_id) : null;
   const registeredBy = p.registered_by_user_id ? await q('SELECT id, display_name, role FROM users WHERE id = ?').get(p.registered_by_user_id) : null;
   const viaLink = p.invite_link_id ? await q('SELECT id, token, kind, owner_person_id FROM invite_links WHERE id = ?').get(p.invite_link_id) : null;
   const invitees = (await q(`${NODE_SELECT} WHERE p.inviter_id = ? AND p.status <> 'rejected' ORDER BY p.created_at LIMIT 200`).all(p.id))
@@ -312,19 +328,29 @@ api.get('/people/:id', requireAuth, async (req, res) => {
   for (const hid of hids) { const r = await getHead(hid); if (r) names.heads[hid] = r.name; }
   res.json({
     person: {
-      ...p, is_leader: !!p.is_leader, path: undefined, registration_ip: undefined,
+      ...p, is_leader: !!p.is_leader, is_head: !!p.is_head, path: undefined, registration_ip: undefined,
       phone: contact ? p.phone : maskPhone(p.phone), email: contact ? p.email : null,
       document_id: contact ? p.document_id : null, notes: manage ? p.notes : '',
       address: contact ? p.address : null,
     },
     location: await locationOf(p),
-    head: { id: head.id, name: head.name, color: head.color, person_invites_enabled: !!head.person_invites_enabled },
-    leader, inviter: inviter ? { ...inviter, is_leader: !!inviter.is_leader } : null,
+    head: {
+      id: head.id, name: head.name, color: head.color, person_invites_enabled: !!head.person_invites_enabled,
+      cabeza: cabeza ? { id: cabeza.id, full_name: cabeza.full_name, status: cabeza.status } : null,
+    },
+    leader: leader ? { ...leader, is_head: !!leader.is_head } : null,
+    inviter: inviter ? { ...inviter, is_leader: !!inviter.is_leader, is_head: !!inviter.is_head } : null,
     registered_by: registeredBy, via_link: viaLink, invitees, links, history, account, names,
     stats: await branchStats(p),
-    chain: (await pathToPerson(u, p)).map((n) => ({ id: n.id, full_name: n.full_name, is_leader: n.is_leader, code: n.code })),
+    chain: (await pathToPerson(u, p)).map((n) => ({ id: n.id, full_name: n.full_name, is_leader: n.is_leader, is_head: n.is_head, code: n.code })),
     permissions: { manage, contact, super: u.role === 'super_admin', self: isSelf },
   });
+});
+
+// Cabeza de la estructura: designar a un líder raíz (sus demás líderes raíz pasan a colgar de él) o retirarle el papel.
+api.post('/people/:id/head-role', requireRole('super_admin'), async (req, res) => {
+  const p = await loadManagedPerson(req);
+  res.json(await setHeadRole(p.id, req.body.is_head !== false, req.user, reasonOf(req), ip(req)));
 });
 
 const reasonOf = (req, required = false) => {
@@ -414,6 +440,7 @@ api.get('/leaders', requireAuth, async (req, res) => {
   if (req.query.head_id) { extra += ' AND l.head_id = ?'; params.push(Number(req.query.head_id)); }
   if (req.query.q) { extra += ' AND (l.name_key LIKE ? OR l.leader_code LIKE ?)'; params.push(`%${String(req.query.q).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')}%`, `%${String(req.query.q).toUpperCase()}%`); }
   const rows = await q(`SELECT l.id, l.code, l.full_name, l.leader_code, l.leader_since, l.status, l.head_id, l.inviter_id, l.created_at, l.city,
+        l.is_head = 1 AS is_head,
         h.name AS head_name, h.color AS head_color, i.full_name AS inviter_name, sup.full_name AS supervisor_name,
         (SELECT COUNT(*) FROM people a WHERE a.leader_id = l.id AND a.status <> 'rejected') AS assigned,
         l.descendant_count AS branch,
@@ -422,7 +449,7 @@ api.get('/leaders', requireAuth, async (req, res) => {
         (SELECT COUNT(*) FROM people r JOIN invite_links k ON k.id = r.invite_link_id WHERE k.owner_person_id = l.id AND k.kind = 'leader' AND r.status <> 'rejected') AS link_uses
       FROM people l JOIN heads h ON h.id = l.head_id LEFT JOIN people i ON i.id = l.inviter_id LEFT JOIN people sup ON sup.id = l.leader_id
       WHERE l.is_leader = 1 AND l.status <> 'rejected' AND ${sc.sql} ${extra}
-      ORDER BY h.name, branch DESC, l.full_name LIMIT 500`).all(...params);
+      ORDER BY h.name, l.is_head DESC, branch DESC, l.full_name LIMIT 500`).all(...params);
   res.json(rows);
 });
 
@@ -794,20 +821,49 @@ api.post('/public/panel/:token', panelLimiter, async (req, res) => {
   res.json(await panelData(req.params.token, req.body?.pin, { q: String(req.body?.q || '').slice(0, 60), page: req.body?.page }));
 });
 
+// La cabeza invita a un líder desde su panel: un enlace nuevo de un solo uso por envío.
+const headInviteLimiter = rateLimit({ windowMs: 10 * 60e3, max: 30, key: (req) => `head-invite:${req.ip}` });
+api.post('/public/panel/:token/leader-invite', headInviteLimiter, async (req, res) => {
+  res.status(201).json(await panelLeaderInvite(req.params.token, req.body?.pin, ip(req)));
+});
+
+// Manifiesto de la app instalable de un panel (al instalarla, abre directo el panel).
+api.get('/public/manifest', (req, res) => {
+  res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+  res.send(JSON.stringify(panelManifest(String(req.query.start || ''))));
+});
+
 // ---------------------------------------------------------------------------
 // Registro público mediante enlace
 // ---------------------------------------------------------------------------
 const publicLimiter = rateLimit({ windowMs: 10 * 60e3, max: 10, key: (req) => `reg:${req.ip}` });
 const lookupLimiter = rateLimit({ windowMs: 60e3, max: 60, key: (req) => `inv:${req.ip}` });
 
+const firstName = (p) => (p.first_names || p.full_name || '').split(' ')[0];
+
+/**
+ * Cómo se presenta públicamente una estructura: por el nombre de su cabeza (una persona), nunca con el prefijo
+ * interno del tipo («Cabeza Juan Pérez»). Si la estructura no tiene cabeza, por su nombre.
+ */
+async function publicHead(head) {
+  if (!head) return { head: null, cabeza: null };
+  const c = await headPerson(head.id);
+  const cabeza = c && c.status === 'active' ? { name: c.full_name, first_name: firstName(c) } : null;
+  return { head: { name: head.name, color: head.color, display_name: cabeza?.name || head.name }, cabeza };
+}
+
 api.get('/public/invite/:token', lookupLimiter, async (req, res) => {
   const { link, owner, head, type, role, valid, reason } = await resolveInvite(req.params.token);
+  const pub = await publicHead(head);
   res.json({
     token: link.token, valid, reason, role,
     type: { name: type.name, color: type.color, role: type.role },
     label: link.label || null,
-    inviter: owner ? { name: owner.full_name, is_leader: !!owner.is_leader && link.kind !== 'person' } : null,
-    head: head ? { name: head.name, color: head.color } : null,
+    inviter: owner ? {
+      name: owner.full_name, first_name: firstName(owner),
+      is_leader: !!owner.is_leader && link.kind !== 'person', is_head: !!owner.is_head && link.kind !== 'person',
+    } : null,
+    ...pub,
     requires_approval: role !== 'head' && !!head?.requires_approval,
   });
 });
@@ -826,10 +882,13 @@ api.post('/public/register/:token', publicLimiter, async (req, res) => {
     throw e;
   }
   const { person, owner, head, type, role, panelToken } = result;
+  const pub = await publicHead(head);
   res.status(201).json({
-    ok: true, status: person.status, code: person.code, role, is_leader: !!person.is_leader, leader_code: person.leader_code,
+    ok: true, status: person.status, code: person.code, role, is_leader: !!person.is_leader, is_head: !!person.is_head,
+    leader_code: person.leader_code, first_name: firstName(person), full_name: person.full_name, created_at: person.created_at,
     type: { name: type.name, color: type.color },
-    inviter: owner?.full_name ?? null, head: head.name,
+    inviter: owner?.full_name ?? null, head: head.name, head_display: pub.head.display_name,
+    cabeza: person.is_head ? null : pub.cabeza?.name ?? null,
     invite_token: person.status === 'active'
       ? (await q(`SELECT token FROM invite_links WHERE owner_person_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1`).get(person.id))?.token ?? null
       : null,

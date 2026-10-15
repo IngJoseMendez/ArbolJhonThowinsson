@@ -1,8 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Copy, Crown, Search, Share2, X, AlertCircle, CheckCircle2, Clock, CircleSlash, Ban } from 'lucide-react';
+import { Check, Copy, Crown, Search, Share2, X, AlertCircle, CheckCircle2, Clock, CircleSlash, Ban, ExternalLink } from 'lucide-react';
 import { api, qs } from '../api.js';
 import { STATUS, initials, inviteUrl } from '../lib/format.js';
+import { Mark, CAMPAIGN } from '../brand/Brand.jsx';
 
 // ---------------------------------------------------------------- Toasts
 const ToastCtx = createContext(() => {});
@@ -85,8 +86,15 @@ export function ConfirmModal({ title, message, confirmLabel = 'Confirmar', dange
 }
 
 // ---------------------------------------------------------------- Small pieces
-export function Avatar({ name, leader, size }) {
-  return <div className={`avatar ${leader ? 'leader' : ''} ${size || ''}`} aria-hidden="true">{initials(name)}</div>;
+export function Avatar({ name, leader, head, size }) {
+  return <div className={`avatar ${head ? 'head' : leader ? 'leader' : ''} ${size || ''}`} aria-hidden="true">{initials(name)}</div>;
+}
+
+/** Ícono del papel: doble ángulo para la cabeza, corona para el líder. */
+export function RoleIcon({ isHead, isLeader, size = 13 }) {
+  if (isHead) return <Mark size={size} className="role-icon" title="Cabeza" />;
+  if (isLeader) return <Crown size={size} color="var(--leader)" aria-label="Líder" />;
+  return null;
 }
 
 const STATUS_ICON = { active: CheckCircle2, pending: Clock, inactive: CircleSlash, rejected: Ban };
@@ -96,9 +104,10 @@ export function StatusBadge({ status }) {
   return <span className={`badge badge-${s.tone}`}><Icon size={12} />{s.label}</span>;
 }
 
-export function RoleBadge({ isLeader, code }) {
+export function RoleBadge({ isLeader, isHead, code }) {
+  if (isHead) return <span className="badge badge-head" title="Cabeza de su estructura: invita líderes y personas"><Mark size={11} />Cabeza</span>;
   return isLeader
-    ? <span className="badge badge-leader" title="Líder oficial designado"><Crown size={12} />Líder{code ? ` · ${code}` : ''}</span>
+    ? <span className="badge badge-leader" title="Líder oficial designado"><Crown size={12} />Líder{code ? <span className="mono" style={{ fontSize: 11, fontWeight: 500 }}>{code}</span> : null}</span>
     : <span className="badge badge-outline">Persona</span>;
 }
 
@@ -106,11 +115,11 @@ export function HeadPill({ name, color }) {
   return <span className="badge badge-outline"><span className="dot" style={{ background: color }} />{name}</span>;
 }
 
-export function PersonLink({ id, name, isLeader }) {
+export function PersonLink({ id, name, isLeader, isHead }) {
   if (!id) return <span className="muted">—</span>;
   return (
     <Link to={`/personas/${id}`} className="row" style={{ display: 'inline-flex', gap: 5 }} onClick={(e) => e.stopPropagation()}>
-      {isLeader && <Crown size={12} color="var(--leader)" />}{name}
+      <RoleIcon isHead={isHead} isLeader={isLeader} size={12} />{name}
     </Link>
   );
 }
@@ -144,32 +153,58 @@ export async function copyText(text) {
   }
 }
 
-export function ShareLink({ token, ownerName, headName, compact }) {
+export function WhatsAppIcon({ size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm5.3 14.2c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .2-3.3-.7-2.8-1.1-4.6-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.9s.7-2.1 1-2.4c.2-.3.6-.4.8-.4h.6c.2 0 .4 0 .6.5l.9 2.1c.1.2.1.4 0 .6l-.4.6-.4.4c-.1.2-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1 2.1 1.4 2.4 1.5.3.1.5.1.7-.1l.9-1.1c.2-.3.4-.2.7-.1l2 1c.3.1.5.2.5.3.1.2.1.7-.1 1.3Z"/></svg>
+  );
+}
+
+const firstWord = (s) => String(s || '').trim().split(/\s+/)[0] || '';
+
+/**
+ * Mensaje para invitar por WhatsApp. Habla de la campaña y de quien invita, nunca de nombres internos
+ * de la estructura («Cabeza …»). asOwner: lo comparte el propio dueño del enlace.
+ */
+export function inviteMessage({ url, ownerName, asOwner }) {
+  if (asOwner && ownerName) return `Hola, soy ${firstWord(ownerName)}. Te invito a sumarte al equipo de ${CAMPAIGN}. Regístrate aquí, es rápido: ${url}`;
+  return `Hola, te invito a sumarte al equipo de ${CAMPAIGN}${ownerName ? ` con ${ownerName}` : ''}. Regístrate aquí, es rápido: ${url}`;
+}
+
+export function ShareLink({ token, ownerName, compact, asOwner, big }) {
   const toast = useToast();
   const [copied, setCopied] = useState(false);
   const url = inviteUrl(token);
-  const message = `Hola, te invito a registrarte en ${headName}${ownerName ? ` (invitación de ${ownerName})` : ''}: ${url}`;
+  const message = inviteMessage({ url, ownerName, asOwner });
   const copy = async () => {
     if (await copyText(url)) { setCopied(true); toast('Enlace copiado'); setTimeout(() => setCopied(false), 1500); }
   };
   const share = async () => {
-    if (navigator.share) { try { await navigator.share({ title: 'Invitación de registro', text: message, url }); } catch { /* cancelado */ } }
+    if (navigator.share) { try { await navigator.share({ title: `Equipo ${CAMPAIGN}`, text: message }); } catch { /* cancelado */ } }
     else copy();
   };
   const wa = `https://wa.me/?text=${encodeURIComponent(message)}`;
+  if (big) {
+    return (
+      <div className="stack" style={{ gap: 10 }}>
+        <div className="share-actions">
+          <a className="btn btn-lg btn-wa" href={wa} target="_blank" rel="noopener noreferrer"><WhatsAppIcon size={20} />Enviar por WhatsApp</a>
+          <button type="button" className="btn" onClick={copy}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? 'Copiado' : 'Copiar link'}</button>
+          <button type="button" className="btn" onClick={share}><Share2 size={16} />Compartir</button>
+        </div>
+        <span className="share-url">{url}</span>
+      </div>
+    );
+  }
   return (
     <div className="stack" style={{ gap: 8 }}>
       <div className="link-box">
         <code title={url}>{compact ? token : url}</code>
-        <button className="btn btn-sm" onClick={copy} aria-label="Copiar enlace">{copied ? <Check size={14} /> : <Copy size={14} />}{!compact && 'Copiar'}</button>
+        <button type="button" className="btn btn-sm" onClick={copy} aria-label="Copiar enlace">{copied ? <Check size={14} /> : <Copy size={14} />}{!compact && 'Copiar'}</button>
       </div>
       <div className="row-wrap">
-        <a className="btn btn-sm btn-wa" href={wa} target="_blank" rel="noopener noreferrer">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm5.3 14.2c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .2-3.3-.7-2.8-1.1-4.6-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.9s.7-2.1 1-2.4c.2-.3.6-.4.8-.4h.6c.2 0 .4 0 .6.5l.9 2.1c.1.2.1.4 0 .6l-.4.6-.4.4c-.1.2-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1 2.1 1.4 2.4 1.5.3.1.5.1.7-.1l.9-1.1c.2-.3.4-.2.7-.1l2 1c.3.1.5.2.5.3.1.2.1.7-.1 1.3Z"/></svg>
-          WhatsApp
-        </a>
-        <button className="btn btn-sm" onClick={share}><Share2 size={14} />Compartir</button>
-        <a className="btn btn-sm btn-ghost" href={`/registro/${token}`} target="_blank" rel="noopener noreferrer">Abrir formulario</a>
+        <a className="btn btn-sm btn-wa" href={wa} target="_blank" rel="noopener noreferrer"><WhatsAppIcon size={14} />WhatsApp</a>
+        <button type="button" className="btn btn-sm" onClick={share}><Share2 size={14} />Compartir</button>
+        <a className="btn btn-sm btn-ghost" href={`/registro/${token}`} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} />Ver formulario</a>
       </div>
     </div>
   );
@@ -198,10 +233,10 @@ export function PersonPicker({ headId, value, onChange, placeholder = 'Buscar pe
   if (value) {
     return (
       <div className="link-box" style={{ borderStyle: 'solid' }}>
-        <Avatar name={value.full_name} leader={value.is_leader} />
+        <Avatar name={value.full_name} leader={value.is_leader} head={value.is_head} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="ellipsis" style={{ fontWeight: 600 }}>{value.full_name}</div>
-          <div className="small muted">{value.is_leader ? `Líder · ${value.leader_code || ''}` : value.code}</div>
+          <div className="small muted">{value.is_head ? 'Cabeza' : value.is_leader ? `Líder · ${value.leader_code || ''}` : value.code}</div>
         </div>
         {!disabled && <button type="button" className="btn btn-sm btn-ghost btn-icon" onClick={() => onChange(null)} aria-label="Quitar"><X size={16} /></button>}
       </div>
@@ -222,10 +257,10 @@ export function PersonPicker({ headId, value, onChange, placeholder = 'Buscar pe
         <div className="dropdown">
           {items.map((p, i) => (
             <button type="button" key={p.id} className={`dropdown-item ${i === hl ? 'hl' : ''}`} onMouseDown={() => { onChange(p); setTerm(''); }}>
-              <Avatar name={p.full_name} leader={p.is_leader} />
+              <Avatar name={p.full_name} leader={p.is_leader} head={p.is_head} />
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div className="ellipsis" style={{ fontWeight: 600 }}>{p.full_name}</div>
-                <div className="small muted ellipsis">{p.is_leader ? `Líder · ${p.leader_code}` : p.code} · {p.head_name}{p.inviter_name ? ` · invitado por ${p.inviter_name}` : ''}</div>
+                <div className="small muted ellipsis">{p.is_head ? 'Cabeza' : p.is_leader ? `Líder · ${p.leader_code}` : p.code} · {p.head_name}{p.inviter_name ? ` · invitado por ${p.inviter_name}` : ''}</div>
               </div>
               {p.status !== 'active' && <StatusBadge status={p.status} />}
             </button>

@@ -303,6 +303,55 @@ UPDATE invite_links k SET status = 'disabled', disabled_at = ${TS}, disabled_rea
    AND (SELECT role FROM reg_types t WHERE t.id = k.reg_type_id) IN ('head','leader');
 `;
 
+// v8: la cabeza es una persona. Es el l\u00edder ra\u00edz de su estructura (is_head) y de ella cuelgan sus l\u00edderes y
+// personas. Las cabezas registradas antes con un enlace de tipo \u00abcabeza\u00bb quedaban como un l\u00edder m\u00e1s: se marcan
+// como cabeza y los l\u00edderes que colgaban sueltos de su estructura pasan a colgar de ella (ver adoptRootLeaders).
+const MIGRATION_8 = `
+ALTER TABLE people ADD COLUMN IF NOT EXISTS is_head SMALLINT NOT NULL DEFAULT 0;
+DO $$ BEGIN
+  ALTER TABLE people ADD CONSTRAINT ck_people_is_head
+    CHECK (is_head IN (0,1) AND (is_head = 0 OR (is_leader = 1 AND inviter_id IS NULL)));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_people_head_person ON people (head_id) WHERE is_head = 1 AND status <> 'rejected';
+UPDATE people p SET is_head = 1 WHERE p.id IN (
+  SELECT DISTINCT ON (x.head_id) x.id FROM people x JOIN reg_types t ON t.id = x.reg_type_id
+   WHERE t.role = 'head' AND x.is_leader = 1 AND x.inviter_id IS NULL AND x.status <> 'rejected'
+   ORDER BY x.head_id, x.id);
+-- Colores de marca para los tipos base (sólo si conservan los colores iniciales: no pisa los que se cambiaron).
+UPDATE reg_types SET color = '#e0a422' WHERE builtin = 1 AND role = 'head' AND color = '#7c3aed';
+UPDATE reg_types SET color = '#2f9be0' WHERE builtin = 1 AND role = 'leader' AND color = '#d97706';
+UPDATE reg_types SET color = '#1d4f91' WHERE builtin = 1 AND role = 'person' AND color = '#2563eb';
+`;
+
+/**
+ * Cuelga de la cabeza `head` (persona ra\u00edz) los dem\u00e1s l\u00edderes ra\u00edz de su estructura, con sus ramas completas.
+ * `exec(sql, params)` ejecuta con par\u00e1metros $1\u2026; sirve tanto en la migraci\u00f3n como dentro de una transacci\u00f3n.
+ * Devuelve los ids de los l\u00edderes adoptados.
+ */
+export async function adoptRootLeaders(exec, head, { userId = null, reason } = {}) {
+  const roots = (await exec(`SELECT id, path, descendant_count, leader_id, leader_mode FROM people
+      WHERE head_id = $1 AND inviter_id IS NULL AND id <> $2 AND status <> 'rejected' ORDER BY id`, [head.head_id, head.id])).rows;
+  for (const r of roots) {
+    // /R/\u2026 -> /C/R/\u2026 (la cabeza es ra\u00edz: su ruta es /C/).
+    await exec(`UPDATE people SET path = CONCAT($1::text, substr(path, 2)), depth = depth + 1 WHERE path >= $2 AND path < $3`,
+      [head.path, r.path, `${r.path}~`]);
+    await exec('UPDATE people SET inviter_id = $1 WHERE id = $2', [head.id, r.id]);
+    if (r.leader_mode === 'auto' && r.leader_id == null) await exec('UPDATE people SET leader_id = $1 WHERE id = $2', [head.id, r.id]);
+    await exec('UPDATE people SET child_count = child_count + 1, descendant_count = descendant_count + $1 WHERE id = $2',
+      [1 + r.descendant_count, head.id]);
+    await exec(`INSERT INTO person_history (person_id, change_type, details, reason, changed_by) VALUES ($1, 'moved', $2, $3, $4)`,
+      [r.id, JSON.stringify({ from_head_id: head.head_id, to_head_id: head.head_id, from_inviter_id: null, to_inviter_id: head.id,
+        branch_size: 1 + r.descendant_count, adopted_by_head: true }), reason, userId]);
+  }
+  return roots.map((r) => r.id);
+}
+
+async function adoptAllRootLeaders(c) {
+  const exec = (sql, params) => c.query(sql, params);
+  const heads = (await c.query(`SELECT id, head_id, path FROM people WHERE is_head = 1 AND status <> 'rejected'`)).rows;
+  for (const h of heads) await adoptRootLeaders(exec, h, { reason: 'Reorganizaci\u00f3n: los l\u00edderes de una estructura cuelgan de su cabeza' });
+}
+
 const nameKey = (s) => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 /** Carga inicial del catálogo de Santa Marta (sólo si el catálogo está vacío). */
@@ -330,6 +379,7 @@ const MIGRATIONS = [
   { version: 5, sql: MIGRATION_5 },
   { version: 6, sql: MIGRATION_6 },
   { version: 7, sql: MIGRATION_7 },
+  { version: 8, sql: MIGRATION_8, after: adoptAllRootLeaders },
 ];
 
 let pool = null;
@@ -426,6 +476,9 @@ async function exec(sql, args) {
   if (!pool) await ensureDb();
   return pool.query(text, toArgs(args));
 }
+
+/** Consulta con parámetros $1, $2… (dentro de tx() usa su conexión). Devuelve el resultado de pg ({ rows }). */
+export const sqlExec = (sql, params = []) => exec(sql, params);
 
 /**
  * Consulta parametrizada ("?"). Dentro de tx() usa automáticamente la conexión de la transacción.

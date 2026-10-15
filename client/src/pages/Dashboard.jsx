@@ -5,7 +5,7 @@ import { api, qs } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { fmtNum, relTime, METHOD } from '../lib/format.js';
 import { GrowthChart, BarList } from '../components/Charts.jsx';
-import { Avatar, ErrorBox, Loading, StatTile, StatusBadge, useAsync, Empty, PersonLink } from '../components/ui.jsx';
+import { Avatar, ErrorBox, Loading, StatTile, StatusBadge, useAsync, Empty, PersonLink, RoleIcon } from '../components/ui.jsx';
 
 export function DashboardBody({ headId, days, compact }) {
   const nav = useNavigate();
@@ -15,9 +15,9 @@ export function DashboardBody({ headId, days, compact }) {
   const t = data.totals;
   return (
     <div className="stack" style={{ gap: 16 }}>
-      <div className="grid g-4">
-        {!compact && <StatTile icon={Network} label="Cabezas activas" value={fmtNum(t.heads)} sub="Estructuras independientes" />}
-        <StatTile icon={Crown} label="Líderes oficiales" value={fmtNum(t.leaders)} sub="Designados por un administrador" />
+      <div className="grid g-4 stats-grid">
+        {!compact && <StatTile icon={Network} label="Cabezas" value={fmtNum(t.heads)} sub="Cada una al frente de su estructura" />}
+        <StatTile icon={Crown} label="Líderes" value={fmtNum(t.leaders)} sub="Incluye a las cabezas" />
         <StatTile icon={Users} label="Personas registradas" value={fmtNum(t.people)}
           sub={<><span className="delta-up">+{fmtNum(t.last7)}</span> en los últimos 7 días</>} />
         <StatTile icon={Link2} label="Registros por enlace" value={fmtNum(t.via_invitation)} sub={`${fmtNum(t.via_manual)} registros manuales`} />
@@ -41,7 +41,7 @@ export function DashboardBody({ headId, days, compact }) {
               ]} />
             ) : data.perHead.length ? (
               <BarList onClick={(it) => nav(`/cabezas/${it.key}`)} items={data.perHead.map((h) => ({
-                key: h.id, label: h.name, value: h.people, color: h.color, dot: h.color,
+                key: h.id, label: h.cabeza_name || h.name, value: h.people, color: h.color, dot: h.color,
                 tip: [['Líderes', fmtNum(h.leaders)], ['Pendientes', fmtNum(h.pending)]],
               }))} />
             ) : <Empty title="Aún no hay cabezas" />}
@@ -67,11 +67,11 @@ export function DashboardBody({ headId, days, compact }) {
             {data.recent.map((r) => (
               <div key={r.id} className="row" style={{ padding: '10px 18px', borderBottom: '1px solid var(--border)', gap: 12, cursor: 'pointer' }}
                 onClick={() => nav(`/personas/${r.id}`)}>
-                <Avatar name={r.full_name} leader={r.is_leader} />
+                <Avatar name={r.full_name} leader={r.is_leader} head={r.is_head} />
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div className="row" style={{ gap: 6 }}><b className="ellipsis">{r.full_name}</b>{r.is_leader ? <Crown size={13} color="var(--leader)" /> : null}</div>
+                  <div className="row" style={{ gap: 6 }}><b className="ellipsis">{r.full_name}</b><RoleIcon isHead={r.is_head} isLeader={r.is_leader} /></div>
                   <div className="small muted ellipsis">
-                    {r.inviter_name ? <>Invitado por <PersonLink id={r.inviter_id} name={r.inviter_name} /></> : 'Líder raíz'} · {METHOD[r.registration_method]}
+                    {r.inviter_name ? <>Invitado por <PersonLink id={r.inviter_id} name={r.inviter_name} /></> : r.is_head ? 'Cabeza de su estructura' : 'Líder raíz'} · {METHOD[r.registration_method]}
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
@@ -95,7 +95,7 @@ export default function Dashboard() {
     <div className="page">
       <div className="page-head">
         <div>
-          <h1>Dashboard general</h1>
+          <h1>Así crece el equipo</h1>
           <p>{a.user.role === 'leader' ? 'Cifras de su estructura' : 'Cifras en tiempo real a partir de los registros'}</p>
         </div>
         <div className="row-wrap">

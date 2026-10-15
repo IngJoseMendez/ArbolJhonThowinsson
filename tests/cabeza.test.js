@@ -1,0 +1,175 @@
+// La cabeza es una persona: el líder raíz de su estructura. De ella cuelgan sus líderes (que invita desde su
+// panel con enlaces de un solo uso) y sus personas. Públicamente se nombra por la persona, sin prefijos internos.
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { startServer, Client, nextPhone, nextDoc } from './helpers.js';
+
+let srv; let admin; let anon;
+let loc;
+const ids = {};
+
+before(async () => {
+  srv = await startServer();
+  admin = await new Client(srv.base).login('admin', 'Admin1234!');
+  anon = new Client(srv.base);
+  loc = { localidad_id: (await anon.get('/api/geo/areas?level=localidad')).data[0].id };
+  const types = (await admin.get('/api/reg-types')).data;
+  ids.types = Object.fromEntries(types.filter((t) => t.builtin).map((t) => [t.role, t]));
+});
+after(() => srv.close());
+
+const form = (first, last, extra = {}) => ({
+  first_names: first, last_names: last, document_id: nextDoc(), address: 'Calle 1 # 2-3', phone: nextPhone(),
+  location: loc, supports: 'yes', consent: true, ...extra,
+});
+const find = async (q) => (await admin.get(`/api/people?q=${encodeURIComponent(q)}`)).data.rows[0];
+const pinOf = async (id) => (await admin.get(`/api/people/${id}`)).data.person.document_id.slice(-4);
+
+test('Enlace de cabeza: quien se registra queda como cabeza de su estructura, no como un líder más', async () => {
+  const link = await admin.post('/api/links/one-time', { reg_type_id: ids.types.head.id });
+  assert.equal(link.status, 201, JSON.stringify(link.data));
+  const r = await anon.post(`/api/public/register/${link.data.token}`, form('Juan Carlos', 'Restrepo'));
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.is_head, true);
+  assert.equal(r.data.is_leader, true);
+  assert.equal(r.data.head, 'Cabeza Juan Carlos Restrepo', 'nombre interno de la estructura');
+  assert.equal(r.data.head_display, 'Juan Carlos Restrepo', 'públicamente, por la persona');
+  assert.ok(r.data.panel_token);
+  ids.cabezaPanel = r.data.panel_token;
+  const juan = await find('juan carlos restrepo');
+  assert.equal(juan.is_head, true);
+  ids.cabeza = juan;
+  ids.head = juan.head_id;
+  const heads = (await admin.get('/api/heads')).data;
+  const h = heads.find((x) => x.id === ids.head);
+  assert.equal(h.cabeza_id, juan.id);
+  assert.equal(h.cabeza_name, 'Juan Carlos Restrepo');
+  const detail = (await admin.get(`/api/heads/${ids.head}`)).data;
+  assert.equal(detail.cabeza.id, juan.id);
+  assert.equal(detail.leaders[0].is_head, true, 'la cabeza encabeza la lista de líderes');
+  // Ficha: la persona es cabeza y su estructura la nombra
+  const ficha = (await admin.get(`/api/people/${juan.id}`)).data;
+  assert.equal(ficha.person.is_head, true);
+  assert.equal(ficha.head.cabeza.id, juan.id);
+});
+
+test('Los líderes sin padrino cuelgan de la cabeza; el formulario público la nombra sin prefijos', async () => {
+  const link = await admin.post('/api/links/one-time', { reg_type_id: ids.types.leader.id, head_id: ids.head });
+  assert.equal(link.status, 201, JSON.stringify(link.data));
+  const inv = (await anon.get(`/api/public/invite/${link.data.token}`)).data;
+  assert.equal(inv.role, 'leader');
+  assert.equal(inv.head.name, 'Cabeza Juan Carlos Restrepo');
+  assert.equal(inv.head.display_name, 'Juan Carlos Restrepo');
+  assert.deepEqual(inv.cabeza, { name: 'Juan Carlos Restrepo', first_name: 'Juan' });
+  const r = await anon.post(`/api/public/register/${link.data.token}`, form('Lucía', 'Líder Uno'));
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.cabeza, 'Juan Carlos Restrepo');
+  const lucia = await find('lucia lider uno');
+  assert.equal(lucia.inviter_id, ids.cabeza.id, 'cuelga de la cabeza');
+  assert.equal(lucia.leader_id, ids.cabeza.id);
+  ids.lucia = lucia;
+  // Registro manual de un líder sin invitador: también cuelga de la cabeza
+  const m = await admin.post('/api/people', { ...form('Mario', 'Líder Manual'), head_id: ids.head, is_leader: true });
+  assert.equal(m.status, 201, JSON.stringify(m.data));
+  assert.equal(m.data.inviter_id, ids.cabeza.id);
+  // Personas invitadas por Lucía: el formulario dice quién invita y de qué equipo
+  const p = (await anon.get(`/api/public/invite/${r.data.invite_token}`)).data;
+  assert.equal(p.inviter.name, 'Lucía Líder Uno');
+  assert.equal(p.inviter.first_name, 'Lucía');
+  assert.equal(p.inviter.is_head, false);
+  assert.equal(p.head.display_name, 'Juan Carlos Restrepo');
+  assert.equal((await anon.post(`/api/public/register/${r.data.invite_token}`, form('Pedro', 'Votante Lucía'))).status, 201);
+});
+
+test('Panel de la cabeza: ve a sus líderes e invita líderes con enlaces de un solo uso', async () => {
+  const pin = await pinOf(ids.cabeza.id);
+  const open = (body = {}) => anon.post(`/api/public/panel/${ids.cabezaPanel}`, { pin, ...body });
+  const d = (await open()).data;
+  assert.equal(d.person.is_head, true);
+  assert.equal(d.stats.total, 3, 'Lucía, Mario y Pedro');
+  assert.equal(d.stats.leaders, 2);
+  assert.deepEqual(d.leaders.map((l) => l.full_name).sort(), ['Lucía Líder Uno', 'Mario Líder Manual']);
+  assert.equal(d.leaders.find((l) => l.full_name === 'Lucía Líder Uno').network, 1);
+  assert.deepEqual(d.leader_invites, { sent: 0, used: 0, open: 0 });
+
+  const invite = (body = {}) => anon.post(`/api/public/panel/${ids.cabezaPanel}/leader-invite`, { pin, ...body });
+  const wrong = String((Number(pin) + 1) % 10000).padStart(4, '0');
+  assert.equal((await invite({ pin: wrong })).data.error.code, 'PIN_INVALID');
+  const a = await invite();
+  assert.equal(a.status, 201, JSON.stringify(a.data));
+  assert.match(a.data.token, /^REG-LIDER-[A-Z2-9]{12}$/);
+  assert.deepEqual(a.data.stats, { sent: 1, used: 0, open: 1 });
+  const inv = (await anon.get(`/api/public/invite/${a.data.token}`)).data;
+  assert.equal(inv.role, 'leader');
+  assert.equal(inv.inviter.name, 'Juan Carlos Restrepo');
+  assert.equal(inv.inviter.is_head, true);
+  const r = await anon.post(`/api/public/register/${a.data.token}`, form('Sofía', 'Invitada Cabeza'));
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.is_leader, true);
+  assert.ok(r.data.panel_token, 'el líder recibe su panel');
+  assert.equal((await find('sofia invitada cabeza')).inviter_id, ids.cabeza.id);
+  assert.equal((await anon.post(`/api/public/register/${a.data.token}`, form('Reenvio', 'Cabeza'))).data.error.code, 'LINK_INVALID');
+  assert.deepEqual((await open()).data.leader_invites, { sent: 1, used: 1, open: 0 });
+
+  // Un líder ve su panel, pero no invita líderes: de su enlace sólo salen personas
+  const luciaPin = await pinOf(ids.lucia.id);
+  const lp = await admin.post(`/api/people/${ids.lucia.id}/panel`);
+  const ld = (await anon.post(`/api/public/panel/${lp.data.token}`, { pin: luciaPin })).data;
+  assert.equal(ld.person.is_head, false);
+  assert.equal(ld.leaders, null);
+  assert.equal(ld.head.cabeza, 'Juan Carlos Restrepo');
+  assert.equal((await anon.post(`/api/public/panel/${lp.data.token}/leader-invite`, { pin: luciaPin })).status, 403);
+});
+
+test('La cabeza no se mueve ni se degrada; se puede retirar y designar (adopta a los líderes raíz)', async () => {
+  const c = ids.cabeza.id;
+  assert.equal((await admin.post(`/api/people/${c}/move`, { inviter_id: ids.lucia.id, reason: 'Prueba de movimiento' })).data.error.code, 'HEAD_PERSON');
+  assert.equal((await admin.post(`/api/people/${c}/demote`, { reason: 'Prueba de retiro' })).data.error.code, 'HEAD_PERSON');
+  // Estructura creada por el administrador con dos líderes raíz: designar a uno la convierte en su cabeza
+  const h = await admin.post('/api/heads', { name: 'Estructura Manual' });
+  const a = await admin.post('/api/people', { ...form('Ana', 'Raiz Uno'), head_id: h.data.id, is_leader: true });
+  const b = await admin.post('/api/people', { ...form('Beto', 'Raiz Dos'), head_id: h.data.id, is_leader: true });
+  assert.equal(b.data.inviter_id, null, 'sin cabeza, el líder cuelga de la estructura');
+  const kid = await admin.post('/api/people', { ...form('Carla', 'Bajo Beto'), head_id: h.data.id, inviter_id: b.data.id });
+  assert.equal(kid.status, 201, JSON.stringify(kid.data));
+  const ha = await admin.post('/api/users', { username: 'adm.cab', password: 'AdmCab1234!', role: 'head_admin', head_ids: [h.data.id] });
+  assert.equal(ha.status, 201);
+  const headAdmin = await new Client(srv.base).login('adm.cab', 'AdmCab1234!');
+  assert.equal((await headAdmin.post(`/api/people/${a.data.id}/head-role`, { is_head: true })).status, 403, 'sólo el administrador general');
+  assert.equal((await admin.post(`/api/people/${kid.data.id}/head-role`, { is_head: true })).data.error.code, 'NOT_ROOT');
+  const d = await admin.post(`/api/people/${a.data.id}/head-role`, { is_head: true, reason: 'Es quien lidera la zona' });
+  assert.equal(d.status, 200, JSON.stringify(d.data));
+  assert.equal(d.data.adopted, 1);
+  const beto = (await admin.get(`/api/people/${b.data.id}`)).data;
+  assert.equal(beto.inviter.id, a.data.id, 'Beto cuelga ahora de la cabeza');
+  assert.equal(beto.leader.id, a.data.id);
+  assert.deepEqual(beto.chain.map((x) => x.full_name), ['Ana Raiz Uno', 'Beto Raiz Dos']);
+  assert.equal((await admin.get(`/api/people/${kid.data.id}`)).data.chain.length, 3);
+  assert.equal((await admin.get(`/api/people/${a.data.id}`)).data.stats.total, 2);
+  assert.equal((await admin.post(`/api/people/${b.data.id}/head-role`, { is_head: true })).data.error.code, 'NOT_ROOT');
+  // Registro manual con tipo «Cabeza» en una estructura que ya tiene cabeza: rechazado
+  const dup = await admin.post('/api/people', { ...form('Otra', 'Cabeza'), head_id: h.data.id, reg_type_id: ids.types.head.id });
+  assert.equal(dup.data.error.code, 'HEAD_TAKEN');
+  // Retirar el papel de cabeza
+  const off = await admin.post(`/api/people/${a.data.id}/head-role`, { is_head: false, reason: 'Cambio de cabeza' });
+  assert.equal(off.status, 200, JSON.stringify(off.data));
+  assert.equal(off.data.person.is_head, 0);
+  const again = await admin.post('/api/people', { ...form('Nueva', 'Cabeza Manual'), head_id: h.data.id, reg_type_id: ids.types.head.id });
+  assert.equal(again.status, 201, JSON.stringify(again.data));
+  assert.equal(again.data.is_head, 1);
+  assert.equal(again.data.inviter_id, null);
+  const ana = (await admin.get(`/api/people/${a.data.id}`)).data;
+  assert.equal(ana.inviter.id, again.data.id, 'la nueva cabeza adopta al líder raíz con su rama');
+  assert.deepEqual((await admin.get(`/api/people/${kid.data.id}`)).data.chain.map((x) => x.full_name),
+    ['Nueva Cabeza Manual', 'Ana Raiz Uno', 'Beto Raiz Dos', 'Carla Bajo Beto']);
+  assert.equal((await admin.get(`/api/people/${again.data.id}`)).data.stats.total, 3);
+  assert.equal((await admin.get('/api/admin/integrity')).data.ok, true);
+});
+
+test('Manifiesto instalable del panel: abre directo el panel', async () => {
+  const m = await anon.get(`/api/public/manifest?start=/panel/${ids.cabezaPanel}`);
+  assert.equal(m.status, 200);
+  assert.equal(m.data.start_url, `/panel/${ids.cabezaPanel}`);
+  assert.equal(m.data.display, 'standalone');
+  assert.equal((await anon.get('/api/public/manifest?start=https://otro.sitio/x')).data.start_url, '/');
+});

@@ -5,7 +5,7 @@ import { normalizeText, normalizePhone, maskPhone } from '../util.js';
 import { ancestorIds } from './people.js';
 
 export const NODE_SELECT = `
-  SELECT p.id, p.code, p.full_name, p.is_leader, p.leader_code, p.status, p.created_at, p.depth, p.inviter_id,
+  SELECT p.id, p.code, p.full_name, p.is_leader, p.is_head, p.leader_code, p.status, p.created_at, p.depth, p.inviter_id,
          p.leader_id, p.leader_mode, p.head_id, p.registration_method, p.path, p.city,
          p.child_count, p.descendant_count, p.geo_localidad_id, p.geo_comuna_id, p.geo_barrio_id, p.geo_status, p.reg_type_id,
          l.full_name AS leader_name, i.full_name AS inviter_name
@@ -13,7 +13,7 @@ export const NODE_SELECT = `
     LEFT JOIN people l ON l.id = p.leader_id
     LEFT JOIN people i ON i.id = p.inviter_id`;
 
-const toNode = (r) => ({ ...r, is_leader: !!r.is_leader });
+const toNode = (r) => ({ ...r, is_leader: !!r.is_leader, is_head: !!r.is_head });
 
 /** Hijos directos (árbol de invitación) con paginación. parentId = null => raíz de la cabeza. */
 export async function treeChildren(user, headId, parentId, { offset = 0, limit = 100, include = null } = {}) {
@@ -98,13 +98,13 @@ export async function search(user, term, { headId = null, limit = 20 } = {}) {
   let where = `(${conds.join(' OR ')}) AND p.status <> 'rejected' AND ${sc.sql}`;
   const allParams = [...params, ...sc.params];
   if (headId) { where += ' AND p.head_id = ?'; allParams.push(headId); }
-  return (await q(`SELECT p.id, p.code, p.full_name, p.is_leader, p.leader_code, p.status, p.head_id, p.depth, p.phone, p.path,
+  return (await q(`SELECT p.id, p.code, p.full_name, p.is_leader, p.is_head, p.leader_code, p.status, p.head_id, p.depth, p.phone, p.path,
                    h.name AS head_name, h.color AS head_color, i.full_name AS inviter_name, l.full_name AS leader_name
               FROM people p JOIN heads h ON h.id = p.head_id
               LEFT JOIN people i ON i.id = p.inviter_id LEFT JOIN people l ON l.id = p.leader_id
              WHERE ${where}
-             ORDER BY p.is_leader DESC, p.full_name LIMIT ?`).all(...allParams, limit))
-    .map((r) => ({ ...r, is_leader: !!r.is_leader, phone: canSeeContact(user, r) ? r.phone : maskPhone(r.phone), path: undefined }));
+             ORDER BY p.is_head DESC, p.is_leader DESC, p.full_name LIMIT ?`).all(...allParams, limit))
+    .map((r) => ({ ...r, is_leader: !!r.is_leader, is_head: !!r.is_head, phone: canSeeContact(user, r) ? r.phone : maskPhone(r.phone), path: undefined }));
 }
 
 const SORTS = {
@@ -143,6 +143,7 @@ export async function directory(user, f) {
   if (f.inviter_id) { where.push('p.inviter_id = ?'); params.push(Number(f.inviter_id)); }
   if (f.status) { where.push('p.status = ?'); params.push(String(f.status)); } else where.push(`p.status <> 'rejected'`);
   if (f.method) { where.push('p.registration_method = ?'); params.push(String(f.method)); }
+  if (f.type === 'head') where.push('p.is_head = 1');
   if (f.type === 'leader') where.push('p.is_leader = 1');
   if (f.type === 'person') where.push('p.is_leader = 0');
   if (f.from) { where.push('p.created_at >= ?'); params.push(String(f.from)); }
@@ -157,7 +158,7 @@ export async function directory(user, f) {
                 LEFT JOIN geo_areas gb ON gb.id = p.geo_barrio_id
                 WHERE ${where.join(' AND ')}`;
   const total = (await q(`SELECT COUNT(*) n ${base}`).get(...params)).n;
-  const rows = await q(`SELECT p.id, p.code, p.full_name, p.phone, p.email, p.city, p.is_leader, p.leader_code, p.status,
+  const rows = await q(`SELECT p.id, p.code, p.full_name, p.phone, p.email, p.city, p.is_leader, p.is_head, p.leader_code, p.status,
                          p.registration_method, p.created_at, p.head_id, p.path, p.leader_id, p.inviter_id,
                          h.name AS head_name, h.color AS head_color, l.full_name AS leader_name, i.full_name AS inviter_name,
                          p.descendant_count, p.address, p.supports, p.secure_vote, p.reg_type_id, p.geo_status, p.geo_localidad_id, p.geo_comuna_id, p.geo_barrio_id,
@@ -169,7 +170,7 @@ export async function directory(user, f) {
     rows: rows.map((r) => {
       const contact = canSeeContact(user, r);
       return {
-        ...r, is_leader: !!r.is_leader, phone: contact ? r.phone : maskPhone(r.phone), email: contact ? r.email : null,
+        ...r, is_leader: !!r.is_leader, is_head: !!r.is_head, phone: contact ? r.phone : maskPhone(r.phone), email: contact ? r.email : null,
         address: contact ? r.address : null, path: undefined,
       };
     }),
@@ -208,6 +209,7 @@ export async function dashboard(user, { headId = null, days = 90 } = {}) {
   const headsCount = (await q(`SELECT COUNT(*) n FROM heads h WHERE h.status = 'active' AND ${hf.sql}`).get(...hf.params)).n;
 
   const perHead = await q(`SELECT h.id, h.name, h.color,
+        (SELECT c.full_name FROM people c WHERE c.head_id = h.id AND c.is_head = 1 AND c.status <> 'rejected') AS cabeza_name,
         COUNT(p.id) AS people,
         SUM(CASE WHEN p.is_leader = 1 THEN 1 ELSE 0 END) AS leaders,
         SUM(CASE WHEN p.status = 'pending' THEN 1 ELSE 0 END) AS pending
@@ -216,14 +218,14 @@ export async function dashboard(user, { headId = null, days = 90 } = {}) {
       GROUP BY h.id ORDER BY people DESC, h.name`).all(...sc.params, ...hf.params, ...ep);
 
   const scl = scopeSql(user, 'l');
-  const perLeader = await q(`SELECT l.id, l.full_name, l.leader_code, l.head_id, h.name AS head_name, h.color AS head_color,
+  const perLeader = await q(`SELECT l.id, l.full_name, l.leader_code, l.head_id, l.is_head = 1 AS is_head, h.name AS head_name, h.color AS head_color,
         (SELECT COUNT(*) FROM people a WHERE a.leader_id = l.id AND a.status <> 'rejected') AS assigned,
         l.descendant_count AS branch
       FROM people l JOIN heads h ON h.id = l.head_id
       WHERE l.is_leader = 1 AND l.status <> 'rejected' AND ${scl.sql} ${headId ? 'AND l.head_id = ?' : ''}
       ORDER BY assigned DESC, branch DESC LIMIT 12`).all(...scl.params, ...ep);
 
-  const recent = await q(`SELECT p.id, p.code, p.full_name, p.is_leader, p.status, p.registration_method, p.created_at,
+  const recent = await q(`SELECT p.id, p.code, p.full_name, p.is_leader, p.is_head = 1 AS is_head, p.status, p.registration_method, p.created_at,
         h.name AS head_name, h.color AS head_color, i.full_name AS inviter_name, i.id AS inviter_id, l.full_name AS leader_name
       FROM people p JOIN heads h ON h.id = p.head_id LEFT JOIN people i ON i.id = p.inviter_id LEFT JOIN people l ON l.id = p.leader_id
       WHERE ${w} AND p.status <> 'rejected' ORDER BY p.created_at DESC, p.id DESC LIMIT 12`).all(...wp);
@@ -234,7 +236,8 @@ export async function dashboard(user, { headId = null, days = 90 } = {}) {
                       GROUP BY p.head_id`).all(...wp, since);
   const daily = await q(`SELECT substr(p.created_at, 1, 10) AS day, p.head_id, COUNT(*) n FROM people p
                    WHERE ${w} AND p.status <> 'rejected' AND p.created_at >= ? GROUP BY day, p.head_id ORDER BY day`).all(...wp, since);
-  const heads = perHead.map((h) => ({ id: h.id, name: h.name, color: h.color }));
+  // En las gráficas, cada estructura se nombra por su cabeza (si la tiene).
+  const heads = perHead.map((h) => ({ id: h.id, name: h.cabeza_name || h.name, color: h.color }));
   const running = new Map(heads.map((h) => [h.id, 0]));
   for (const b of baseRows) running.set(b.head_id, b.n);
   const byDay = new Map();

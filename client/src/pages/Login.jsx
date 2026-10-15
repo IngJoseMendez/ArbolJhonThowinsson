@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { AlertCircle, Network } from 'lucide-react';
+import { AlertCircle, LogIn } from 'lucide-react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
+import { Logo, JohnPhoto, CAMPAIGN, SLOGAN } from '../brand/Brand.jsx';
 
 export default function Login() {
   const a = useAuth();
@@ -18,22 +19,36 @@ export default function Login() {
     catch (ex) { setErr(ex.message); } finally { setBusy(false); }
   };
   return (
-    <div className="login-wrap">
-      <form className="card" style={{ width: 'min(400px, 100%)', padding: 28 }} onSubmit={submit}>
-        <div className="row" style={{ gap: 12, marginBottom: 22 }}>
-          <div className="brand-logo" style={{ width: 42, height: 42 }}><Network size={22} /></div>
-          <div><h1 style={{ fontSize: 20 }}>Estructuras</h1><div className="muted">Gestión de cabezas, líderes e invitaciones</div></div>
+    <div className="pub">
+      <header className="pub-stage">
+        <JohnPhoto variant="hero" className="stage-photo" eager alt="" />
+        <div className="stage-logo-wrap"><Logo tone="sky" className="stage-logo" /></div>
+        <div className="stage-inner stage-enter">
+          <p className="stage-kicker">Equipo {CAMPAIGN}</p>
+          <h1 className="stage-title long">{SLOGAN}</h1>
         </div>
-        <div className="stack" style={{ gap: 14 }}>
-          <div className="field"><label htmlFor="u">Usuario</label>
-            <input id="u" className="input" autoComplete="username" value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} required autoFocus /></div>
-          <div className="field"><label htmlFor="p">Contraseña</label>
-            <input id="p" type="password" className="input" autoComplete="current-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required /></div>
-          {err && <div className="alert alert-error"><AlertCircle size={16} />{err}</div>}
-          <button className="btn btn-primary" style={{ height: 42 }} disabled={busy}>{busy && <span className="spinner" />}Entrar</button>
-          <p className="small muted" style={{ margin: 0 }}>¿Quiere registrarse? Use el enlace de invitación que le compartió su líder o la persona que le invitó.</p>
-        </div>
-      </form>
+      </header>
+      <div className="pub-right">
+        <main className="pub-sheet center">
+          <div className="sheet-inner" style={{ maxWidth: 440 }}>
+            <form className="sheet-card login-form" onSubmit={submit}>
+              <div>
+                <h2 className="sheet-title">Entrar</h2>
+                <p className="sheet-lead">Coordinación del equipo: cabezas, líderes y personas.</p>
+              </div>
+              <div className="field"><label htmlFor="u">Usuario</label>
+                <input id="u" className="input" autoComplete="username" autoCapitalize="none" spellCheck={false} value={f.username}
+                  onChange={(e) => setF({ ...f, username: e.target.value })} required autoFocus /></div>
+              <div className="field"><label htmlFor="p">Contraseña</label>
+                <input id="p" type="password" className="input" autoComplete="current-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required /></div>
+              {err && <div className="alert alert-error" role="alert"><AlertCircle size={16} />{err}</div>}
+              <button className="btn btn-primary btn-lg btn-block" disabled={busy}>{busy ? <span className="spinner" /> : <LogIn size={18} />}Entrar</button>
+              <p className="small muted" style={{ margin: 0 }}>¿Quieres registrarte? Usa el link que te compartió tu líder o la persona que te invitó.</p>
+            </form>
+          </div>
+        </main>
+        <footer className="pub-foot"><Logo tone="navy" /><span>Equipo {CAMPAIGN} · Santa Marta</span></footer>
+      </div>
     </div>
   );
 }

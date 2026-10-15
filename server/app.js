@@ -9,8 +9,29 @@ import { ON_VERCEL, ON_RAILWAY } from './env.js';
 import { q } from './db.js';
 import { api } from './api.js';
 import { AppError } from './util.js';
+import { resolveInvite, headPerson } from './services/people.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/**
+ * Título de la vista previa de un enlace de registro: quién invita y a qué («María Gómez te invita…»).
+ * Sólo lee el enlace (no lo consume) y, ante cualquier problema, se usa la vista previa general.
+ */
+async function withInviteMeta(html, token) {
+  await ensureDb();
+  const { owner, head, role, valid } = await resolveInvite(token);
+  if (!valid) return html;
+  const cabeza = head ? await headPerson(head.id) : null;
+  const host = owner?.full_name || (role === 'leader' && cabeza?.status === 'active' ? cabeza.full_name : null);
+  const title = role === 'head' ? 'Te invitamos a ser cabeza del equipo de John Thowinsson'
+    : host ? `${host} te invita a ${role === 'leader' ? 'ser líder en el' : 'sumarte al'} equipo de John Thowinsson`
+      : 'Súmate al equipo de John Thowinsson';
+  const t = esc(title);
+  return html
+    .replace(/<title>[^<]*<\/title>/, `<title>${t}</title>`)
+    .replace(/(<meta property="og:title" content=")[^"]*(")/, `$1${t}$2`);
+}
 
 export function createApp() {
   const app = express();
@@ -67,8 +88,25 @@ export function createApp() {
 
   const dist = [path.resolve(__dirname, '..', 'dist'), path.resolve(__dirname, '..', 'client', 'dist')].find((d) => fs.existsSync(d)) || '';
   if (dist) {
-    app.use(express.static(dist, { index: false, maxAge: '1h' }));
-    app.get('/{*splat}', (_req, res) => res.sendFile(path.join(dist, 'index.html')));
+    app.use(express.static(dist, {
+      index: false,
+      maxAge: '1h',
+      setHeaders: (res, file) => {
+        if (file.endsWith(`${path.sep}sw.js`)) res.setHeader('Cache-Control', 'no-cache');
+        else if (file.includes(`${path.sep}assets${path.sep}`)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      },
+    }));
+    let indexHtml = null;
+    app.get('/{*splat}', async (req, res) => {
+      indexHtml ??= fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
+      // Las vistas previas de WhatsApp y Facebook necesitan URL absolutas (PUBLIC_URL fija el dominio si se define).
+      const origin = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+      let html = indexHtml.replaceAll('__PUBLIC_ORIGIN__', esc(origin));
+      const m = /^\/registro\/([A-Za-z0-9-]{4,80})$/.exec(req.path);
+      if (m) html = await withInviteMeta(html, m[1]).catch(() => html);
+      res.setHeader('Cache-Control', 'no-cache');
+      res.type('html').send(html);
+    });
   }
 
   // eslint-disable-next-line no-unused-vars

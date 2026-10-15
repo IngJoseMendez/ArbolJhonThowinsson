@@ -188,20 +188,25 @@ const TreeCanvas = forwardRef(function TreeCanvas(
             const n = it.node;
             if (it.kind === 'head') return <HeadNode key={it.key} it={it} n={n} color={headColor} detail={detail} onToggle={click(() => store.toggle(it.key))} />;
             const d = n.data;
-            const cls = ['node-card', d.is_leader ? 'leader' : '', d.status === 'pending' ? 'pending' : '', d.status === 'inactive' ? 'inactive' : '',
+            const cls = ['node-card', d.is_head ? 'headp' : d.is_leader ? 'leader' : '', d.status === 'pending' ? 'pending' : '', d.status === 'inactive' ? 'inactive' : '',
               selectedId === d.id ? 'selected' : '', onPath(it.key) ? 'onpath' : '', foundId === d.id ? 'found' : '', isDimmed?.(n) ? 'dim' : ''].join(' ');
             const hasKids = d.child_count > 0;
             return (
               <g key={it.key} className={cls} transform={`translate(${it.x},${it.y})`} onClick={click(() => onSelect?.(n))}
                 tabIndex={0} role="treeitem" aria-expanded={hasKids ? !!n.expanded : undefined}
-                aria-label={`${d.full_name}${d.is_leader ? ', líder' : ''}, ${d.descendant_count} personas debajo`}
+                aria-label={`${d.full_name}${d.is_head ? ', cabeza' : d.is_leader ? ', líder' : ''}, ${d.descendant_count} personas debajo`}
                 onKeyDown={(e) => { if (e.key === 'Enter') onSelect?.(n); if (e.key === ' ' && hasKids) { e.preventDefault(); store.toggle(it.key); } }}>
                 <rect className="bg" width={NODE_W} height={NODE_H} rx={10} />
-                <rect x={0} y={8} width={3.5} height={NODE_H - 16} rx={1.75} fill={d.is_leader ? 'var(--leader)' : 'var(--axis)'} />
-                <circle cx={30} cy={NODE_H / 2} r={17} fill={d.is_leader ? 'var(--leader-soft)' : 'var(--surface-2)'}
-                  stroke={d.is_leader ? 'var(--leader)' : 'none'} strokeWidth={1.5} />
-                <text x={30} y={NODE_H / 2 + 4.5} textAnchor="middle" fontSize={12} fontWeight={650} fill={d.is_leader ? 'var(--leader)' : 'var(--text-2)'}>{initials(d.full_name)}</text>
-                {d.is_leader && (
+                <rect x={0} y={8} width={3.5} height={NODE_H - 16} rx={1.75} fill={d.is_head ? 'var(--sky)' : d.is_leader ? 'var(--leader)' : 'var(--axis)'} />
+                <circle cx={30} cy={NODE_H / 2} r={17} fill={d.is_head ? 'rgba(96,182,232,0.2)' : d.is_leader ? 'var(--leader-soft)' : 'var(--surface-2)'}
+                  stroke={d.is_head ? 'var(--sky)' : d.is_leader ? 'var(--leader)' : 'none'} strokeWidth={1.5} />
+                <text x={30} y={NODE_H / 2 + 4.5} textAnchor="middle" fontSize={12} fontWeight={650} fill={d.is_head ? '#fff' : d.is_leader ? 'var(--leader)' : 'var(--text-2)'}>{initials(d.full_name)}</text>
+                {d.is_head ? (
+                  <g transform={`translate(34,${NODE_H / 2 - 26})`}>
+                    <circle r={9} cx={8} cy={8} fill="var(--sky)" />
+                    <g transform="translate(3.2,3.2) scale(0.072)"><path d="M44 0H134V90H110V24H44Z" fill="#05204a" /><path d="M0 46H90V136H66V70H0Z" fill="#05204a" opacity="0.6" /></g>
+                  </g>
+                ) : d.is_leader && (
                   <g transform={`translate(38,${NODE_H / 2 - 22})`}>
                     <circle r={8} cx={4} cy={4} fill="var(--leader)" />
                     <path d="M0.5 6.5 L1 1.8 L3 3.6 L4 1 L5 3.6 L7 1.8 L7.5 6.5 Z" fill="#fff" />
@@ -211,7 +216,7 @@ const TreeCanvas = forwardRef(function TreeCanvas(
                 {detail && (
                   <>
                     <text className="node-sub" x={56} y={39}>
-                      {d.is_leader ? trunc(d.leader_code, 26) : (d.leader_name ? `Líder: ${trunc(firstNames(d.leader_name), 20)}` : 'Sin líder asignado')}
+                      {d.is_head ? 'Cabeza de la estructura' : d.is_leader ? trunc(d.leader_code, 26) : (d.leader_name ? `Líder: ${trunc(firstNames(d.leader_name), 20)}` : 'Sin líder asignado')}
                     </text>
                     <text className="node-sub" x={56} y={54}>
                       {d.status === 'pending' ? 'Pendiente de aprobación' : d.status === 'inactive' ? 'Inactiva' : `${fmtDate(d.created_at)} · ${d.registration_method === 'manual' ? 'manual' : 'enlace'}`}
@@ -257,8 +262,9 @@ const TreeCanvas = forwardRef(function TreeCanvas(
         <button className="btn btn-sm btn-icon btn-ghost" onClick={() => centerOn(selectedId ? `p${selectedId}` : store.rootKey)} aria-label="Centrar" title="Centrar en selección"><Crosshair size={15} /></button>
       </div>
       <div className="tree-legend" onPointerDown={(e) => e.stopPropagation()}>
-        <span><span className="legend-swatch" style={{ borderColor: headColor, background: 'var(--surface)' }} />Cabeza</span>
-        <span><span className="legend-swatch" style={{ borderColor: 'var(--leader)', background: 'var(--leader-soft)' }} />Líder oficial</span>
+        <span><span className="legend-swatch" style={{ borderColor: headColor, background: 'var(--surface)' }} />Estructura</span>
+        <span><span className="legend-swatch" style={{ borderColor: 'var(--sky)', background: 'var(--navy)' }} />Cabeza</span>
+        <span><span className="legend-swatch" style={{ borderColor: 'var(--leader)', background: 'var(--leader-soft)' }} />Líder</span>
         <span><span className="legend-swatch" style={{ borderColor: 'var(--border-strong)' }} />Persona</span>
         <span><span className="legend-swatch" style={{ borderColor: 'var(--warning)', borderStyle: 'dashed' }} />Pendiente</span>
         <span><svg width="10" height="10" aria-hidden="true"><circle cx="5" cy="5" r="4" className="node-leaf-dot" /></svg>Sin invitados</span>
@@ -280,7 +286,7 @@ function HeadNode({ it, n, color, detail, onToggle }) {
         <circle cx={12} cy={5} r={3} stroke="none" /><circle cx={5} cy={19} r={2.6} stroke="none" /><circle cx={12} cy={19} r={2.6} stroke="none" /><circle cx={19} cy={19} r={2.6} stroke="none" />
       </g>
       <text className="node-name" x={60} y={detail ? 30 : 42} fontSize={15}>{trunc(d.name, 20)}</text>
-      {detail && <text className="node-sub" x={60} y={50}>CABEZA · {d.people != null ? `${fmtNum(d.people)} personas` : 'estructura'}</text>}
+      {detail && <text className="node-sub" x={60} y={50}>{d.cabeza_name ? 'Estructura' : 'Estructura sin cabeza'}{d.people != null ? ` · ${fmtNum(d.people)} personas` : ''}</text>}
       <g className="node-toggle" transform={`translate(${NODE_W - 2},${it.h / 2})`} onClick={onToggle} role="button" aria-label={n.expanded ? 'Contraer' : 'Expandir'}>
         <rect x={-2} y={-12} width={30} height={24} rx={12} fill={n.expanded ? color : 'var(--surface)'} stroke={color} />
         <text x={13} y={4} textAnchor="middle" fontSize={12} fontWeight={700} fill={n.expanded ? '#fff' : color}>{n.loading ? '…' : n.expanded ? '−' : '+'}</text>

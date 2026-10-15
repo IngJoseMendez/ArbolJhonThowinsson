@@ -1,5 +1,5 @@
 // Reglas de negocio de personas, líderes, árbol de invitación y enlaces.
-import { q, tx, now, pathUpper, MAX_PATH } from '../db.js';
+import { q, tx, now, pathUpper, MAX_PATH, sqlExec, adoptRootLeaders } from '../db.js';
 import {
   badRequest, conflict, notFound, forbidden, normalizeText, slugUpper, randomCode,
   validatePhone, validateMobile, validateCedula, validateEmail, assertEmailDomain, normalizePhone, str, sha256, slugLower,
@@ -60,6 +60,15 @@ export async function getPerson(id) {
 export async function getHead(id) {
   return await q('SELECT * FROM heads WHERE id = ?').get(id);
 }
+
+/** La cabeza (persona) de una estructura: su líder raíz, de quien cuelgan sus líderes y personas. */
+export async function headPerson(headId) {
+  return await q(`SELECT id, code, full_name, first_names, status, path, leader_code FROM people
+                   WHERE head_id = ? AND is_head = 1 AND status <> 'rejected'`).get(headId);
+}
+
+/** Papel organizativo de una persona: 'head' (cabeza), 'leader' o 'person'. */
+export const roleOf = (p) => (p.is_head ? 'head' : p.is_leader ? 'leader' : 'person');
 
 export const ancestorIds = (path) => path.split('/').filter(Boolean).map(Number);
 
@@ -201,12 +210,14 @@ async function ensurePersonLink(person, userId) {
 export const regTypeById = (id) => q('SELECT * FROM reg_types WHERE id = ?').get(id);
 export const builtinType = (role) => q('SELECT * FROM reg_types WHERE builtin = 1 AND role = ?').get(role);
 
-/** Tipo compatible con la condición de líder (los tipos «cabeza» y «líder» registran líderes). */
-async function typeFor(regTypeId, isLeader) {
-  const t = regTypeId ? await regTypeById(regTypeId) : await builtinType(isLeader ? 'leader' : 'person');
+const ROLE_PLURAL = { head: 'cabezas', leader: 'líderes', person: 'personas' };
+
+/** Tipo de registro compatible con el papel (cabeza, líder o persona). */
+async function typeFor(regTypeId, role) {
+  const t = regTypeId ? await regTypeById(regTypeId) : await builtinType(role);
   if (!t) throw badRequest('VALIDATION', 'El tipo de registro no existe.', { field: 'reg_type_id' });
-  if ((t.role === 'person') === !!isLeader) {
-    throw badRequest('VALIDATION', `El tipo «${t.name}» es para ${t.role === 'person' ? 'personas' : 'líderes'}.`, { field: 'reg_type_id' });
+  if (t.role !== role) {
+    throw badRequest('VALIDATION', `El tipo «${t.name}» es para ${ROLE_PLURAL[t.role]}.`, { field: 'reg_type_id' });
   }
   return t;
 }
@@ -326,6 +337,37 @@ export async function createOneTimeLink(body, user, ip) {
   return await createRegisterLink({ reg_type_id: type.id, head_id: type.role === 'head' ? null : body.head_id, oneTime: true }, user, ip);
 }
 
+/**
+ * Enlace de un solo uso con el que la cabeza de una estructura invita a un líder (desde su panel, sin cuenta).
+ * El líder que se registre colgará de ella. Caduca a los 7 días si no se usa.
+ */
+export async function createHeadLeaderInvite(cabeza, ip) {
+  return await tx(async () => {
+    if (!cabeza.is_head) throw forbidden('Sólo la cabeza de una estructura invita líderes.');
+    if (cabeza.status !== 'active') throw badRequest('NOT_ACTIVE', 'Tu registro aún no está activo.');
+    const head = await getHead(cabeza.head_id);
+    if (head.status !== 'active') throw badRequest('HEAD_ARCHIVED', 'La estructura está archivada.');
+    const type = await builtinType('leader');
+    let token;
+    do token = `REG-${slugUpper(type.name, 2)}-${randomCode(12)}`; while (await tokenTaken(token));
+    const expires = new Date(Date.now() + ONE_TIME_DAYS * 864e5).toISOString();
+    const r = await q(`INSERT INTO invite_links (token, kind, owner_person_id, reg_type_id, head_id, label, max_uses, expires_at, created_by, is_general, one_time)
+                 VALUES (?, 'register', ?, ?, ?, ?, 1, ?, NULL, 0, 1)`).run(token, cabeza.id, type.id, head.id, `Invitación de ${cabeza.full_name}`, expires);
+    const id = Number(r.lastInsertRowid);
+    await audit(null, 'link.create_by_head', 'invite_link', id, { token, person_id: cabeza.id, head_id: head.id }, ip);
+    return { ...(await q('SELECT token, expires_at FROM invite_links WHERE id = ?').get(id)), stats: await headInviteStats(cabeza.id) };
+  });
+}
+
+/** Invitaciones de líder enviadas por una cabeza desde su panel: enviadas, usadas y abiertas. */
+export async function headInviteStats(personId) {
+  const s = await q(`SELECT COUNT(*) AS sent,
+      SUM(CASE WHEN used_at IS NOT NULL THEN 1 ELSE 0 END) AS used,
+      SUM(CASE WHEN used_at IS NULL AND status = 'active' AND (expires_at IS NULL OR expires_at >= ?) THEN 1 ELSE 0 END) AS open
+    FROM invite_links WHERE one_time = 1 AND owner_person_id = ?`).get(now(), personId);
+  return { sent: s.sent || 0, used: s.used || 0, open: s.open || 0 };
+}
+
 /** Resumen de los enlaces de un solo uso de un tipo (y cabeza): enviados, usados, sin usar y caducados. */
 export async function oneTimeStats(regTypeId, headId) {
   return await q(`SELECT COUNT(*) AS sent,
@@ -365,18 +407,31 @@ export async function revokePanelToken(personId) {
 
 /**
  * Crea una persona respetando todas las reglas de pertenencia, responsabilidad e invitación.
- * opts: { data, headId, inviterId, isLeader, leaderOverrideId, method, user, linkId, status, ip, reason }
+ * opts: { data, headId, inviterId, isLeader, isHead, leaderOverrideId, method, user, linkId, status, ip, reason }
+ * isHead: la persona es la cabeza de la estructura (líder raíz, una por estructura).
+ * Un líder sin padrino cuelga de la cabeza de la estructura, si la tiene.
  */
 export async function createPerson(opts) {
   return await tx(async () => {
-    const { headId, inviterId = null, isLeader = false, leaderOverrideId = null, method, user = null, linkId = null, ip = null } = opts;
+    const { headId, isHead = false, leaderOverrideId = null, method, user = null, linkId = null, ip = null } = opts;
+    let { inviterId = null } = opts;
+    const isLeader = isHead || !!opts.isLeader;
     const data = validatePersonData(opts.data || {});
-    const regType = await typeFor(opts.regTypeId, isLeader);
+    const regType = await typeFor(opts.regTypeId, isHead ? 'head' : isLeader ? 'leader' : 'person');
     await assertEmailDomain(data.email, { enabled: EMAIL_DNS });
     const geo = await resolveLocation(opts.data?.location, { required: true });
     const head = await getHead(headId);
     if (!head) throw badRequest('VALIDATION', 'Debe seleccionar una cabeza válida.', { field: 'head_id' });
     if (head.status !== 'active') throw badRequest('HEAD_ARCHIVED', 'La cabeza está archivada y no admite registros.');
+
+    if (isHead) {
+      if (inviterId) throw badRequest('HEAD_ROOT', 'La cabeza es la raíz de su estructura: no la invita nadie.', { field: 'inviter_id' });
+      const current = await headPerson(head.id);
+      if (current) throw badRequest('HEAD_TAKEN', `Esta estructura ya tiene cabeza: ${current.full_name}.`, { field: 'head_id' });
+    } else if (!inviterId && isLeader) {
+      const cabeza = await headPerson(head.id);
+      if (cabeza?.status === 'active') inviterId = cabeza.id;
+    }
 
     let inviter = null;
     if (inviterId) {
@@ -395,7 +450,7 @@ export async function createPerson(opts) {
     // Responsabilidad organizativa.
     let leaderId = null;
     let leaderMode = 'auto';
-    if (leaderOverrideId) {
+    if (leaderOverrideId && !isHead) {
       const l = await getPerson(leaderOverrideId);
       if (!l || !l.is_leader || l.head_id !== head.id || l.status === 'rejected') {
         throw badRequest('LEADER_INVALID', 'El líder responsable debe ser un líder oficial de la misma cabeza.', { field: 'leader_id' });
@@ -414,20 +469,25 @@ export async function createPerson(opts) {
                    leader_id, leader_mode, is_leader, leader_code, leader_since, registration_method, registered_by_user_id,
                    invite_link_id, status, path, depth, consent_at, registration_ip, created_at, updated_at,
                    address, geo_localidad_id, geo_comuna_id, geo_barrio_id, geo_localidad_text, geo_comuna_text, geo_barrio_text, geo_status,
-                   first_names, last_names, supports, reg_type_id, secure_vote)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+                   first_names, last_names, supports, reg_type_id, secure_vote, is_head)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
       code, data.full_name, normalizeText(data.full_name), data.phone, data.email, data.document_id, data.city, data.notes,
       head.id, inviter?.id ?? null, leaderId, leaderMode, isLeader ? 1 : 0, leaderCode, isLeader ? ts : null,
       method, method === 'manual' ? user?.id ?? null : null, linkId, status, '/', inviter ? inviter.depth + 1 : 0,
       opts.consent ? ts : null, ip, opts.createdAt || ts, opts.createdAt || ts,
       data.address, geo.geo_localidad_id, geo.geo_comuna_id, geo.geo_barrio_id, geo.geo_localidad_text, geo.geo_comuna_text,
-      geo.geo_barrio_text, geo.geo_status, data.first_names, data.last_names, data.supports, regType.id, data.secure_vote,
+      geo.geo_barrio_text, geo.geo_status, data.first_names, data.last_names, data.supports, regType.id, data.secure_vote, isHead ? 1 : 0,
     );
     const id = Number(r.lastInsertRowid);
     const path = `${inviter ? inviter.path : '/'}${id}/`;
     if (path.length > MAX_PATH) throw badRequest('TOO_DEEP', 'La rama alcanzó la profundidad máxima permitida.');
     await q('UPDATE people SET path = ? WHERE id = ?').run(path, id);
     if (inviter) await bumpCounts(inviter.path, 1, inviter.id);
+    // La cabeza es la raíz de su estructura: los líderes que colgaban sueltos de ella pasan a colgar de la cabeza.
+    if (isHead) {
+      await adoptRootLeaders(sqlExec, { id, head_id: head.id, path },
+        { userId: user?.id ?? null, reason: `${data.full_name} es la cabeza de la estructura` });
+    }
     const person = await getPerson(id);
 
     if (isLeader) await createLink(person, 'leader', user?.id);
@@ -435,19 +495,19 @@ export async function createPerson(opts) {
 
     await history(id, 'registered', {
       method, head_id: head.id, head: head.name, inviter_id: inviter?.id ?? null, inviter: inviter?.full_name ?? null,
-      leader_id: leaderId, leader_mode: leaderMode, is_leader: !!isLeader, leader_code: leaderCode, status,
+      leader_id: leaderId, leader_mode: leaderMode, is_leader: !!isLeader, is_head: !!isHead, leader_code: leaderCode, status,
       invite_link_id: linkId, reg_type: regType.name,
     }, user?.id, opts.reason || null);
     await audit(user, method === 'manual' ? 'person.create_manual' : 'person.register_invite', 'person', id,
-      { head_id: head.id, inviter_id: inviter?.id ?? null, is_leader: !!isLeader, link_id: linkId }, ip);
+      { head_id: head.id, inviter_id: inviter?.id ?? null, is_leader: !!isLeader, is_head: !!isHead, link_id: linkId }, ip);
     return await getPerson(id);
   });
 }
 
 /**
  * Registro público mediante enlace. Cabeza, invitador y tipo se derivan SIEMPRE del token en el servidor.
- * Según el tipo del enlace se registra una persona, un líder (con su enlace y su panel) o una nueva cabeza
- * cuyo primer líder es quien se registra.
+ * Según el tipo del enlace se registra una persona, un líder (con su enlace y su panel) o una nueva estructura
+ * cuya cabeza es quien se registra (invita líderes y personas desde su panel).
  */
 export async function registerViaInvite(token, body, ip) {
   const { link, owner, head, type, role, valid, reason } = await resolveInvite(token);
@@ -480,7 +540,7 @@ export async function registerViaInvite(token, body, ip) {
       const { full_name } = validateNames(data);
       targetHead = await createHeadRecord({ name: `${type.name} ${full_name}`, color: type.color, description: `Registrada con el enlace ${link.token}` });
       await audit(null, 'head.create_via_link', 'head', targetHead.id, { link_id: link.id, reg_type: type.name }, ip);
-      person = await createPerson({ ...common, headId: targetHead.id, inviterId: null, isLeader: true, status: 'active' });
+      person = await createPerson({ ...common, headId: targetHead.id, inviterId: null, isHead: true, status: 'active' });
     } else {
       person = await createPerson({
         ...common, headId: head.id, inviterId: owner?.id ?? null, isLeader: role === 'leader',
@@ -570,6 +630,7 @@ export async function demoteLeader(personId, user, reason, ip) {
     const p = await getPerson(personId);
     if (!p) throw notFound();
     if (!p.is_leader) throw badRequest('NOT_LEADER', 'La persona no es líder.');
+    if (p.is_head) throw badRequest('HEAD_PERSON', 'Es la cabeza de su estructura: primero quítele el papel de cabeza.');
     if (!p.inviter_id) {
       throw badRequest('ROOT_LEADER', 'Es un líder raíz de la cabeza: antes de retirarle el liderazgo debe moverlo debajo de otra persona.');
     }
@@ -616,20 +677,60 @@ export async function setResponsibleLeader(personId, leaderId, user, reason, ip)
   });
 }
 
+/**
+ * Designa (o retira) a la cabeza de una estructura. La cabeza es un líder raíz: al designarla, los demás
+ * líderes que colgaban directamente de la estructura pasan a colgar de ella con sus ramas.
+ */
+export async function setHeadRole(personId, makeHead, user, reason, ip) {
+  return await tx(async () => {
+    const p = await getPerson(personId);
+    if (!p) throw notFound();
+    if (!makeHead) {
+      if (!p.is_head) throw badRequest('NOT_HEAD', 'No es la cabeza de su estructura.');
+      await q(`UPDATE people SET is_head = 0, updated_at = ?,
+          reg_type_id = (SELECT id FROM reg_types WHERE builtin = 1 AND role = 'leader') WHERE id = ?`).run(now(), p.id);
+      await history(p.id, 'head_removed', {}, user?.id, reason);
+      await audit(user, 'person.head_removed', 'person', p.id, {}, ip);
+      return { person: await getPerson(p.id), adopted: 0 };
+    }
+    if (p.is_head) throw badRequest('ALREADY_HEAD', 'Ya es la cabeza de su estructura.');
+    if (p.status !== 'active') throw badRequest('NOT_ACTIVE', 'Sólo una persona activa puede ser cabeza.');
+    if (!p.is_leader || p.inviter_id) {
+      throw badRequest('NOT_ROOT', 'La cabeza es la raíz de su estructura: elija un líder que cuelgue directamente de ella (puede moverlo antes).');
+    }
+    const current = await headPerson(p.head_id);
+    if (current) throw badRequest('HEAD_TAKEN', `La estructura ya tiene cabeza: ${current.full_name}.`);
+    await q(`UPDATE people SET is_head = 1, updated_at = ?,
+        reg_type_id = CASE WHEN (SELECT role FROM reg_types WHERE id = people.reg_type_id) = 'head' THEN reg_type_id
+                           ELSE (SELECT id FROM reg_types WHERE builtin = 1 AND role = 'head') END WHERE id = ?`).run(now(), p.id);
+    const adopted = await adoptRootLeaders(sqlExec, { id: p.id, head_id: p.head_id, path: p.path },
+      { userId: user?.id ?? null, reason: `${p.full_name} es la cabeza de la estructura` });
+    await history(p.id, 'head_assigned', { adopted: adopted.length }, user?.id, reason);
+    await audit(user, 'person.head_assigned', 'person', p.id, { adopted }, ip);
+    return { person: await getPerson(p.id), adopted: adopted.length };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Movimientos (procedimiento autorizado con historial)
 // ---------------------------------------------------------------------------
 
 /**
  * Mueve a una persona (con toda su rama) bajo otro invitador, en la misma u otra cabeza.
- * newInviterId = null => la persona (que debe ser líder) pasa a colgar directamente de la cabeza destino.
+ * newInviterId = null => la persona (que debe ser líder) pasa a colgar directamente de la estructura destino:
+ * de su cabeza, si la tiene. La cabeza de una estructura no se mueve.
  */
 export async function movePerson(personId, { newInviterId = null, newHeadId = null }, user, reason, ip) {
   return await tx(async () => {
     const p = await getPerson(personId);
     if (!p) throw notFound();
     if (p.status === 'rejected') throw badRequest('INVALID_STATE', 'No se puede mover un registro rechazado.');
+    if (p.is_head) throw badRequest('HEAD_PERSON', 'Es la cabeza de su estructura: no se mueve. Si debe cambiar, quítele primero el papel de cabeza.');
     if (!reason || String(reason).trim().length < 5) throw badRequest('REASON_REQUIRED', 'Debe indicar el motivo del movimiento (mín. 5 caracteres).', { field: 'reason' });
+    if (!newInviterId && p.is_leader) {
+      const cabeza = await headPerson(Number(newHeadId || p.head_id));
+      if (cabeza && cabeza.status === 'active' && cabeza.id !== p.id) newInviterId = cabeza.id;
+    }
     let target = null;
     let headId;
     if (newInviterId) {
@@ -749,8 +850,8 @@ export async function updatePersonData(personId, body, user, ip) {
     };
     // Registros antiguos (sin cédula/dirección) pueden editarse; los nuevos mantienen los obligatorios.
     const data = validatePersonData(merged, { legacy: { document_id: p.document_id, address: p.address, phone_changed: body.phone !== undefined && normalizePhone(body.phone) !== p.phone } });
-    data.reg_type_id = body.reg_type_id !== undefined && body.reg_type_id !== null && body.reg_type_id !== ''
-      ? (await typeFor(Number(body.reg_type_id), p.is_leader)).id : p.reg_type_id;
+    data.reg_type_id = body.reg_type_id !== undefined && body.reg_type_id !== null && body.reg_type_id !== '' && Number(body.reg_type_id) !== p.reg_type_id
+      ? (await typeFor(Number(body.reg_type_id), roleOf(p))).id : p.reg_type_id;
     if (data.email && data.email !== p.email) await assertEmailDomain(data.email, { enabled: EMAIL_DNS });
     if (p.status !== 'rejected') await assertNoDuplicate(data, p.id);
     const changes = {};

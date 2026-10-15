@@ -21,20 +21,20 @@ export default function NodePanel({ personId, headName, onClose, onFocus, onHigh
         return (
           <div className="stack" style={{ padding: '0 18px 18px', gap: 16 }}>
             <div className="row" style={{ gap: 12 }}>
-              <Avatar name={p.full_name} leader={p.is_leader} size="lg" />
+              <Avatar name={p.full_name} leader={p.is_leader} head={p.is_head} size="lg" />
               <div style={{ minWidth: 0 }}>
                 <h2 style={{ fontSize: 18 }}>{p.full_name}</h2>
                 <div className="row-wrap" style={{ marginTop: 6 }}>
-                  <RoleBadge isLeader={p.is_leader} />
+                  <RoleBadge isLeader={p.is_leader} isHead={p.is_head} />
                   <StatusBadge status={p.status} />
                 </div>
               </div>
             </div>
             <dl className="kv">
               <dt>Identificador</dt><dd className="mono">{p.code}</dd>
-              {p.is_leader && <><dt>Código de líder</dt><dd className="mono">{p.leader_code}</dd></>}
-              <dt>Cabeza</dt><dd>{data.head.name}</dd>
-              <dt>Invitado por</dt><dd>{data.inviter ? <PersonLink id={data.inviter.id} name={data.inviter.full_name} isLeader={data.inviter.is_leader} /> : <span className="muted">Cuelga de la cabeza</span>}</dd>
+              {p.is_leader && <><dt>Código</dt><dd className="mono">{p.leader_code}</dd></>}
+              <dt>Estructura</dt><dd>{data.head.cabeza ? <PersonLink id={data.head.cabeza.id} name={data.head.cabeza.full_name} isHead /> : data.head.name}</dd>
+              <dt>Invitado por</dt><dd>{data.inviter ? <PersonLink id={data.inviter.id} name={data.inviter.full_name} isLeader={data.inviter.is_leader} isHead={data.inviter.is_head} /> : <span className="muted">{p.is_head ? 'Nadie: es la cabeza' : 'Cuelga de la estructura'}</span>}</dd>
               <dt>Líder responsable</dt><dd>{data.leader ? <><PersonLink id={data.leader.id} name={data.leader.full_name} isLeader />{p.leader_mode === 'manual' && <span className="small muted"> (asignado)</span>}</> : <span className="muted">—</span>}</dd>
               <dt>Registro</dt><dd>{fmtDate(p.created_at)} · {METHOD[p.registration_method]}</dd>
               <dt>Ubicación</dt><dd><LocationText loc={data.location} /></dd>
@@ -63,8 +63,8 @@ export default function NodePanel({ personId, headName, onClose, onFocus, onHigh
             </div>
             {link && (
               <div className="stack" style={{ gap: 8 }}>
-                <h3 className="row">{link.kind === 'leader' ? <><Crown size={14} color="var(--leader)" />Enlace de líder</> : 'Invitación personal'}</h3>
-                <ShareLink token={link.token} ownerName={p.full_name} headName={headName} compact />
+                <h3 className="row">{p.is_head ? 'Su link para personas' : link.kind === 'leader' ? <><Crown size={14} color="var(--leader)" />Enlace de líder</> : 'Invitación personal'}</h3>
+                <ShareLink token={link.token} ownerName={p.full_name} compact />
                 <span className="small muted">{fmtNum(link.uses)} registros generados por este enlace</span>
               </div>
             )}

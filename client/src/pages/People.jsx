@@ -70,7 +70,7 @@ export default function People() {
               showHead={!params.head_id} value={params.leader_id || ''} onChange={(id) => setParams({ leader_id: id || null, page: null })} />
           </div>
           <select className="select" style={{ width: 140 }} value={params.type || ''} onChange={setFilter('type')} aria-label="Tipo">
-            <option value="">Líderes y personas</option><option value="leader">Sólo líderes</option><option value="person">Sólo personas</option>
+            <option value="">Todos</option><option value="head">Sólo cabezas</option><option value="leader">Sólo líderes</option><option value="person">Sólo personas</option>
           </select>
           <select className="select" style={{ width: 140 }} value={params.status || ''} onChange={setFilter('status')} aria-label="Estado">
             <option value="">Estado: vigentes</option><option value="active">Activas</option><option value="pending">Pendientes</option><option value="inactive">Inactivas</option><option value="rejected">Rechazadas</option>
@@ -126,9 +126,9 @@ export default function People() {
                   <tr key={r.id} className="clickable" onClick={() => nav(`/personas/${r.id}`)}>
                     <td>
                       <div className="row" style={{ gap: 10 }}>
-                        <Avatar name={r.full_name} leader={r.is_leader} />
+                        <Avatar name={r.full_name} leader={r.is_leader} head={r.is_head} />
                         <div style={{ minWidth: 0 }}>
-                          <div className="row" style={{ gap: 5 }}><b>{r.full_name}</b>{r.is_leader && <Crown size={13} color="var(--leader)" />}
+                          <div className="row" style={{ gap: 5 }}><b>{r.full_name}</b><RoleIcon isHead={r.is_head} isLeader={r.is_leader} />
                             {types.byId[r.reg_type_id] && <span className="type-chip" style={{ '--chip': types.byId[r.reg_type_id].color }}>{types.byId[r.reg_type_id].name}</span>}</div>
                           <div className="small muted"><span className="mono">{r.is_leader ? r.leader_code : r.code}</span> · {phoneDisplay(r.phone)}</div>
                         </div>

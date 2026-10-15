@@ -7,7 +7,8 @@ import { api, qs } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { fmtDate, fmtNum, inviteUrl, relTime, phoneDisplay } from '../lib/format.js';
 import { useQueryState } from '../lib/useParams.js';
-import { ConfirmModal, ErrorBox, Loading, Modal, PersonLink, PersonPicker, ShareLink, copyText, useAsync, useToast, Empty } from '../components/ui.jsx';
+import { ConfirmModal, ErrorBox, Loading, Modal, PersonLink, PersonPicker, ShareLink, copyText, useAsync, useToast, Empty, WhatsAppIcon } from '../components/ui.jsx';
+import { Mark, CAMPAIGN } from '../brand/Brand.jsx';
 
 function LimitsModal({ link, onClose, onDone }) {
   const [maxUses, setMaxUses] = useState(link.max_uses ?? '');
@@ -80,7 +81,7 @@ function CreateLinkModal({ onClose, onDone }) {
           <div className="type-banner" style={{ marginBottom: 0 }}><span className="type-banner-kicker">Registro de {ROLE_LABEL[type.role].toLowerCase()}</span>
             <span className="type-banner-name">{type.name}</span>{label && <span className="type-banner-sub">{label}</span>}</div>
           <p className="small text-2" style={{ margin: 0 }}>Así lo verán en el celular: con este color. {ROLE_HELP[type.role]}</p>
-          <ShareLink token={created.token} headName={type.role === 'head' ? `una nueva estructura (${type.name})` : headName} ownerName={owner?.full_name} />
+          <ShareLink token={created.token} ownerName={owner?.full_name} />
         </div>
       </Modal>
     );
@@ -212,7 +213,6 @@ function GeneralLinkCard({ type, heads }) {
   const needsHead = type.role !== 'head';
   const needsOwner = type.role === 'person';
   const validHead = heads.some((h) => String(h.id) === String(headId)) ? headId : onlyHead;
-  const head = heads.find((h) => String(h.id) === String(validHead));
 
   useEffect(() => {
     if (!needsOwner || !validHead) { setLeaders([]); return; }
@@ -231,22 +231,23 @@ function GeneralLinkCard({ type, heads }) {
   }, [type.id, validHead, owner?.id, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const url = link ? inviteUrl(link.token) : '';
-  const message = `${type.role === 'head' ? 'Regístrate y crea tu estructura' : 'Regístrate'} como ${type.name}${head ? ` en ${head.name}` : ''}: ${url}`;
+  const message = `Hola, te invito a sumarte al equipo de ${CAMPAIGN}${owner ? ` con ${owner.full_name}` : ''}. Regístrate aquí, es rápido: ${url}`;
   const copy = async () => { if (await copyText(url)) toast(`Enlace de ${type.name} copiado`); };
   return (
     <div className="glink" style={{ '--chip': type.color, ...typeVars(type.color) }}>
       <div className="glink-head">
+        <Mark duo />
         <b>{type.name}</b>
-        <span className="small">{type.role === 'head' ? 'Registra cabezas' : type.role === 'leader' ? 'Registra líderes' : 'Registra personas'}</span>
+        <span className="small">Registra personas · enlace para difundir</span>
       </div>
       <div className="glink-body">
         {needsHead && heads.length > 1 && (
           <select className="select" value={validHead} aria-label={`Cabeza para ${type.name}`}
             onChange={(e) => { setHeadId(e.target.value); remember(`gl:${type.id}:head`, e.target.value); setOwnerId(''); }}>
-            <option value="">¿En qué cabeza?</option>{heads.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+            <option value="">¿Con qué cabeza?</option>{heads.map((h) => <option key={h.id} value={h.id}>{h.cabeza_name || h.name}</option>)}
           </select>
         )}
-        {needsHead && heads.length === 1 && <span className="small text-2 row" style={{ gap: 6 }}><span className="dot" style={{ background: heads[0].color }} />{heads[0].name}</span>}
+        {needsHead && heads.length === 1 && <span className="small text-2 row" style={{ gap: 6 }}><span className="dot" style={{ background: heads[0].color }} />{heads[0].cabeza_name || heads[0].name}</span>}
         {needsOwner && validHead && (
           <LeaderPicker id={`gl-owner-${type.id}`} leaders={leaders} compact value={ownerId} placeholder="¿De qué líder cuelgan?"
             onChange={(id) => { setOwnerId(id); remember(`gl:${type.id}:owner`, id); }} />
@@ -254,7 +255,7 @@ function GeneralLinkCard({ type, heads }) {
         {link ? (
           <>
             <div className="row-wrap" style={{ gap: 6 }}>
-              <a className="btn btn-sm btn-wa" href={`https://wa.me/?text=${encodeURIComponent(message)}`} target="_blank" rel="noopener noreferrer">WhatsApp</a>
+              <a className="btn btn-sm btn-wa" href={`https://wa.me/?text=${encodeURIComponent(message)}`} target="_blank" rel="noopener noreferrer"><WhatsAppIcon size={14} />WhatsApp</a>
               <button type="button" className="btn btn-sm" onClick={copy}><Copy size={14} />Copiar</button>
               <a className="btn btn-sm btn-ghost btn-icon" href={`/registro/${link.token}`} target="_blank" rel="noopener noreferrer" title="Abrir formulario" aria-label="Abrir formulario"><ExternalLink size={14} /></a>
             </div>
@@ -270,8 +271,9 @@ function GeneralLinkCard({ type, heads }) {
 /**
  * Tarjeta de un tipo de cabeza o de líder: cada envío genera un enlace personal de un solo uso
  * (caduca a los 7 días). Si la persona lo reenvía, nadie más puede registrarse con él.
+ * Los líderes quedan con la cabeza de la estructura elegida (si la tiene).
  */
-function OneTimeLinkCard({ type, heads }) {
+export function OneTimeLinkCard({ type, heads, cabezaName }) {
   const toast = useToast();
   const onlyHead = heads.length === 1 ? String(heads[0].id) : '';
   const [headId, setHeadId] = useState(() => recall(`gl:${type.id}:head`) || onlyHead);
@@ -294,8 +296,11 @@ function OneTimeLinkCard({ type, heads }) {
     setStats(l.stats); setLast(l); setErr(null);
     return l;
   };
-  const messageFor = (url) => `Te envío tu enlace personal para registrarte como ${type.name}${head ? ` en ${head.name}` : ''}. `
-    + `Es de un solo uso y solo sirve para ti, no lo reenvíes: ${url}`;
+  const cabeza = cabezaName ?? head?.cabeza_name ?? null;
+  const messageFor = (url) => (type.role === 'head'
+    ? `Hola, te invito a ser cabeza del equipo de ${CAMPAIGN}: tendrás tu propio equipo de líderes y personas. `
+    : `Hola, te invito a ser líder en el equipo de ${CAMPAIGN}${cabeza ? ` con ${cabeza}` : ''}. `)
+    + `Este enlace es personal y sirve para una sola persona, no lo reenvíes: ${url}`;
   const sendWhatsApp = async () => {
     // La ventana se abre en el mismo toque (si no, el navegador la bloquea) y se dirige a WhatsApp con el enlace nuevo.
     const w = window.open('about:blank', '_blank');
@@ -318,21 +323,22 @@ function OneTimeLinkCard({ type, heads }) {
   return (
     <div className="glink" style={{ '--chip': type.color, ...typeVars(type.color) }}>
       <div className="glink-head">
-        <b>{type.name}</b>
-        <span className="small">{type.role === 'head' ? 'Registra cabezas' : 'Registra líderes'} · un solo uso</span>
+        <Mark duo />
+        <b>{type.role === 'head' ? `Invitar ${type.name === 'Cabeza' ? 'una cabeza' : `«${type.name}»`}` : `Invitar ${type.name === 'Líder' ? 'un líder' : `«${type.name}»`}`}</b>
+        <span className="small">{type.role === 'head' ? 'Crea su propio equipo' : cabeza ? `Quedará con ${cabeza}` : 'Registra líderes'} · un solo uso</span>
       </div>
       <div className="glink-body">
         {needsHead && heads.length > 1 && (
           <select className="select" value={validHead} aria-label={`Cabeza para ${type.name}`}
             onChange={(e) => { setHeadId(e.target.value); remember(`gl:${type.id}:head`, e.target.value); }}>
-            <option value="">¿En qué cabeza?</option>{heads.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+            <option value="">¿Con qué cabeza?</option>{heads.map((h) => <option key={h.id} value={h.id}>{h.cabeza_name || h.name}</option>)}
           </select>
         )}
-        {needsHead && heads.length === 1 && <span className="small text-2 row" style={{ gap: 6 }}><span className="dot" style={{ background: heads[0].color }} />{heads[0].name}</span>}
+        {needsHead && heads.length === 1 && <span className="small text-2 row" style={{ gap: 6 }}><span className="dot" style={{ background: heads[0].color }} />{heads[0].cabeza_name || heads[0].name}</span>}
         {ready && (
           <>
             <div className="row-wrap" style={{ gap: 6 }}>
-              <button type="button" className="btn btn-sm btn-wa" disabled={busy} onClick={sendWhatsApp}>{busy && <span className="spinner" />}WhatsApp</button>
+              <button type="button" className="btn btn-sm btn-wa" disabled={busy} onClick={sendWhatsApp}>{busy ? <span className="spinner" /> : <WhatsAppIcon size={14} />}WhatsApp</button>
               <button type="button" className="btn btn-sm" disabled={busy} onClick={copyNew}><Copy size={14} />Copiar</button>
             </div>
             <span className="small muted">Cada envío crea un enlace nuevo para una sola persona; caduca en 7 días si no se usa.</span>
@@ -448,7 +454,7 @@ function LinksTab() {
                     <td>
                       <div className="row nowrap" style={{ gap: 4 }}>
                         {l.status === 'active' && <button className="btn btn-sm btn-icon" title="Copiar" aria-label="Copiar" onClick={() => copy(l.token)}><Copy size={14} /></button>}
-                        {l.status === 'active' && <a className="btn btn-sm btn-wa" href={`https://wa.me/?text=${encodeURIComponent(`Te invito a registrarte${l.kind === 'register' ? ` como ${l.type_name}` : ''}${l.head_name ? ` en ${l.head_name}` : ''}: ${inviteUrl(l.token)}`)}`} target="_blank" rel="noopener noreferrer">WhatsApp</a>}
+                        {l.status === 'active' && <a className="btn btn-sm btn-wa" href={`https://wa.me/?text=${encodeURIComponent(`Hola, te invito a sumarte al equipo de ${CAMPAIGN}${l.owner_name ? ` con ${l.owner_name}` : ''}. Regístrate aquí: ${inviteUrl(l.token)}`)}`} target="_blank" rel="noopener noreferrer"><WhatsAppIcon size={14} />WhatsApp</a>}
                         {l.can_manage && l.status === 'active' && !l.one_time && <button className="btn btn-sm btn-icon" title="Límites" aria-label="Límites" onClick={() => setModal({ type: 'limits', link: l })}><Settings2 size={14} /></button>}
                         {l.can_manage && l.status === 'active' && <button className="btn btn-sm btn-danger" onClick={() => setModal({ type: 'disable', link: l })}><Power size={14} />Desactivar</button>}
                         {l.can_manage && l.status !== 'active' && !l.one_time && (l.kind === 'register' || l.owner_status === 'active') && <button className="btn btn-sm" onClick={() => setModal({ type: 'enable', link: l })}>Reactivar</button>}

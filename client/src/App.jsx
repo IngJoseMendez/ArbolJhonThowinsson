@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth.jsx';
 import Layout from './components/Layout.jsx';
 import { Loading } from './components/ui.jsx';
@@ -33,13 +33,18 @@ function Home() {
   return <Dashboard />;
 }
 
+/** La sesión sólo se consulta en la aplicación de coordinación, no en el registro ni en los paneles públicos. */
+function WithAuth() {
+  return <AuthProvider><Outlet /></AuthProvider>;
+}
+
 export default function App() {
   return (
-    <AuthProvider>
-      <Routes>
+    <Routes>
+      <Route path="/registro/:token" element={<Register />} />
+      <Route path="/panel/:token" element={<Panel />} />
+      <Route element={<WithAuth />}>
         <Route path="/login" element={<Login />} />
-        <Route path="/registro/:token" element={<Register />} />
-        <Route path="/panel/:token" element={<Panel />} />
         <Route element={<Protected><Layout /></Protected>}>
           <Route index element={<Home />} />
           <Route path="cabezas" element={<Heads />} />
@@ -54,7 +59,7 @@ export default function App() {
           <Route path="auditoria" element={<Protected superOnly><Audit /></Protected>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
-      </Routes>
-    </AuthProvider>
+      </Route>
+    </Routes>
   );
 }

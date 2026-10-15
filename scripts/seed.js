@@ -43,7 +43,7 @@ const manual = async (headId, name, inviterId, opts = {}) => (await createPerson
 })).id;
 const viaLink = async (ownerId, name, at) => {
   const link = await q(`SELECT token FROM invite_links WHERE owner_person_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1`).get(ownerId);
-  const { person } = await registerViaInvite(link.token, { full_name: name, phone: String(phoneSeq++), ...fields(), consent: true }, '127.0.0.1');
+  const { person } = await registerViaInvite(link.token, { full_name: name, phone: String(phoneSeq++), ...fields(), consent: true, supports: seq % 4 ? 'yes' : 'no' }, '127.0.0.1');
   if (at) await q('UPDATE people SET created_at = ? WHERE id = ?').run(at, person.id);
   return person.id;
 };

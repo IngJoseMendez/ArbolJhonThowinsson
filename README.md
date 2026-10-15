@@ -1,4 +1,4 @@
-# Estructuras · Plataforma de cabezas, líderes e invitaciones
+# Equipo John Thowinsson · Plataforma de cabezas, líderes e invitaciones
 
 Plataforma web para gestionar la estructura organizativa de un proyecto mediante **cabezas**, **líderes oficiales**
 y **personas**. Permite ver cómo crece cada estructura, a qué cabeza pertenece cada persona, qué líder es su responsable
@@ -162,8 +162,8 @@ nombre del tipo, así se sabe qué enlace es. Según el tipo:
 | Pertenece a | Quien se registra… | Requiere |
 |---|---|---|
 | Persona | Queda como persona invitada por quien se indique | Cabeza y persona de la que cuelga |
-| Líder | Queda como **líder oficial automáticamente** (código `LID-…`, su enlace para invitar y su panel) | Cabeza; padrino opcional (sin padrino cuelga de la cabeza) |
-| Cabeza | Crea una **cabeza nueva** («Concejal Nombre Apellido», con el color del tipo) y queda como su primer líder | Sólo el administrador general; 1 registro por enlace por defecto |
+| Líder | Queda como **líder oficial automáticamente** (código `LID-…`, su enlace para invitar personas y su panel) | Estructura; padrino opcional (sin padrino cuelga de la **cabeza** de la estructura) |
+| Cabeza | Crea una **estructura nueva** («Concejal Nombre Apellido», con el color del tipo) y queda como **su cabeza** | Sólo el administrador general; 1 registro por enlace por defecto |
 
 **Enlaces para compartir** (tarjetas de color al inicio de *Enlaces*, con botones de WhatsApp y Copiar):
 
@@ -189,6 +189,54 @@ lista de su red con los celulares enmascarados y el botón «Comparte tu link pa
   desde la ficha, y no se puede volver a consultar.
 - Desde la ficha del líder se ve cuándo lo abrió por última vez. Ahí se puede generar uno nuevo, que invalida el
   anterior, o desactivarlo.
+
+## La cabeza: una persona al frente de su estructura
+
+La cabeza **es una persona**, no sólo el nombre de una estructura: es el líder raíz de su estructura (`people.is_head`,
+una por estructura) y de ella se desprenden sus líderes y sus personas:
+
+```
+Cabeza (persona) ──► Líderes ──► Personas
+      └──────────────► Personas (también puede sumarlas directamente)
+```
+
+| Quién | Qué tiene | De su enlace salen |
+|---|---|---|
+| **Cabeza** | Panel con todo su equipo, su link para personas y **«Invita a tus líderes»**: cada envío por WhatsApp o Copiar genera un enlace de líder de **un solo uso** (caduca a los 7 días) | Líderes (desde su panel) y personas |
+| **Líder** | Panel con su red y su link para personas | Sólo personas |
+| **Persona** | Su invitación personal (si la estructura lo permite) | Personas |
+
+- Quien se registra con un enlace de tipo «cabeza» queda como **cabeza** de su nueva estructura (ya no como «un líder más»).
+- Un líder registrado sin padrino (enlace del administrador o registro manual) **cuelga de la cabeza** de la estructura.
+  Así el panel de la cabeza ve a todos sus líderes y a la gente de cada uno.
+- *Designar como cabeza* (ficha de un líder raíz, sólo el administrador general): esa persona pasa a ser la cabeza y los
+  demás líderes que colgaban sueltos de la estructura pasan a colgar de ella, con sus ramas (queda en el historial).
+  *Quitar como cabeza* la devuelve a líder raíz. La cabeza no se mueve ni se le retira el liderazgo sin quitarle antes el papel.
+- Registro manual con un tipo de cabeza: registra a la cabeza de esa estructura (si aún no tiene).
+- **Migración v8:** las cabezas registradas antes con enlace de tipo «cabeza» se marcan como cabeza y los líderes que
+  colgaban sueltos de su estructura pasan a colgar de ellas. Los tipos base que conservaban sus colores iniciales toman
+  los de la marca (Cabeza dorado, Líder celeste, Persona azul).
+- **Públicamente nunca se muestra el prefijo interno** («Cabeza Juan Pérez»): el formulario dice *«Te invita Juan Pérez»*
+  y *«Equipo de Juan Pérez»*, y los mensajes de WhatsApp hablan del equipo de John Thowinsson.
+
+API: `POST /api/people/:id/head-role` (`{ is_head }`), `POST /api/public/panel/:token/leader-invite` (`{ pin }`, sólo la
+cabeza) y `GET /api/public/manifest?start=/panel/<token>` (app instalable del panel).
+
+## Marca, celular y app instalable
+
+- **Marca Thowinsson:** logotipo vectorizado del archivo original (`client/src/brand/logoPaths.js`, `client/public/brand/logo.svg`),
+  azul `#05204a` y celeste `#60b6e8`, tipografías Zilla Slab (pariente del rótulo del logo) y Fira Sans, alojadas en la
+  propia app. La foto de John aparece en el registro, el panel, el acceso y la imagen para compartir enlaces.
+- **Registro por enlace:** quién invita y a qué, con la foto de John; al registrarse, cabezas y líderes reciben su
+  **credencial** con una lluvia de papelitos de la marca; las personas, un agradecimiento. Respeta «reducir movimiento».
+- **Vista previa en WhatsApp/Facebook:** `client/public/brand/og-image.jpg` (1200×630). La URL absoluta se completa al
+  compilar en Vercel (`VERCEL_PROJECT_PRODUCTION_URL`, o `PUBLIC_URL`) y al servir con Express. En Express, además, el
+  título de cada enlace de registro dice quién invita.
+- **App instalable (PWA) en Android y iPhone:** `manifest.webmanifest`, íconos (incluido el adaptable de Android),
+  `apple-touch-icon`, pantallas de inicio de iPhone (`client/public/brand/splash/`), barra de estado translúcida y áreas
+  seguras (muesca e indicador de inicio). El *service worker* (`client/public/sw.js`) sirve la app al instante y sin
+  conexión, **nunca guarda respuestas de la API**. En el panel, el manifiesto apunta al propio panel: al instalarlo
+  desde el celular, el ícono abre directo «Mi panel». En celular la coordinación usa una barra inferior tipo app.
 
 ## Expansión del árbol
 

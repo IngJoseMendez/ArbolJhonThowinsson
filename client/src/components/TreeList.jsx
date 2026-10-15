@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, ChevronsDown, ChevronsUp, Crown, Network } from 'lucide-react';
+import { Mark } from '../brand/Brand.jsx';
 import { fmtDate, fmtNum } from '../lib/format.js';
 import { StatusBadge } from './ui.jsx';
 
@@ -69,9 +70,9 @@ export default function TreeList({ store, version, selectedId, pathIds, isDimmed
                   {n.loading ? <span className="spinner" style={{ width: 12, height: 12 }} /> : n.expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 </button>
                 : <span style={{ width: 24, flex: 'none', display: 'grid', placeItems: 'center' }} title="Sin personas debajo"><span className="leaf-dot" /></span>}
-              {d.is_leader && <Crown size={14} color="var(--leader)" style={{ flex: 'none' }} />}
+              {d.is_head ? <Mark size={13} className="role-icon" /> : d.is_leader && <Crown size={14} color="var(--leader)" style={{ flex: 'none' }} />}
               <span className="ellipsis" style={{ fontWeight: d.is_leader || onPath ? 650 : 500, color: onPath ? 'var(--accent)' : undefined, minWidth: 0 }}>{d.full_name}</span>
-              {d.is_leader
+              {d.is_head ? <span className="badge badge-head hide-sm">Cabeza</span> : d.is_leader
                 ? <span className="badge badge-leader hide-sm">{d.leader_code}</span>
                 : d.leader_name && <span className="small muted ellipsis hide-sm">Líder: {d.leader_name}</span>}
               <span className="spacer" />

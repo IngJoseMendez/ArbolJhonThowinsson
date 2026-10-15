@@ -1,0 +1,25 @@
+{
+  "id": "/",
+  "name": "Equipo John Thowinsson",
+  "short_name": "Thowinsson",
+  "description": "Cabezas, líderes y personas del equipo de John Thowinsson.",
+  "lang": "es-CO",
+  "dir": "ltr",
+  "start_url": "/?app=1",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#05204a",
+  "theme_color": "#05204a",
+  "categories": ["productivity", "social"],
+  "icons": [
+    { "src": "/brand/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/brand/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/brand/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Árbol", "url": "/arbol", "icons": [{ "src": "/brand/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Personas", "url": "/personas", "icons": [{ "src": "/brand/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Enlaces", "url": "/enlaces", "icons": [{ "src": "/brand/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
