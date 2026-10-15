@@ -15,11 +15,11 @@ run('npx vite build', client);
 
 // Vistas previas al compartir enlaces: WhatsApp y Facebook necesitan la URL absoluta de la imagen.
 // En Vercel el index.html se sirve tal cual, así que se completa al compilar con el dominio de producción.
-// (El servidor Express lo completa al servir con el dominio de cada petición.)
+// En Railway no: el servidor Express lo completa al servir con PUBLIC_URL o con el dominio de cada petición (así un
+// dominio propio conectado después, por ejemplo thowinssonsm.com, sale bien sin volver a compilar).
 const origin = process.env.PUBLIC_URL
   || (process.env.VERCEL_PROJECT_PRODUCTION_URL && `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`)
-  || (process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`)
-  || (process.env.RAILWAY_PUBLIC_DOMAIN && `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`);
+  || (process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`);
 if (origin) {
   const index = path.join(client, 'dist', 'index.html');
   fs.writeFileSync(index, fs.readFileSync(index, 'utf8').replaceAll('__PUBLIC_ORIGIN__', origin.replace(/\/$/, '')));
