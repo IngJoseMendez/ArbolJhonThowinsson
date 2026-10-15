@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { JohnPhoto, Mark } from '../../brand/Brand.jsx';
 import { initialsOf } from '../../lib/teams.js';
+import { photoSrc } from '../../lib/photos.js';
 
 /** Línea mínima de tendencia (64×24) en el color del equipo. */
 export function Sparkline({ values, color = 'currentColor', width = 64, height = 24, label }) {
@@ -36,27 +37,32 @@ export function DayBars({ days }) {
   );
 }
 
-/** Avatar del equipo: iniciales de la cabeza en un anillo de su color (con la marca dorada) o el ícono de la estructura. */
+/**
+ * Avatar del equipo: la foto (o las iniciales) de la cabeza en un anillo de su color, con la marca dorada; sin cabeza,
+ * las iniciales de la estructura.
+ */
 export function TeamAvatar({ head, size = 44 }) {
   const person = !!head?.cabeza_name;
+  const photo = person && head.cabeza_photo;
   return (
-    <span className={`m-team-avatar ${person ? '' : 'is-vacant'}`} style={{ '--hc': head?.color || 'var(--sky)', '--s': `${size}px` }} aria-hidden="true">
-      {person ? initialsOf(head.cabeza_name) : initialsOf(String(head?.name || '').replace(/^cabeza\s+/i, ''))}
+    <span className={`m-team-avatar ${person ? '' : 'is-vacant'} ${photo ? 'has-photo' : ''}`} style={{ '--hc': head?.color || 'var(--sky)', '--s': `${size}px` }} aria-hidden="true">
+      {photo ? <img src={photoSrc(photo, size)} alt="" loading="lazy" decoding="async" />
+        : person ? initialsOf(head.cabeza_name) : initialsOf(String(head?.name || '').replace(/^cabeza\s+/i, ''))}
       {person && <Mark className="m-team-avatar__mark" />}
     </span>
   );
 }
 
-/** Avatar de una persona: anillo celeste si es líder, dorado si es cabeza. */
 /** John Thowinsson con su foto: de él cuelgan todas las cabezas. */
 export function JohnAvatar({ size = 40 }) {
   return <span className="m-avatar is-john" style={{ '--s': `${size}px` }} aria-hidden="true"><JohnPhoto sizes={`${size}px`} alt="" /></span>;
 }
 
-export function PersonAvatar({ name, leader, head, size = 40 }) {
+/** Avatar de una persona: anillo celeste si es líder, dorado si es cabeza; su foto si la puso. */
+export function PersonAvatar({ name, leader, head, size = 40, photo }) {
   return (
-    <span className={`m-avatar ${head ? 'is-head' : leader ? 'is-leader' : ''}`} style={{ '--s': `${size}px` }} aria-hidden="true">
-      {initialsOf(name)}
+    <span className={`m-avatar ${head ? 'is-head' : leader ? 'is-leader' : ''} ${photo ? 'has-photo' : ''}`} style={{ '--s': `${size}px` }} aria-hidden="true">
+      {photo ? <img src={photoSrc(photo, size)} alt="" loading="lazy" decoding="async" /> : initialsOf(name)}
     </span>
   );
 }

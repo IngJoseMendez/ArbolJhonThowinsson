@@ -69,7 +69,7 @@ export default function Head() {
   const header = (ref) => (
     <div className="m-detail">
       <div className="m-detail__top">
-        {c ? <PersonAvatar name={c.full_name} head size={56} /> : headRow ? <TeamAvatar head={headRow} size={56} /> : <span className="skeleton m-sk-avatar" />}
+        {c ? <PersonAvatar name={c.full_name} head size={56} photo={c.photo_url} /> : headRow ? <TeamAvatar head={headRow} size={56} /> : <span className="skeleton m-sk-avatar" />}
         <span className="m-detail__since">
           {h ? (c ? `Cabeza de ${CAMPAIGN} desde el ${fmtDate(c.created_at)}` : 'Sin cabeza asignada') : ''}{h?.status === 'archived' ? ', estructura archivada' : ''}
         </span>
@@ -125,7 +125,7 @@ export default function Head() {
                     : l.inviter_name && !l.inviter_is_head ? `con ${l.inviter_name}`
                       : l.branch === 0 ? `Desde el ${fmtDate(l.created_at)}, aún sin gente` : `Desde el ${fmtDate(l.created_at)}`;
                 return (
-                  <Row key={l.id} lead={<PersonAvatar name={l.full_name} leader />} title={l.full_name} meta={meta} to={`/personas/${l.id}`}
+                  <Row key={l.id} lead={<PersonAvatar name={l.full_name} leader photo={l.photo_url} />} title={l.full_name} meta={meta} to={`/personas/${l.id}`}
                     trail={<><span>{nf.format(l.branch)}</span><small>en su red</small></>} chevron={false} />
                 );
               })}
@@ -160,7 +160,7 @@ export default function Head() {
             <Section title="Líderes que más suman">
               <Group>
                 {data.stats.perLeader.filter((l) => !l.is_head).slice(0, 5).map((l) => (
-                  <Row key={l.id} lead={<PersonAvatar name={l.full_name} leader />} title={l.full_name} to={`/personas/${l.id}`}
+                  <Row key={l.id} lead={<PersonAvatar name={l.full_name} leader photo={l.photo_url} />} title={l.full_name} to={`/personas/${l.id}`}
                     trail={<><span>{nf.format(l.branch)}</span><small>en su red</small></>} chevron={false} />
                 ))}
               </Group>
@@ -171,7 +171,7 @@ export default function Head() {
             <Section title="Recién registrados">
               <Group>
                 {data.stats.recent.slice(0, 5).map((r) => (
-                  <Row key={r.id} lead={<PersonAvatar name={r.full_name} leader={r.is_leader} head={r.is_head} />} title={r.full_name} to={`/personas/${r.id}`}
+                  <Row key={r.id} lead={<PersonAvatar name={r.full_name} leader={r.is_leader} head={r.is_head} photo={r.photo_url} />} title={r.full_name} to={`/personas/${r.id}`}
                     meta={r.inviter_name ? `con ${r.inviter_name}` : r.is_head ? `Cabeza, con ${CAMPAIGN}` : 'Líder'} trail={<small>{relTime(r.created_at)}</small>} chevron={false} />
                 ))}
               </Group>
@@ -200,7 +200,7 @@ export default function Head() {
         <Sheet title="Elegir su cabeza" subtitle="Abra la ficha de un líder raíz y elija «Designar como cabeza». Los demás líderes pasarán a colgar de ella." onClose={() => setMenu(null)}>
           <Group>
             {(data?.leaders || []).filter((l) => !l.inviter_id).map((l) => (
-              <Row key={l.id} lead={<PersonAvatar name={l.full_name} leader />} title={l.full_name} meta="Líder raíz" to={`/personas/${l.id}`} />
+              <Row key={l.id} lead={<PersonAvatar name={l.full_name} leader photo={l.photo_url} />} title={l.full_name} meta="Líder raíz" to={`/personas/${l.id}`} />
             ))}
           </Group>
           {!(data?.leaders || []).some((l) => !l.inviter_id) && <p className="m-hint">Esta estructura aún no tiene líderes raíz. Invite uno o registre a la cabeza.</p>}

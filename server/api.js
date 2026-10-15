@@ -14,7 +14,8 @@ import {
   revokePanelToken, regTypeById,
   headPerson, setHeadRole, recoverableLeader, recoverPanel,
 } from './services/people.js';
-import { panelData, panelLeaderInvite, panelManifest } from './services/panel.js';
+import { panelData, panelLeaderInvite, panelManifest, panelPhoto } from './services/panel.js';
+import { photosEnabled, setPersonPhoto, removePersonPhoto } from './services/photos.js';
 import {
   treeChildren, treeSubtree, treeChildrenOf, pathToPerson, search, directory, dashboard, branchStats, networkRoot, NODE_SELECT,
 } from './services/queries.js';
@@ -78,6 +79,8 @@ async function mePayload(u) {
     user: { id: u.id, username: u.username, display_name: u.display_name, role: u.role, role_label: ROLES[u.role], head_ids: heads },
     person,
     twofa: await twofaStatus(u.id),
+    // Fotos de las personas de confianza (Cloudinary configurado).
+    features: { photos: photosEnabled() },
   };
 }
 
@@ -130,7 +133,7 @@ const headCounts = `
 
 // La cabeza (persona) de cada estructura, si la tiene.
 const headCabeza = `LEFT JOIN people c ON c.head_id = h.id AND c.is_head = 1 AND c.status <> 'rejected'`;
-const cabezaCols = 'c.id AS cabeza_id, c.full_name AS cabeza_name, c.status AS cabeza_status';
+const cabezaCols = 'c.id AS cabeza_id, c.full_name AS cabeza_name, c.status AS cabeza_status, c.photo_url AS cabeza_photo';
 
 api.get('/heads', requireAuth, async (req, res) => {
   const ids = visibleHeadIds(req.user);
@@ -184,7 +187,7 @@ api.get('/heads/:id', requireAuth, async (req, res) => {
   if (!h || !canViewHead(req.user, id)) throw notFound('Cabeza no encontrada.');
   const stats = await dashboard(req.user, { headId: id, days: 60 });
   const sc = scopeSql(req.user, 'l');
-  const leaders = (await q(`SELECT l.id, l.full_name, l.leader_code, l.status, l.created_at, l.inviter_id, l.is_head, i.full_name AS inviter_name,
+  const leaders = (await q(`SELECT l.id, l.full_name, l.leader_code, l.status, l.created_at, l.inviter_id, l.is_head, l.photo_url, i.full_name AS inviter_name,
         i.is_head AS inviter_is_head,
         (SELECT COUNT(*) FROM people a WHERE a.leader_id = l.id AND a.status <> 'rejected') AS assigned,
         l.descendant_count AS branch,
@@ -196,7 +199,7 @@ api.get('/heads/:id', requireAuth, async (req, res) => {
     .map((l) => ({ ...l, is_head: !!l.is_head, inviter_is_head: !!l.inviter_is_head }));
   const c = await headPerson(id);
   const cabeza = c && canViewPerson(req.user, { ...c, head_id: id, leader_id: null })
-    ? { ...(await q(`SELECT id, code, full_name, leader_code, status, created_at, child_count, descendant_count, panel_viewed_at,
+    ? { ...(await q(`SELECT id, code, full_name, leader_code, status, created_at, child_count, descendant_count, panel_viewed_at, photo_url,
           panel_token_hash IS NOT NULL AS panel_active FROM people WHERE id = ?`).get(c.id)) }
     : null;
   res.json({
@@ -349,8 +352,8 @@ api.get('/people/:id', requireAuth, async (req, res) => {
   const contact = canSeeContact(u, p);
   const head = await getHead(p.head_id);
   const cabeza = await headPerson(p.head_id);
-  const leader = p.leader_id ? await q('SELECT id, full_name, leader_code, code, is_head FROM people WHERE id = ?').get(p.leader_id) : null;
-  const inviter = p.inviter_id ? await q('SELECT id, full_name, code, is_leader, is_head, leader_code FROM people WHERE id = ?').get(p.inviter_id) : null;
+  const leader = p.leader_id ? await q('SELECT id, full_name, leader_code, code, is_head, photo_url FROM people WHERE id = ?').get(p.leader_id) : null;
+  const inviter = p.inviter_id ? await q('SELECT id, full_name, code, is_leader, is_head, leader_code, photo_url FROM people WHERE id = ?').get(p.inviter_id) : null;
   const registeredBy = p.registered_by_user_id ? await q('SELECT id, display_name, role FROM users WHERE id = ?').get(p.registered_by_user_id) : null;
   const viaLink = p.invite_link_id ? await q('SELECT id, token, kind, owner_person_id FROM invite_links WHERE id = ?').get(p.invite_link_id) : null;
   const invitees = (await q(`${NODE_SELECT} WHERE p.inviter_id = ? AND p.status <> 'rejected' ORDER BY p.created_at LIMIT 200`).all(p.id))
@@ -389,7 +392,7 @@ api.get('/people/:id', requireAuth, async (req, res) => {
     location: await locationOf(p),
     head: {
       id: head.id, name: head.name, color: head.color, person_invites_enabled: !!head.person_invites_enabled,
-      cabeza: cabeza ? { id: cabeza.id, full_name: cabeza.full_name, status: cabeza.status } : null,
+      cabeza: cabeza ? { id: cabeza.id, full_name: cabeza.full_name, status: cabeza.status, photo_url: cabeza.photo_url } : null,
     },
     leader: leader ? { ...leader, is_head: !!leader.is_head } : null,
     inviter: inviter ? { ...inviter, is_leader: !!inviter.is_leader, is_head: !!inviter.is_head } : null,
@@ -421,6 +424,17 @@ async function loadManagedPerson(req) {
 api.patch('/people/:id', requireAuth, async (req, res) => {
   const p = await loadManagedPerson(req);
   res.json(await updatePersonData(p.id, req.body, req.user, ip(req)));
+});
+
+// Foto de una persona de confianza desde su ficha: la coordinación la pone, la cambia o la quita (si no es apropiada).
+const adminPhotoLimiter = rateLimit({ name: 'photo-admin', windowMs: 10 * 60e3, max: 60, key: (req) => req.user?.id });
+api.post('/people/:id/photo', requireAuth, adminPhotoLimiter, async (req, res) => {
+  const p = await loadManagedPerson(req);
+  res.json(await setPersonPhoto(p, req.body.image, { user: req.user, ip: ip(req), via: 'coordinacion' }));
+});
+api.post('/people/:id/photo/remove', requireAuth, async (req, res) => {
+  const p = await loadManagedPerson(req);
+  res.json(await removePersonPhoto(p, { user: req.user, ip: ip(req) }));
 });
 
 // Panel privado del líder: el enlace secreto sólo se muestra al emitirlo; emitir uno nuevo invalida el anterior.
@@ -493,7 +507,7 @@ api.get('/leaders', requireAuth, async (req, res) => {
   if (req.query.head_id) { extra += ' AND l.head_id = ?'; params.push(Number(req.query.head_id)); }
   if (req.query.q) { extra += ' AND (l.name_key LIKE ? OR l.leader_code LIKE ?)'; params.push(`%${String(req.query.q).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')}%`, `%${String(req.query.q).toUpperCase()}%`); }
   const rows = await q(`SELECT l.id, l.code, l.full_name, l.leader_code, l.leader_since, l.status, l.head_id, l.inviter_id, l.created_at, l.city,
-        l.is_head = 1 AS is_head,
+        l.is_head = 1 AS is_head, l.photo_url,
         h.name AS head_name, h.color AS head_color, i.full_name AS inviter_name, sup.full_name AS supervisor_name,
         (SELECT COUNT(*) FROM people a WHERE a.leader_id = l.id AND a.status <> 'rejected') AS assigned,
         l.descendant_count AS branch,
@@ -928,6 +942,12 @@ api.post('/public/panel/:token/leader-invite', headInviteLimiter, async (req, re
   res.status(201).json(await panelLeaderInvite(req.params.token, req.body?.pin, ip(req)));
 });
 
+// La persona de confianza pone su foto desde su panel (la foto llega ya reducida, como «data:image/…;base64»).
+const photoLimiter = rateLimit({ name: 'photo', windowMs: 10 * 60e3, max: 12 });
+api.post('/public/panel/:token/photo', photoLimiter, async (req, res) => {
+  res.json(await panelPhoto(req.params.token, req.body?.pin, req.body?.image, ip(req)));
+});
+
 // Manifiesto de la app instalable de un panel (al instalarla, abre directo el panel).
 api.get('/public/manifest', (req, res) => {
   res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
@@ -949,7 +969,7 @@ const firstName = (p) => (p.first_names || p.full_name || '').split(' ')[0];
 async function publicHead(head) {
   if (!head) return { head: null, cabeza: null };
   const c = await headPerson(head.id);
-  const cabeza = c && c.status === 'active' ? { name: c.full_name, first_name: firstName(c) } : null;
+  const cabeza = c && c.status === 'active' ? { name: c.full_name, first_name: firstName(c), photo: c.photo_url ?? null } : null;
   return { head: { name: head.name, color: head.color, display_name: cabeza?.name || head.name }, cabeza };
 }
 
@@ -963,6 +983,8 @@ api.get('/public/invite/:token', lookupLimiter, async (req, res) => {
     inviter: owner ? {
       name: owner.full_name, first_name: firstName(owner),
       is_leader: !!owner.is_leader && link.kind !== 'person', is_head: !!owner.is_head && link.kind !== 'person',
+      // Su foto, si es persona de confianza y la puso: quien abre la invitación ve quién le invita.
+      photo: owner.is_leader ? owner.photo_url ?? null : null,
     } : null,
     ...pub,
     requires_approval: role !== 'head' && !!head?.requires_approval,
@@ -1003,5 +1025,8 @@ api.post('/public/register/:token', publicLimiter, async (req, res) => {
       : null,
     // Enlace secreto del panel de gestión (sólo líderes). Se muestra una única vez.
     panel_token: panelToken,
+    // Las personas de confianza pueden poner su foto en su credencial desde esta misma pantalla.
+    photo_url: person.photo_url ?? null,
+    photos_enabled: !!panelToken && photosEnabled(),
   });
 });

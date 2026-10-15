@@ -228,6 +228,15 @@ panel y los mensajes de WhatsApp. El panel interno de la coordinación sigue hab
 tampoco lo dicen: las invitaciones son `/registro/REG-…` (un código, sin el tipo) y el link personal de cada persona
 de confianza lleva sólo su nombre (`/registro/JUAN-PEREZ`; los `LID-…` anteriores siguen sirviendo).
 
+**Fotos de las personas de confianza.** Cada cabeza y cada líder pone su foto tocando su círculo («Sube tu foto»): en
+la credencial apenas se registra o en su panel, con la cámara o desde la galería. El celular la reduce antes de enviarla; el
+servidor comprueba que sea una imagen (por su contenido) y la sube **firmada** a Cloudinary, que la guarda cuadrada y
+centrada en la cara (`thowinsson/personas-de-confianza`). La foto reemplaza las iniciales en la credencial, el panel, las
+fichas, el árbol, las listas y en la invitación que esa persona envía. La coordinación puede ponerla, cambiarla o quitarla
+desde la ficha. Configuración: variable `CLOUDINARY_URL=cloudinary://<api_key>:<api_secret>@<cloud_name>` en Railway (sin
+ella no se ofrece subir fotos). API: `POST /api/public/panel/:token/photo` (`{ pin, image }`), `POST /api/people/:id/photo`
+(`{ image }`) y `POST /api/people/:id/photo/remove`.
+
 La cabeza **es una persona**, no sólo el nombre de una estructura: es el líder raíz de su estructura (`people.is_head`,
 una por estructura) y de ella se desprenden sus líderes y sus personas.
 

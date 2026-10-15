@@ -352,7 +352,7 @@ function PersonLinkSheet({ heads, types, type, head, ownerId, onType, onDone, on
               {ordered.map((l) => (
                 <button key={l.id} type="button" className="m-row" role="listitem" aria-pressed={String(l.id) === String(ownerId)}
                   onClick={() => { onDone(h, l.id); close(); }}>
-                  <span className="m-row__lead"><PersonAvatar name={l.full_name} leader head={l.is_head} /></span>
+                  <span className="m-row__lead"><PersonAvatar name={l.full_name} leader head={l.is_head} photo={l.photo_url} /></span>
                   <span className="m-row__main">
                     <span className="m-row__title">{l.is_head ? `Directo con ${l.full_name}` : l.full_name}</span>
                     <span className="m-row__meta">{l.is_head ? 'La cabeza del equipo' : 'Líder'}{hh && !l.is_head ? `, equipo de ${teams.short(hh)}` : ''}</span>

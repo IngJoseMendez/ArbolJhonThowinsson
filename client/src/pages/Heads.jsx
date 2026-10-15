@@ -4,6 +4,7 @@ import { Archive, GitBranch, Plus, Network, Send } from 'lucide-react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { fmtNum, HEAD_COLORS, initials } from '../lib/format.js';
+import { photoSrc } from '../lib/photos.js';
 import { ErrorBox, Loading, Modal, useAsync, useToast, Empty } from '../components/ui.jsx';
 import { CAMPAIGN, Mark } from '../brand/Brand.jsx';
 
@@ -67,8 +68,8 @@ function HeadCard({ h, onOpen }) {
       role="link" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && onOpen()}>
       <span className="stripe" style={{ background: h.color }} />
       <div className="head-card-top">
-        <span className={`head-avatar ${h.cabeza_name ? '' : 'vacant'}`} aria-hidden="true">
-          {h.cabeza_name ? initials(h.cabeza_name) : <Network size={24} />}
+        <span className={`head-avatar ${h.cabeza_name ? '' : 'vacant'} ${h.cabeza_photo ? 'has-photo' : ''}`} aria-hidden="true">
+          {h.cabeza_photo ? <img src={photoSrc(h.cabeza_photo, 58)} alt="" loading="lazy" /> : h.cabeza_name ? initials(h.cabeza_name) : <Network size={24} />}
           {h.cabeza_name && <Mark />}
         </span>
         <div style={{ minWidth: 0 }}>

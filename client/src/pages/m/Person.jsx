@@ -2,9 +2,11 @@ import { useCallback, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Ban, Check, CheckCircle2, Copy, Crown, GitBranch, History, KeyRound, Link2, MapPin, MoreHorizontal, MoreVertical, MoveRight,
-  Pencil, Phone, Power, RefreshCw, UserCheck, UserPlus, Users, XCircle,
+  Pencil, Phone, Power, RefreshCw, UserCheck, UserPlus, Users, XCircle, ImageOff,
 } from 'lucide-react';
 import { api } from '../../api.js';
+import { useAuth } from '../../auth.jsx';
+import PhotoCircle from '../../components/PhotoCircle.jsx';
 import { CAMPAIGN, Mark } from '../../brand/Brand.jsx';
 import { useCached, invalidate } from '../../lib/cache.js';
 import { haptic, osName } from '../../lib/device.js';
@@ -54,6 +56,7 @@ export default function Person() {
   const { id } = useParams();
   const go = useGo();
   const toast = useToast();
+  const a = useAuth();
   const types = useRegTypes();
   const { data, error, loading, reload } = useCached(`person:${id}`, () => api.get(`/people/${id}`), { ttl: 15000 });
   const [modal, setModal] = useState(null);
@@ -78,7 +81,12 @@ export default function Person() {
   const header = (ref) => (
     <div className="m-detail">
       <div className="m-detail__top">
-        <PersonAvatar name={p.full_name} leader={p.is_leader} head={p.is_head} size={56} />
+        {/* Persona de confianza: la coordinación puede poner o cambiar su foto tocando el círculo. */}
+        {p.is_leader && perm.manage && a.photos ? (
+          <PhotoCircle photo={p.photo_url} name={p.full_name} size={56} tone={p.is_head ? 'gold' : 'sky'} self={false} label="Poner foto"
+            onUpload={async (image) => { const r = await api.post(`/people/${p.id}/photo`, { image }); haptic('success'); done('Foto guardada.'); return r.photo_url; }}
+            onError={(e) => toast(e.message, 'error')} />
+        ) : <PersonAvatar name={p.full_name} leader={p.is_leader} head={p.is_head} size={56} photo={p.photo_url} />}
         <div className="m-detail__chips">
           <RoleBadge isLeader={p.is_leader} isHead={p.is_head} />
           {p.status !== 'active' && <StatusBadge status={p.status} />}
@@ -116,7 +124,7 @@ export default function Person() {
           </p>
           <Group>
             {invitees.slice(-3).reverse().map((i) => (
-              <Row key={i.id} lead={<PersonAvatar name={i.full_name} leader={i.is_leader} />} title={i.full_name} to={`/personas/${i.id}`}
+              <Row key={i.id} lead={<PersonAvatar name={i.full_name} leader={i.is_leader} photo={i.photo_url} />} title={i.full_name} to={`/personas/${i.id}`}
                 meta={i.status !== 'active' ? <StatusBadge status={i.status} /> : i.descendant_count ? `${nf.format(i.descendant_count)} en su rama` : null}
                 trail={<small>{relTime(i.created_at)}</small>} chevron={false} />
             ))}
@@ -195,6 +203,7 @@ export default function Person() {
           [
             { label: activeLink ? 'Regenerar su enlace' : 'Generar su enlace', icon: RefreshCw, hidden: !canRegen, onSelect: () => setModal('regen') },
             { label: 'Crear acceso a la plataforma', icon: KeyRound, hidden: !perm.manage || !!data.account || p.status !== 'active', onSelect: () => setModal('account') },
+            { label: 'Quitar su foto', icon: ImageOff, hidden: !perm.manage || !p.photo_url, onSelect: () => setModal('photo-remove') },
             { label: 'Aprobar registro', icon: Check, hidden: !perm.manage || p.status !== 'pending', onSelect: () => setModal('approve') },
           ],
           [
@@ -251,6 +260,8 @@ export default function Person() {
       {modal === 'account' && <AccountModal p={p} onClose={() => setModal(null)} onDone={done} />}
       {modal === 'register' && <RegisterPersonModal defaultHeadId={p.head_id} onClose={() => setModal(null)} onCreated={() => done('Invitado registrado.')}
         defaultInviter={{ id: p.id, full_name: p.full_name, head_id: p.head_id, is_leader: p.is_leader, code: p.code, leader_code: p.leader_code, leader_name: leader?.full_name, status: p.status }} />}
+      {modal === 'photo-remove' && <ConfirmModal title="Quitar la foto" message={`Se quitará la foto de ${first}. Se puede poner otra cuando se quiera.`} confirmLabel="Quitar foto"
+        onConfirm={async () => { await api.post(`/people/${p.id}/photo/remove`); done('Foto quitada.'); }} onClose={() => setModal(null)} />}
       {modal === 'promote' && <ConfirmModal title="Designar como líder" reason confirmLabel="Designar líder"
         message="Recibirá su código, su enlace de líder y su panel. Las personas de su rama con líder automático pasarán a tenerle como responsable."
         onConfirm={act(`/people/${p.id}/promote`, {}, 'Designado como líder.')} onClose={() => setModal(null)} />}

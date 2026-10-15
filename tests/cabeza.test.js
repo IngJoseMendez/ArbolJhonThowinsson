@@ -60,7 +60,7 @@ test('Los líderes sin padrino cuelgan de la cabeza; el formulario público la n
   assert.equal(inv.role, 'leader');
   assert.equal(inv.head.name, 'Cabeza Juan Carlos Restrepo');
   assert.equal(inv.head.display_name, 'Juan Carlos Restrepo');
-  assert.deepEqual(inv.cabeza, { name: 'Juan Carlos Restrepo', first_name: 'Juan' });
+  assert.deepEqual(inv.cabeza, { name: 'Juan Carlos Restrepo', first_name: 'Juan', photo: null });
   const r = await anon.post(`/api/public/register/${link.data.token}`, form('Lucía', 'Líder Uno'));
   assert.equal(r.status, 201, JSON.stringify(r.data));
   assert.equal(r.data.cabeza, 'Juan Carlos Restrepo');

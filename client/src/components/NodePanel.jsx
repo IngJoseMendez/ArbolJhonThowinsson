@@ -25,7 +25,7 @@ export default function NodePanel({ personId, onClose, onFocus, onHighlight, onR
         return (
           <div className="stack" style={{ padding: '0 18px 18px', gap: 16 }}>
             <div className="row" style={{ gap: 12 }}>
-              <Avatar name={p.full_name} leader={p.is_leader} head={p.is_head} size="lg" />
+              <Avatar name={p.full_name} leader={p.is_leader} head={p.is_head} size="lg" photo={p.photo_url} />
               <div style={{ minWidth: 0 }}>
                 <h2 style={{ fontSize: 18 }}>{p.full_name}</h2>
                 <div className="row-wrap" style={{ marginTop: 6 }}>

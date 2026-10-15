@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Heart } from 'lucide-react';
 import { Logo, Mark, JohnPhoto, CAMPAIGN } from './Brand.jsx';
 import { fmtDate, initials } from '../lib/format.js';
+import PhotoCircle from '../components/PhotoCircle.jsx';
 
 const reduceMotion = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
@@ -76,8 +77,9 @@ function Confetti({ amount = 150, delay = 350 }) {
 /**
  * Credencial de persona de confianza: el «carné» del equipo, con la foto de John. De cara a la persona no hay
  * «cabezas», «líderes» ni tipos internos; la credencial dice de quién es persona de confianza (`team`).
+ * Con `onPhoto`, el círculo invita a poner su foto (cámara o galería) y la muestra en lugar de las iniciales.
  */
-export function Credential({ role, name, team, code, since }) {
+export function Credential({ role, name, team, code, since, photo, onPhoto, onPhotoError }) {
   return (
     <div className={`credential credential-${role}`}>
       <div className="credential-glow" aria-hidden="true" />
@@ -87,7 +89,9 @@ export function Credential({ role, name, team, code, since }) {
         <span className="credential-john"><JohnPhoto variant="face" sizes="40px" eager alt="" /></span>
       </div>
       <div className="credential-body">
-        <span className="credential-avatar" aria-hidden="true">{initials(name)}</span>
+        {photo || onPhoto
+          ? <PhotoCircle photo={photo} name={name} size={64} onUpload={onPhoto} onError={onPhotoError} tone={role === 'head' ? 'gold' : 'sky'} />
+          : <span className="credential-avatar" aria-hidden="true">{initials(name)}</span>}
         <div style={{ minWidth: 0 }}>
           <div className="credential-role">Persona de confianza</div>
           <div className="credential-name">{name}</div>
@@ -107,7 +111,7 @@ export function Credential({ role, name, team, code, since }) {
  * Bienvenida tras registrarse. Las personas de confianza (cabezas y líderes) reciben su credencial con una lluvia
  * de papelitos y el doble ángulo que sube; las personas, un agradecimiento con un corazón que late.
  */
-export default function Celebration({ role, firstName, name, team, code, since, pending, children }) {
+export default function Celebration({ role, firstName, name, team, code, since, pending, photo, onPhoto, onPhotoError, children }) {
   const big = role === 'head' || role === 'leader';
   const title = pending ? `¡Gracias, ${firstName}!`
     : big ? `¡Ya eres persona de confianza, ${firstName}!`
@@ -117,7 +121,7 @@ export default function Celebration({ role, firstName, name, team, code, since, 
       {!pending && <Confetti amount={big ? 170 : 80} />}
       <div className="celebrate-rise" aria-hidden="true"><Mark duo size={56} /></div>
       {big && !pending ? (
-        <Credential role={role} name={name} team={team} code={code} since={since} />
+        <Credential role={role} name={name} team={team} code={code} since={since} photo={photo} onPhoto={onPhoto} onPhotoError={onPhotoError} />
       ) : (
         <div className="thanks-seal" aria-hidden="true">
           <JohnPhoto variant="face" eager alt="" />

@@ -731,6 +731,55 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .credential-head .credential-avatar { box-shadow: inset 0 0 0 2px var(--gold); background: rgba(244, 197, 66, 0.14); }
 .credential-head .credential-john { box-shadow: 0 0 0 2px var(--gold); }
 .credential-sheen { position: absolute; inset: 0; background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.24) 48%, transparent 64%); transform: translateX(-130%); animation: sheen 1.2s ease 0.9s forwards; pointer-events: none; }
+.credential .photo-circle { --badge-edge: var(--navy); }
+
+/* ---------- Foto de las personas de confianza ----------
+   Sin foto: anillo punteado que late tres veces y «Sube tu foto». Con foto: la foto y una camarita para cambiarla. */
+.photo-circle {
+  --s: 64px; --ring: var(--sky); --badge-edge: var(--navy);
+  position: relative; width: var(--s); height: var(--s); flex: none; padding: 0; border: 0; border-radius: 50%;
+  display: grid; place-items: center; background: rgba(96, 182, 232, 0.16); color: #fff;
+  font: 700 calc(var(--s) * 0.34) var(--font-display); box-shadow: inset 0 0 0 2px var(--ring);
+}
+.photo-circle.tone-gold { --ring: var(--gold); background: rgba(244, 197, 66, 0.14); }
+.photo-circle.tone-leader { --ring: var(--leader); --badge-edge: var(--surface); background: var(--leader-soft); color: var(--leader); }
+.photo-circle.tone-head { --ring: var(--sky); --badge-edge: var(--surface); background: var(--navy); color: #fff; }
+.photo-circle.has-photo { background: var(--navy); box-shadow: 0 0 0 2px var(--ring); }
+.photo-circle > img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+button.photo-circle { cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform 0.15s var(--ease-out); }
+button.photo-circle:active { transform: scale(0.96); }
+button.photo-circle:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
+button.photo-circle:disabled { cursor: progress; }
+.photo-circle.is-empty { box-shadow: none; border: 2px dashed var(--ring); }
+.photo-circle.is-empty::after {
+  content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid var(--ring); opacity: 0; pointer-events: none;
+  animation: photo-ask 2.4s ease-out 1.6s 3;
+}
+@keyframes photo-ask { 0% { opacity: 0.55; transform: scale(0.9); } 100% { opacity: 0; transform: scale(1.18); } }
+.photo-circle__ask { display: flex; flex-direction: column; align-items: center; gap: 2px; max-width: 80%; text-align: center; font: 650 max(9.5px, calc(var(--s) * 0.15))/1.05 var(--font-ui); }
+.photo-circle__ask svg { width: max(16px, calc(var(--s) * 0.3)); height: max(16px, calc(var(--s) * 0.3)); color: var(--ring); }
+.photo-circle.tone-leader .photo-circle__ask { color: var(--text-2); }
+.photo-circle__badge {
+  position: absolute; right: -3px; bottom: -3px; width: max(20px, calc(var(--s) * 0.32)); height: max(20px, calc(var(--s) * 0.32));
+  border-radius: 50%; display: grid; place-items: center; background: var(--ring); color: var(--navy); box-shadow: 0 0 0 2px var(--badge-edge);
+}
+.photo-circle__badge svg { width: 56%; height: 56%; }
+.photo-circle__busy { position: absolute; inset: 0; border-radius: 50%; display: grid; place-items: center; background: rgba(5, 32, 74, 0.55); }
+.photo-circle__busy .spinner { border-color: rgba(255, 255, 255, 0.35); border-top-color: #fff; }
+
+/* Avatares con foto (coordinación): la foto ocupa el círculo y el anillo del papel queda por fuera. */
+.avatar.has-photo { position: relative; overflow: hidden; background: var(--surface-3); box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--axis); }
+.avatar.has-photo.leader { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--leader); }
+.avatar.has-photo.head { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--sky); }
+.avatar > img, .head-avatar > img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+.head-avatar.has-photo { overflow: visible; }
+.head-avatar.has-photo > img { z-index: 0; }
+.head-avatar .mark { z-index: 1; }
+.cabeza-banner .avatar.has-photo { box-shadow: 0 0 0 2px var(--navy), 0 0 0 3.5px var(--gold); }
+/* Quien invita, con su foto, sobre el escenario del formulario. */
+.stage-host { display: block; width: 68px; height: 68px; margin: 16px 0 -4px; border-radius: 50%; overflow: hidden; background: var(--navy);
+  box-shadow: 0 0 0 3px var(--navy), 0 0 0 5px var(--type, var(--sky)); }
+.stage-host img { width: 100%; height: 100%; object-fit: cover; display: block; }
 @keyframes sheen { to { transform: translateX(130%); } }
 .thanks-seal { position: relative; width: 104px; height: 104px; animation: pop 0.7s cubic-bezier(0.2, 0.9, 0.3, 1.3) 0.1s both; }
 .thanks-seal picture, .thanks-seal img { display: block; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
@@ -747,6 +796,10 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
 
 /* ---------- Panel del líder y de la cabeza ---------- */
 .panel-hello { font: 700 clamp(32px, 8.5vw, 48px)/1.02 var(--font-display); margin: 18px 0 0; }
+/* Su foto (o «Sube tu foto») junto al saludo. */
+.panel-id { display: flex; align-items: center; gap: 16px; margin-top: 18px; }
+.panel-id > div { min-width: 0; }
+.panel-id .panel-hello { margin: 0; }
 .panel-role { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .role-pill { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 999px; font-size: 13px; font-weight: 700; background: var(--sky); color: var(--navy); }
 .role-pill.head { background: var(--gold); color: #3a2a00; }

@@ -31,6 +31,8 @@ export const HISTORY = {
   head_removed: 'Dejó de ser la cabeza de la estructura',
   location_changed: 'Ubicación corregida',
   location_verified: 'Ubicación verificada',
+  photo_set: 'Foto puesta o cambiada',
+  photo_removed: 'Foto quitada',
 };
 export const SUPPORTS = { yes: 'Sí', no: 'No' };
 export const FIELD = { reg_type_id: 'Tipo de registro', full_name: 'Nombre', first_names: 'Nombres', last_names: 'Apellidos', supports: '¿Contamos contigo?', secure_vote: '¿Es voto seguro?', phone: 'Celular', email: 'Correo', document_id: 'Cédula', address: 'Dirección', city: 'Municipio', notes: 'Observaciones' };
@@ -50,6 +52,7 @@ export function HistoryDetail({ h, names }) {
       if (d.adopted_by_head) return <>Pasó a colgar de la cabeza <b>{pn(d.to_inviter_id)}</b> con toda su rama ({d.branch_size} personas).</>;
       if (d.via_branch_of) return <>Movida junto con la rama de <b>{pn(d.via_branch_of)}</b>: {hn(d.from_head_id)} → {hn(d.to_head_id)}</>;
       return <>{d.from_head_id !== d.to_head_id ? <>{hn(d.from_head_id)} → {hn(d.to_head_id)}. </> : ''}Invitador: {pn(d.from_inviter_id)} → <b>{pn(d.to_inviter_id)}</b>. Rama movida: {d.branch_size} personas.</>;
+    case 'photo_set': return <>{d.via === 'panel' ? 'Desde su panel.' : 'Desde la coordinación.'}</>;
     case 'location_changed': case 'location_verified':
       return <>{d.to?.geo_status === 'pending' ? 'Ubicación escrita a mano (pendiente)' : 'Ubicación del catálogo asignada'}</>;
     case 'data_updated':

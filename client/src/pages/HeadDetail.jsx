@@ -4,6 +4,7 @@ import { Crown, Pencil, GitBranch, UserPlus, Network, BarChart3, UserCircle, Che
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { fmtNum, fmtDate, initials, relTime } from '../lib/format.js';
+import { photoSrc } from '../lib/photos.js';
 import { DashboardBody } from './Dashboard.jsx';
 import { HeadFormModal } from './Heads.jsx';
 import { OneTimeLinkCard } from './Links.jsx';
@@ -41,8 +42,8 @@ export default function HeadDetail() {
             <Link to="/cabezas" className="back-link"><ChevronLeft size={16} />Cabezas</Link>
           ) : (
             <div className="row" style={{ gap: 14, minWidth: 0 }}>
-              <span className={`head-avatar ${c ? '' : 'vacant'}`} style={{ '--hc': h.color, width: 52, height: 52, fontSize: 19 }} aria-hidden="true">
-                {c ? initials(c.full_name) : <Network size={22} />}{c && <Mark />}
+              <span className={`head-avatar ${c ? '' : 'vacant'} ${c?.photo_url ? 'has-photo' : ''}`} style={{ '--hc': h.color, width: 52, height: 52, fontSize: 19 }} aria-hidden="true">
+                {c?.photo_url ? <img src={photoSrc(c.photo_url, 52)} alt="" /> : c ? initials(c.full_name) : <Network size={22} />}{c && <Mark />}
               </span>
               <div style={{ minWidth: 0 }}>
                 <div className="row" style={{ gap: 8 }}>
@@ -67,7 +68,7 @@ export default function HeadDetail() {
           c ? (
             <div className="cabeza-banner">
               <Mark className="watermark" />
-              <span className="avatar head lg" aria-hidden="true">{initials(c.full_name)}</span>
+              <Avatar name={c.full_name} head size="lg" photo={c.photo_url} />
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div className="row-wrap" style={{ gap: 8 }}><RoleBadge isHead /><span className="muted small">de {CAMPAIGN}, desde el {fmtDate(c.created_at)}{h.status === 'archived' ? ' · estructura archivada' : ''}</span></div>
                 <h1 className="cabeza-banner-name">{c.full_name}</h1>
@@ -115,7 +116,7 @@ export default function HeadDetail() {
                   <tbody>
                     {data.leaders.filter((l) => !l.is_head).map((l) => (
                       <tr key={l.id} className="clickable" onClick={() => nav(`/personas/${l.id}`)}>
-                        <td><div className="row"><Avatar name={l.full_name} leader /><div><b>{l.full_name}</b><div className="small muted mono">{l.leader_code}</div></div></div></td>
+                        <td><div className="row"><Avatar name={l.full_name} leader photo={l.photo_url} /><div><b>{l.full_name}</b><div className="small muted mono">{l.leader_code}</div></div></div></td>
                         <td>{l.inviter_name || <span className="muted">La estructura</span>}</td>
                         <td className="tnum">{fmtNum(l.assigned)}</td>
                         <td className="tnum">{fmtNum(l.branch)}</td>

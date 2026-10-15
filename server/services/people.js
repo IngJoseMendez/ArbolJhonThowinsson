@@ -66,7 +66,7 @@ export async function getHead(id) {
 
 /** La cabeza (persona) de una estructura: su líder raíz, de quien cuelgan sus líderes y personas. */
 export async function headPerson(headId) {
-  return await q(`SELECT id, code, full_name, first_names, status, path, leader_code FROM people
+  return await q(`SELECT id, code, full_name, first_names, status, path, leader_code, photo_url FROM people
                    WHERE head_id = ? AND is_head = 1 AND status <> 'rejected'`).get(headId);
 }
 

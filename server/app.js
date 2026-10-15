@@ -26,9 +26,10 @@ async function withInviteMeta(html, token) {
   if (!valid) return html;
   const cabeza = head ? await headPerson(head.id) : null;
   const host = owner?.full_name || (role === 'leader' && cabeza?.status === 'active' ? cabeza.full_name : null);
-  const title = role === 'head' ? 'Te invitamos a ser cabeza del equipo de John Thowinsson'
-    : host ? `${host} te invita a ${role === 'leader' ? 'ser líder en el' : 'sumarte al'} equipo de John Thowinsson`
-      : 'Súmate al equipo de John Thowinsson';
+  // Lo lee quien recibe el link (vista previa de WhatsApp): sin «cabeza» ni «líder», como en el formulario.
+  const title = role === 'head' ? 'John Thowinsson te invita a ser una de sus personas de confianza'
+    : host ? `${host} te invita a ${role === 'leader' ? 'ser una de sus personas de confianza en el' : 'sumarte al'} equipo de John Thowinsson`
+      : role === 'leader' ? 'Te invitamos a ser persona de confianza en el equipo de John Thowinsson' : 'Súmate al equipo de John Thowinsson';
   const t = esc(title);
   return html
     .replace(/<title>[^<]*<\/title>/, `<title>${t}</title>`)
@@ -66,12 +67,16 @@ export function createApp() {
     res.setHeader('Cache-Control', 'no-store');
     next();
   });
+  // Las fotos de perfil llegan dentro del JSON (ya reducidas en el celular): sólo esas rutas admiten cuerpos grandes.
+  const PHOTO_ROUTE = /^\/api\/(public\/panel\/[A-Za-z0-9_-]{20,60}|people\/\d+)\/photo$/;
+  const photoJson = express.json({ limit: '6mb' });
   // En Vercel, los "helpers" de Node pueden haber leído ya el cuerpo y exponerlo como req.body
   // (propiedad perezosa). Si existe se reutiliza y express.json no vuelve a leer el flujo.
   app.use((req, _res, next) => {
     const d = Object.getOwnPropertyDescriptor(req, 'body');
     if (!d) return next();
-    if (Number(req.headers['content-length'] || 0) > 50 * 1024) return next(new AppError(413, 'TOO_LARGE', 'Petición demasiado grande.'));
+    const max = PHOTO_ROUTE.test(req.path) ? 6 * 1024 * 1024 : 50 * 1024;
+    if (Number(req.headers['content-length'] || 0) > max) return next(new AppError(413, 'TOO_LARGE', 'Petición demasiado grande.'));
     try {
       const b = req.body;
       req.body = b && typeof b === 'object' && !Buffer.isBuffer(b) ? b : {};
@@ -81,6 +86,7 @@ export function createApp() {
     }
     next();
   });
+  app.use((req, res, next) => (PHOTO_ROUTE.test(req.path) ? photoJson(req, res, next) : next()));
   app.use(express.json({ limit: '50kb' }));
   // Inicialización perezosa (una vez por proceso): conexión, esquema y administrador inicial.
   let ready = null;

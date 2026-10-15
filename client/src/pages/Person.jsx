@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   Crown, GitBranch, Network, UserCheck, Send, Pencil, MoveRight, Power, CheckCircle2, XCircle, KeyRound, Users, Layers,
-  ClipboardList, RefreshCw, ChevronRight, UserPlus, Info, Link2, ShieldCheck, ChevronsDown, MapPin, Eye,
+  ClipboardList, RefreshCw, ChevronRight, UserPlus, Info, Link2, ShieldCheck, ChevronsDown, MapPin, Eye, ImageOff,
 } from 'lucide-react';
 import { api } from '../api.js';
+import { useAuth } from '../auth.jsx';
+import PhotoCircle from '../components/PhotoCircle.jsx';
 import { fmtDate, fmtDateTime, fmtNum, phoneDisplay, relTime } from '../lib/format.js';
 import { BarList } from '../components/Charts.jsx';
 import RegisterPersonModal from '../components/RegisterPersonModal.jsx';
@@ -41,6 +43,7 @@ export default function Person() {
   const [modal, setModal] = useState(null);
   const [panelToken, setPanelToken] = useState(null);
   const types = useRegTypes();
+  const a = useAuth();
   const leaderType = types.list.find((t) => t.builtin && t.role === 'leader');
   const done = (msg) => { toast(msg); reload(); };
 
@@ -55,7 +58,12 @@ export default function Person() {
       {/* Cabecera */}
       <div className="card card-pad" style={{ marginBottom: 16 }}>
         <div className="row-wrap" style={{ gap: 16, alignItems: 'flex-start' }}>
-          <Avatar name={p.full_name} leader={p.is_leader} head={p.is_head} size="lg" />
+          {/* Persona de confianza: la coordinación puede poner o cambiar su foto tocando el círculo. */}
+          {p.is_leader && perm.manage && a.photos ? (
+            <PhotoCircle photo={p.photo_url} name={p.full_name} size={64} tone={p.is_head ? 'head' : 'leader'} self={false} label="Poner foto"
+              onUpload={async (image) => { const r = await api.post(`/people/${p.id}/photo`, { image }); done('Foto guardada'); return r.photo_url; }}
+              onError={(e) => toast(e.message, 'error')} />
+          ) : <Avatar name={p.full_name} leader={p.is_leader} head={p.is_head} size="lg" photo={p.photo_url} />}
           <div style={{ flex: 1, minWidth: 220 }}>
             <h1>{p.full_name}</h1>
             <div className="row-wrap" style={{ marginTop: 8 }}>
@@ -92,6 +100,7 @@ export default function Person() {
               {p.status === 'active' && <button className="btn btn-sm btn-danger" onClick={() => setModal('deactivate')}><Power size={14} />Desactivar</button>}
               {p.status === 'inactive' && <button className="btn btn-sm" onClick={() => setModal('reactivate')}><Power size={14} />Reactivar</button>}
               {!data.account && p.status === 'active' && <button className="btn btn-sm" onClick={() => setModal('account')}><KeyRound size={14} />Crear acceso</button>}
+              {p.photo_url && <button className="btn btn-sm" onClick={() => setModal('photo-remove')}><ImageOff size={14} />Quitar foto</button>}
               {data.account && <span className="badge badge-outline"><ShieldCheck size={12} />Acceso: {data.account.username}{data.account.status !== 'active' ? ' (desactivado)' : ''}</span>}
             </div>
           </>
@@ -311,6 +320,8 @@ export default function Person() {
       {modal === 'demote' && <ConfirmModal title="Retirar liderazgo" reason reasonRequired danger confirmLabel="Retirar liderazgo"
         message="Su enlace de líder se desactivará y sus personas asignadas pasarán al líder superior más cercano."
         onConfirm={act(`/people/${p.id}/demote`, {}, 'Liderazgo retirado')} onClose={() => setModal(null)} />}
+      {modal === 'photo-remove' && <ConfirmModal title="Quitar la foto" message={`Se quitará la foto de ${p.full_name}. Se puede poner otra cuando se quiera.`} confirmLabel="Quitar foto"
+        onConfirm={async () => { await api.post(`/people/${p.id}/photo/remove`); done('Foto quitada'); }} onClose={() => setModal(null)} />}
       {modal === 'deactivate' && <ConfirmModal title="Desactivar persona" reason reasonRequired danger confirmLabel="Desactivar"
         message="Sus enlaces dejarán de funcionar. Las relaciones con las personas que invitó se conservan."
         onConfirm={act(`/people/${p.id}/status`, { status: 'inactive' }, 'Persona desactivada')} onClose={() => setModal(null)} />}

@@ -44,5 +44,7 @@ export function useAuth() {
     isSuper: role === 'super_admin',
     isAdmin: role === 'super_admin' || role === 'head_admin',
     canManageHead: (id) => role === 'super_admin' || (role === 'head_admin' && c.me.user.head_ids.includes(Number(id))),
+    // Fotos de las personas de confianza (el servidor tiene Cloudinary configurado).
+    photos: !!c.me?.features?.photos,
   };
 }

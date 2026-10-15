@@ -8,7 +8,7 @@ export const NODE_SELECT = `
   SELECT p.id, p.code, p.full_name, p.is_leader, p.is_head, p.leader_code, p.status, p.created_at, p.depth, p.inviter_id,
          p.leader_id, p.leader_mode, p.head_id, p.registration_method, p.path, p.city,
          p.child_count, p.descendant_count, p.geo_localidad_id, p.geo_comuna_id, p.geo_barrio_id, p.geo_status, p.reg_type_id,
-         l.full_name AS leader_name, i.full_name AS inviter_name
+         p.photo_url, l.full_name AS leader_name, i.full_name AS inviter_name
     FROM people p
     LEFT JOIN people l ON l.id = p.leader_id
     LEFT JOIN people i ON i.id = p.inviter_id`;
@@ -130,7 +130,7 @@ export async function search(user, term, { headId = null, limit = 20 } = {}) {
   let where = `(${conds.join(' OR ')}) AND p.status <> 'rejected' AND ${sc.sql}`;
   const allParams = [...params, ...sc.params];
   if (headId) { where += ' AND p.head_id = ?'; allParams.push(headId); }
-  return (await q(`SELECT p.id, p.code, p.full_name, p.is_leader, p.is_head, p.leader_code, p.status, p.head_id, p.depth, p.phone, p.path,
+  return (await q(`SELECT p.id, p.code, p.full_name, p.is_leader, p.is_head, p.leader_code, p.status, p.head_id, p.depth, p.phone, p.path, p.photo_url,
                    h.name AS head_name, h.color AS head_color, i.full_name AS inviter_name, l.full_name AS leader_name
               FROM people p JOIN heads h ON h.id = p.head_id
               LEFT JOIN people i ON i.id = p.inviter_id LEFT JOIN people l ON l.id = p.leader_id
@@ -193,7 +193,7 @@ export async function directory(user, f) {
   const rows = await q(`SELECT p.id, p.code, p.full_name, p.phone, p.email, p.city, p.is_leader, p.is_head, p.leader_code, p.status,
                          p.registration_method, p.created_at, p.head_id, p.path, p.leader_id, p.inviter_id,
                          h.name AS head_name, h.color AS head_color, l.full_name AS leader_name, i.full_name AS inviter_name,
-                         p.descendant_count, p.address, p.supports, p.secure_vote, p.reg_type_id, p.geo_status, p.geo_localidad_id, p.geo_comuna_id, p.geo_barrio_id,
+                         p.descendant_count, p.address, p.supports, p.secure_vote, p.reg_type_id, p.geo_status, p.geo_localidad_id, p.geo_comuna_id, p.geo_barrio_id, p.photo_url,
                          COALESCE(gl.name, p.geo_localidad_text) AS localidad_name, COALESCE(gc.name, p.geo_comuna_text) AS comuna_name,
                          COALESCE(gb.name, p.geo_barrio_text) AS barrio_name, gc.kind AS comuna_kind
                   ${base} ORDER BY ${sortCol} ${dir}, p.id ${dir} LIMIT ? OFFSET ?`).all(...params, pageSize, (page - 1) * pageSize);
@@ -250,14 +250,14 @@ export async function dashboard(user, { headId = null, days = 90 } = {}) {
       GROUP BY h.id ORDER BY people DESC, h.name`).all(...sc.params, ...hf.params, ...ep);
 
   const scl = scopeSql(user, 'l');
-  const perLeader = await q(`SELECT l.id, l.full_name, l.leader_code, l.head_id, l.is_head = 1 AS is_head, h.name AS head_name, h.color AS head_color,
+  const perLeader = await q(`SELECT l.id, l.full_name, l.leader_code, l.head_id, l.is_head = 1 AS is_head, l.photo_url, h.name AS head_name, h.color AS head_color,
         (SELECT COUNT(*) FROM people a WHERE a.leader_id = l.id AND a.status <> 'rejected') AS assigned,
         l.descendant_count AS branch
       FROM people l JOIN heads h ON h.id = l.head_id
       WHERE l.is_leader = 1 AND l.status <> 'rejected' AND ${scl.sql} ${headId ? 'AND l.head_id = ?' : ''}
       ORDER BY assigned DESC, branch DESC LIMIT 12`).all(...scl.params, ...ep);
 
-  const recent = await q(`SELECT p.id, p.code, p.full_name, p.is_leader, p.is_head = 1 AS is_head, p.status, p.registration_method, p.created_at, p.head_id,
+  const recent = await q(`SELECT p.id, p.code, p.full_name, p.is_leader, p.is_head = 1 AS is_head, p.status, p.registration_method, p.created_at, p.head_id, p.photo_url,
         h.name AS head_name, h.color AS head_color, i.full_name AS inviter_name, i.id AS inviter_id, l.full_name AS leader_name
       FROM people p JOIN heads h ON h.id = p.head_id LEFT JOIN people i ON i.id = p.inviter_id LEFT JOIN people l ON l.id = p.leader_id
       WHERE ${w} AND p.status <> 'rejected' ORDER BY p.created_at DESC, p.id DESC LIMIT 12`).all(...wp);

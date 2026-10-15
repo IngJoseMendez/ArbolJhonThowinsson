@@ -70,7 +70,7 @@ export function DashboardBody({ headId, days, compact }) {
             {data.recent.map((r) => (
               <div key={r.id} className="row" style={{ padding: '10px 18px', borderBottom: '1px solid var(--border)', gap: 12, cursor: 'pointer' }}
                 onClick={() => nav(`/personas/${r.id}`)}>
-                <Avatar name={r.full_name} leader={r.is_leader} head={r.is_head} />
+                <Avatar name={r.full_name} leader={r.is_leader} head={r.is_head} photo={r.photo_url} />
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div className="row" style={{ gap: 6 }}><b className="ellipsis">{r.full_name}</b><RoleIcon isHead={r.is_head} isLeader={r.is_leader} /></div>
                   <div className="small muted ellipsis">

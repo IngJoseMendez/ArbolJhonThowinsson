@@ -3,6 +3,7 @@ import { Maximize2, Minus, Plus, Crosshair } from 'lucide-react';
 import { NODE_W, NODE_H } from '../lib/treeStore.js';
 import { initials, fmtNum, fmtDate } from '../lib/format.js';
 import { CAMPAIGN } from '../brand/Brand.jsx';
+import { photoSrc } from '../lib/photos.js';
 
 const MIN_K = 0.15;
 const MAX_K = 2.2;
@@ -19,6 +20,7 @@ const TreeCanvas = forwardRef(function TreeCanvas(
   { store, version, selectedId, pathIds, foundId, isDimmed, onSelect, headColor, initialTransform, onTransform, onExpandAll }, ref,
 ) {
   const wrap = useRef(null);
+  const clipBase = `tc-${useId().replace(/[^\w-]/g, '')}`;
   const [size, setSize] = useState({ w: 800, h: 600 });
   const [t, setT] = useState(() => initialTransform || { x: 40, y: 40, k: 0.9 });
   // Al cambiar de árbol (cabeza/foco) se recupera la vista guardada de ese árbol.
@@ -201,9 +203,20 @@ const TreeCanvas = forwardRef(function TreeCanvas(
                 onKeyDown={(e) => { if (e.key === 'Enter') onSelect?.(n); if (e.key === ' ' && hasKids) { e.preventDefault(); store.toggle(it.key); } }}>
                 <rect className="bg" width={NODE_W} height={NODE_H} rx={10} />
                 <rect x={0} y={8} width={3.5} height={NODE_H - 16} rx={1.75} fill={d.is_head ? 'var(--sky)' : d.is_leader ? 'var(--leader)' : 'var(--axis)'} />
-                <circle cx={30} cy={NODE_H / 2} r={17} fill={d.is_head ? 'rgba(96,182,232,0.2)' : d.is_leader ? 'var(--leader-soft)' : 'var(--surface-2)'}
-                  stroke={d.is_head ? 'var(--sky)' : d.is_leader ? 'var(--leader)' : 'none'} strokeWidth={1.5} />
-                <text x={30} y={NODE_H / 2 + 4.5} textAnchor="middle" fontSize={12} fontWeight={650} fill={d.is_head ? '#fff' : d.is_leader ? 'var(--leader)' : 'var(--text-2)'}>{initials(d.full_name)}</text>
+                {d.photo_url ? (
+                  <>
+                    <clipPath id={`${clipBase}-${d.id}`}><circle cx={30} cy={NODE_H / 2} r={17} /></clipPath>
+                    <image href={photoSrc(d.photo_url, 34)} x={13} y={NODE_H / 2 - 17} width={34} height={34} preserveAspectRatio="xMidYMid slice"
+                      clipPath={`url(#${clipBase}-${d.id})`} />
+                    <circle cx={30} cy={NODE_H / 2} r={17} fill="none" stroke={d.is_head ? 'var(--sky)' : 'var(--leader)'} strokeWidth={1.5} />
+                  </>
+                ) : (
+                  <>
+                    <circle cx={30} cy={NODE_H / 2} r={17} fill={d.is_head ? 'rgba(96,182,232,0.2)' : d.is_leader ? 'var(--leader-soft)' : 'var(--surface-2)'}
+                      stroke={d.is_head ? 'var(--sky)' : d.is_leader ? 'var(--leader)' : 'none'} strokeWidth={1.5} />
+                    <text x={30} y={NODE_H / 2 + 4.5} textAnchor="middle" fontSize={12} fontWeight={650} fill={d.is_head ? '#fff' : d.is_leader ? 'var(--leader)' : 'var(--text-2)'}>{initials(d.full_name)}</text>
+                  </>
+                )}
                 {d.is_head ? (
                   <g transform={`translate(34,${NODE_H / 2 - 26})`}>
                     <circle r={9} cx={8} cy={8} fill="var(--sky)" />

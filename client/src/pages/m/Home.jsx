@@ -256,7 +256,7 @@ export default function Home() {
                 : r.is_head ? `Nueva cabeza, con ${CAMPAIGN}` : `Líder de ${team}`;
               return (
                 <Row key={r.id} className={lastVisitAt && Date.parse(r.created_at) > lastVisitAt ? 'is-new' : ''} to={`/personas/${r.id}`}
-                  lead={<PersonAvatar name={r.full_name} leader={r.is_leader} head={r.is_head} />}
+                  lead={<PersonAvatar name={r.full_name} leader={r.is_leader} head={r.is_head} photo={r.photo_url} />}
                   title={<>{r.full_name}<RoleIcon isHead={r.is_head} isLeader={r.is_leader} size={13} /></>}
                   meta={r.status === 'pending' ? <><span className="badge badge-warning">Por aprobar</span> {meta}</> : meta}
                   trail={<small>{relTime(r.created_at)}</small>} chevron={false} />

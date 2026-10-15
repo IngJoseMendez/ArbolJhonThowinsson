@@ -4,6 +4,7 @@
 import { q, now, pathUpper } from '../db.js';
 import { AppError, notFound, sha256, normalizeText, maskPhone } from '../util.js';
 import { createHeadLeaderInvite, headInviteStats, headPerson } from './people.js';
+import { photosEnabled, setPersonPhoto } from './photos.js';
 
 const MAX_FAILS = 8;
 const LOCK_MS = 15 * 60e3;
@@ -64,7 +65,7 @@ export async function panelData(token, pin, { q: term = '', page = 1 } = {}) {
   if (String(term).trim().length >= 2) { extra = ' AND x.name_key LIKE ?'; params.push(`%${normalizeText(term)}%`); }
   const total = (await q(`SELECT COUNT(*) AS n ${branch}${extra}`).get(...params)).n;
   const rows = await q(`SELECT x.id, x.full_name, x.phone, x.status, x.created_at, x.supports, x.is_leader, x.inviter_id, x.depth,
-        x.descendant_count, i.full_name AS inviter_name, rt.name AS type_name, rt.color AS type_color,
+        x.descendant_count, x.photo_url, i.full_name AS inviter_name, rt.name AS type_name, rt.color AS type_color,
         COALESCE(gb.name, x.geo_barrio_text) AS barrio, COALESCE(gl.name, x.geo_localidad_text) AS localidad
       FROM people x LEFT JOIN people i ON i.id = x.inviter_id LEFT JOIN reg_types rt ON rt.id = x.reg_type_id
       LEFT JOIN geo_areas gb ON gb.id = x.geo_barrio_id LEFT JOIN geo_areas gl ON gl.id = x.geo_localidad_id
@@ -74,7 +75,7 @@ export async function panelData(token, pin, { q: term = '', page = 1 } = {}) {
   // La cabeza ve a los líderes de su estructura con el tamaño de su red y su ritmo reciente.
   let leaders = null;
   if (p.is_head && pg === 1 && !extra) {
-    leaders = (await q(`SELECT x.id, x.full_name, x.status, x.created_at, x.child_count AS direct, x.descendant_count AS network,
+    leaders = (await q(`SELECT x.id, x.full_name, x.status, x.created_at, x.photo_url, x.child_count AS direct, x.descendant_count AS network,
           (SELECT COUNT(*) FROM people y WHERE y.path > x.path AND y.path < CONCAT(x.path, '~') AND y.status <> 'rejected'
              AND y.created_at >= ?) AS last7
         FROM people x WHERE x.path > ? AND x.path < ? AND x.is_leader = 1 AND x.status <> 'rejected'
@@ -89,8 +90,10 @@ export async function panelData(token, pin, { q: term = '', page = 1 } = {}) {
   return {
     person: {
       full_name: p.full_name, first_names: p.first_names, code: p.code, leader_code: p.leader_code, is_leader: !!p.is_leader,
-      is_head: !!p.is_head, status: p.status, created_at: p.created_at,
+      is_head: !!p.is_head, status: p.status, created_at: p.created_at, photo_url: p.photo_url ?? null,
     },
+    // Con Cloudinary configurado, la persona puede poner su foto tocando su círculo.
+    photos_enabled: photosEnabled(),
     type, head: head && { ...head, cabeza: cabeza && cabeza.status !== 'rejected' ? cabeza.full_name : null },
     invite_token: link?.token ?? null,
     leader_invites: p.is_head ? await headInviteStats(p.id) : null,
@@ -113,6 +116,12 @@ export async function panelData(token, pin, { q: term = '', page = 1 } = {}) {
 export async function panelLeaderInvite(token, pin, ip) {
   const p = await openPanel(token, pin);
   return await createHeadLeaderInvite(p, ip);
+}
+
+/** La persona de confianza pone (o cambia) su foto desde su panel. */
+export async function panelPhoto(token, pin, image, ip) {
+  const p = await openPanel(token, pin);
+  return await setPersonPhoto(p, image, { ip, via: 'panel' });
 }
 
 /** Manifiesto de la app instalable de un panel: al abrirla desde el inicio del celular entra directo al panel. */

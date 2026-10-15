@@ -6,6 +6,7 @@ import { api, qs } from '../api.js';
 import { STATUS, initials, inviteUrl } from '../lib/format.js';
 import { Mark, CAMPAIGN, JohnPhoto } from '../brand/Brand.jsx';
 import { extLinkProps, waUrl } from '../lib/whatsapp.js';
+import { photoSrc } from '../lib/photos.js';
 import Sheet from './m/Sheet.jsx';
 
 // ---------------------------------------------------------------- Toasts
@@ -106,8 +107,14 @@ export function ConfirmModal({ title, message, confirmLabel = 'Confirmar', dange
 }
 
 // ---------------------------------------------------------------- Small pieces
-export function Avatar({ name, leader, head, size }) {
-  return <div className={`avatar ${head ? 'head' : leader ? 'leader' : ''} ${size || ''}`} aria-hidden="true">{initials(name)}</div>;
+/** Iniciales en un círculo o, si la persona de confianza puso su foto, su foto. */
+export function Avatar({ name, leader, head, size, photo }) {
+  const px = size === 'xl' ? 84 : size === 'lg' ? 64 : 38;
+  return (
+    <div className={`avatar ${head ? 'head' : leader ? 'leader' : ''} ${size || ''} ${photo ? 'has-photo' : ''}`} aria-hidden="true">
+      {photo ? <img src={photoSrc(photo, px)} alt="" loading="lazy" decoding="async" /> : initials(name)}
+    </div>
+  );
 }
 
 /** Ícono del papel: doble ángulo para la cabeza, corona para el líder. */

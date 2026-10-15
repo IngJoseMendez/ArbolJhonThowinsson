@@ -128,7 +128,7 @@ export default function People() {
                   <tr key={r.id} className="clickable" onClick={() => nav(`/personas/${r.id}`)}>
                     <td>
                       <div className="row" style={{ gap: 10 }}>
-                        <Avatar name={r.full_name} leader={r.is_leader} head={r.is_head} />
+                        <Avatar name={r.full_name} leader={r.is_leader} head={r.is_head} photo={r.photo_url} />
                         <div style={{ minWidth: 0 }}>
                           <div className="row" style={{ gap: 5 }}><b>{r.full_name}</b><RoleIcon isHead={r.is_head} isLeader={r.is_leader} />
                             {types.byId[r.reg_type_id] && <span className="type-chip" style={{ '--chip': types.byId[r.reg_type_id].color }}>{types.byId[r.reg_type_id].name}</span>}</div>

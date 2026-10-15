@@ -35,7 +35,7 @@ export default function Leaders() {
         {data?.map((l) => (
           <div key={l.id} className="card card-pad stack" style={{ gap: 14 }}>
             <div className="row" style={{ gap: 12 }}>
-              <Avatar name={l.full_name} leader head={l.is_head} size="lg" />
+              <Avatar name={l.full_name} leader head={l.is_head} size="lg" photo={l.photo_url} />
               <div style={{ minWidth: 0, flex: 1 }}>
                 <Link to={`/personas/${l.id}`}><h2 className="ellipsis">{l.full_name}</h2></Link>
                 <div className="row" style={{ gap: 6 }}>{l.is_head && <RoleBadge isHead />}<span className="mono muted">{l.leader_code}</span></div>

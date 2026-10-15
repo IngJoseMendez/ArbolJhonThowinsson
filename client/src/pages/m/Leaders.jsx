@@ -34,7 +34,7 @@ export default function Leaders() {
       {list.loading ? <RowsSkeleton rows={6} /> : list.data?.length ? (
         <Group>
           {list.data.map((l) => (
-            <Row key={l.id} to={`/personas/${l.id}`} lead={<PersonAvatar name={l.full_name} leader head={l.is_head} />} title={l.full_name}
+            <Row key={l.id} to={`/personas/${l.id}`} lead={<PersonAvatar name={l.full_name} leader head={l.is_head} photo={l.photo_url} />} title={l.full_name}
               meta={<>{l.status !== 'active' && <><StatusBadge status={l.status} /> </>}{l.is_head ? 'Cabeza de su equipo' : teamName(teams.byId.get(l.head_id)) || l.head_name}</>}
               trail={<><span>{nf.format(l.branch)}</span><small>{l.is_head ? 'en su equipo' : 'en su red'}</small></>} chevron={false} />
           ))}

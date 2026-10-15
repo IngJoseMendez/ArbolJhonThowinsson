@@ -2,12 +2,13 @@ import { useLayoutEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, ArrowRight, Clock, KeyRound, Lock, Link2Off, UserPlus } from 'lucide-react';
 import { api } from '../api.js';
-import { ShareLink, useAsync, inviteMessage, WhatsAppIcon } from '../components/ui.jsx';
+import { ShareLink, useAsync, useToast, inviteMessage, WhatsAppIcon } from '../components/ui.jsx';
 import { typeVars } from '../lib/regTypes.js';
 import { usePanelManifest } from '../lib/pwa.js';
-import { openPanelHere, savePin, markNewPanel, pinFromCedula } from '../lib/panelSession.js';
+import { openPanelHere, savePin, markNewPanel, pinFromCedula, readPin } from '../lib/panelSession.js';
 import { formatCedula, formatMobile, normalizeCedula, normalizeMobile } from '../lib/validators.js';
 import { inviteUrl } from '../lib/format.js';
+import { photoSrc } from '../lib/photos.js';
 import PersonFields, { emptyPerson, validatePerson, personPayload, serverFieldError } from '../components/PersonFields.jsx';
 import { Logo, Mark, JohnPhoto, CAMPAIGN } from '../brand/Brand.jsx';
 import Celebration from '../brand/Celebration.jsx';
@@ -34,11 +35,12 @@ function heroCopy(inv) {
       sub: 'a ser una de sus personas de confianza. Con tu registro nace tu propio equipo para sumar a tu gente.',
     };
   }
-  const host = inviter || (role === 'leader' && cabeza ? { name: cabeza.name } : null);
+  const host = inviter || (role === 'leader' && cabeza ? { name: cabeza.name, photo: cabeza.photo } : null);
   if (host) {
     return {
       kicker: 'Te invita',
       title: host.name,
+      photo: host.photo || null,
       sub: role === 'leader' ? `a ser una de sus personas de confianza en el equipo de ${CAMPAIGN}.` : `a sumarte al equipo de ${CAMPAIGN}.`,
       team: cabeza && cabeza.name !== host.name ? cabeza.name : null,
     };
@@ -146,8 +148,18 @@ export default function Register() {
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(() => readDone(token));
+  const toast = useToast();
   usePanelManifest(done?.panel_token);
   useScrollTop(done);
+
+  // Cabezas y líderes ponen su foto en la credencial apenas se registran (con su panel, recién abierto en esta pestaña).
+  const uploadPhoto = async (image) => {
+    const pin = readPin(done.panel_token) || pinFromCedula(f.document_id);
+    const r = await api.post(`/public/panel/${encodeURIComponent(done.panel_token)}/photo`, { pin, image });
+    setDone((d) => ({ ...d, photo_url: r.photo_url }));
+    toast('Foto guardada: ya está en tu credencial y en tu panel.');
+    return r.photo_url;
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -235,7 +247,8 @@ export default function Register() {
           <main className="pub-sheet">
             <div className="sheet-inner">
               <Celebration role={role} firstName={done.first_name} name={done.full_name} team={team}
-                code={done.code} since={done.created_at} pending={pending}>
+                code={done.code} since={done.created_at} pending={pending} photo={done.photo_url}
+                onPhoto={done.photos_enabled && done.panel_token ? uploadPhoto : undefined} onPhotoError={(e) => toast(e.message, 'error')}>
                 <p>{message}</p>
               </Celebration>
               {done.panel_token ? (
@@ -271,6 +284,7 @@ export default function Register() {
   return (
     <div className="pub" style={typeVars(type?.color)}>
       <Stage chip={chip}>
+        {copy.photo && <span className="stage-host"><img src={photoSrc(copy.photo, 68)} alt="" /></span>}
         <p className="stage-kicker">{copy.kicker}</p>
         <h1 className={`stage-title ${long ? 'long' : ''}`}>{copy.title}</h1>
         <p className="stage-sub">{copy.sub}</p>

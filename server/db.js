@@ -362,6 +362,13 @@ ALTER TABLE invite_links ADD COLUMN IF NOT EXISTS prepared_key VARCHAR(40);
 CREATE INDEX IF NOT EXISTS ix_links_prepared ON invite_links (created_by, prepared_key) WHERE prepared = 1;
 `;
 
+// v12: foto de perfil de las personas de confianza (cabezas y l\u00edderes), guardada en Cloudinary (ver services/photos.js).
+const MIGRATION_12 = `
+ALTER TABLE people ADD COLUMN IF NOT EXISTS photo_url VARCHAR(400);
+ALTER TABLE people ADD COLUMN IF NOT EXISTS photo_public_id VARCHAR(200);
+ALTER TABLE people ADD COLUMN IF NOT EXISTS photo_updated_at TEXT;
+`;
+
 /**
  * Cuelga de la cabeza `head` (persona ra\u00edz) los dem\u00e1s l\u00edderes ra\u00edz de su estructura, con sus ramas completas.
  * `exec(sql, params)` ejecuta con par\u00e1metros $1\u2026; sirve tanto en la migraci\u00f3n como dentro de una transacci\u00f3n.
@@ -422,6 +429,7 @@ const MIGRATIONS = [
   { version: 9, sql: MIGRATION_9 },
   { version: 10, sql: MIGRATION_10 },
   { version: 11, sql: MIGRATION_11 },
+  { version: 12, sql: MIGRATION_12 },
 ];
 
 let pool = null;

@@ -57,7 +57,7 @@ export default function SearchOverlay() {
     ['Personas', items.filter((p) => !p.is_leader && !p.is_head)],
   ].filter(([, list]) => list.length) : [];
   const row = (p) => (
-    <Row key={p.id} lead={<PersonAvatar name={p.full_name} leader={p.is_leader} head={p.is_head} />} title={p.full_name}
+    <Row key={p.id} lead={<PersonAvatar name={p.full_name} leader={p.is_leader} head={p.is_head} photo={p.photo_url} />} title={p.full_name}
       meta={p.is_head ? `Cabeza de ${CAMPAIGN}` : p.is_leader ? `Líder${p.inviter_name ? `, con ${p.inviter_name}` : ''}` : p.inviter_name ? `Con ${p.inviter_name}` : p.head_name}
       chevron onClick={() => pick(p)} />
   );

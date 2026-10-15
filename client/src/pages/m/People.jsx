@@ -157,7 +157,7 @@ export default function People() {
       {state.loading && !state.rows.length ? <RowsSkeleton rows={6} /> : state.rows.length ? (
         <Group>
           {state.rows.map((r) => (
-            <Row key={r.id} to={`/personas/${r.id}`} lead={<PersonAvatar name={r.full_name} leader={r.is_leader} head={r.is_head} />}
+            <Row key={r.id} to={`/personas/${r.id}`} lead={<PersonAvatar name={r.full_name} leader={r.is_leader} head={r.is_head} photo={r.photo_url} />}
               title={<>{r.full_name}<RoleIcon isHead={r.is_head} isLeader={r.is_leader} size={13} /></>}
               meta={r.status !== 'active' ? <><span className={`badge badge-${STATUS[r.status]?.tone || 'muted'}`}>{r.status === 'pending' ? 'Por aprobar' : STATUS[r.status]?.label}</span> {meta(r)}</> : meta(r)}
               trail={<small>{relTime(r.created_at)}</small>} chevron={false} />

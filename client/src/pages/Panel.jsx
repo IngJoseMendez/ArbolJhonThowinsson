@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { AlertCircle, Copy, Crown, Eye, Lock, LogOut, Search, Users, X } from 'lucide-react';
 import { api } from '../api.js';
-import { copyText, inviteMessage, useToast, WhatsAppIcon } from '../components/ui.jsx';
+import { Avatar, copyText, inviteMessage, useToast, WhatsAppIcon } from '../components/ui.jsx';
+import PhotoCircle from '../components/PhotoCircle.jsx';
 import InstallPrompt, { InstallButton } from '../components/InstallPrompt.jsx';
-import { fmtDate, fmtNum, relTime, inviteUrl, initials } from '../lib/format.js';
+import { fmtDate, fmtNum, relTime, inviteUrl } from '../lib/format.js';
 import { typeVars } from '../lib/regTypes.js';
 import { usePanelManifest } from '../lib/pwa.js';
 import { readPin, savePin, isNewPanel, clearNewPanel } from '../lib/panelSession.js';
@@ -99,7 +100,16 @@ export default function Panel() {
   const [tab, setTab] = useState('lideres');
   const [fresh, setFresh] = useState(() => isNewPanel(token));
   const firstRun = useRef(true);
+  const toast = useToast();
   usePanelManifest(token);
+
+  // Su foto: toca su círculo, la toma con la cámara o la elige de la galería.
+  const uploadPhoto = async (image) => {
+    const r = await api.post(`/public/panel/${encodeURIComponent(token)}/photo`, { pin, image });
+    setData((d) => ({ ...d, person: { ...d.person, photo_url: r.photo_url } }));
+    toast('Foto guardada: así te verán en el equipo.');
+    return r.photo_url;
+  };
 
   const load = async ({ p = pin, q = term, pg = 1 } = {}) => {
     setBusy(true);
@@ -209,10 +219,18 @@ export default function Panel() {
     <div className="pub" style={typeVars(type?.color || head?.color)}>
       <Stage>
         <span className="stage-chip"><i aria-hidden="true" />Tu panel · solo lectura</span>
-        <h1 className="panel-hello">Hola, {first(person.first_names || person.full_name)}</h1>
-        <div className="panel-role">
-          <span className={`role-pill ${isHead ? 'head' : ''}`}>{isHead ? <Mark size={12} /> : <Crown size={13} />}Persona de confianza</span>
-          <span className="panel-team">{team}</span>
+        <div className="panel-id">
+          {(data.photos_enabled || person.photo_url) && (
+            <PhotoCircle photo={person.photo_url} name={person.full_name} size={72} tone={isHead ? 'gold' : 'sky'}
+              onUpload={data.photos_enabled ? uploadPhoto : undefined} onError={(e) => toast(e.message, 'error')} />
+          )}
+          <div>
+            <h1 className="panel-hello">Hola, {first(person.first_names || person.full_name)}</h1>
+            <div className="panel-role">
+              <span className={`role-pill ${isHead ? 'head' : ''}`}>{isHead ? <Mark size={12} /> : <Crown size={13} />}Persona de confianza</span>
+              <span className="panel-team">{team}</span>
+            </div>
+          </div>
         </div>
         <div className="panel-big"><b className="tnum">{fmtNum(stats.total)}</b><span>{isHead ? 'personas en tu equipo' : 'personas en tu red'}</span></div>
       </Stage>
@@ -289,7 +307,7 @@ export default function Panel() {
                   {leaders.length === 0 && <p className="text-2" style={{ margin: '12px 0 0' }}>Aún no tienes personas de confianza. Invita a la primera arriba.</p>}
                   {leaders.map((l) => (
                     <div key={l.id} className="leader-row">
-                      <span className="avatar leader" aria-hidden="true">{initials(l.full_name)}</span>
+                      <Avatar name={l.full_name} leader photo={l.photo_url} />
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div className="ellipsis" style={{ fontWeight: 600 }}>{l.full_name}</div>
                         <div className="small muted">{l.status === 'pending' ? 'Pendiente de aprobación' : l.last7 > 0 ? `+${fmtNum(l.last7)} esta semana` : `Desde el ${fmtDate(l.created_at)}`}</div>
