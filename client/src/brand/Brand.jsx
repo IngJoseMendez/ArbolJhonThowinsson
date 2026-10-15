@@ -63,4 +63,4 @@ export function JohnPhoto({ variant = 'face', className = '', alt = 'John Thowin
 }
 
 export const CAMPAIGN = 'John Thowinsson';
-export const SLOGAN = 'En tus manos tienes el poder del cambio';
+export const SLOGAN = 'En tus manos tienes el poder de la transformación';

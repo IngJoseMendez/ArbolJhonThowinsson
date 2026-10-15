@@ -115,13 +115,10 @@ function SimpleGeoSelect({ value, onChange, errors, idPrefix }) {
   return (
     <div className="geo-select stack">
       <div className="grid g-2 geo-grid" style={{ gap: 12 }}>
-        <Combobox id={`${idPrefix}-localidad`} label="Localidad" required options={loc.list} loading={loc.loading} value={value.localidad}
-          onChange={setLocalidad} placeholder="Buscar localidad…" error={errors.localidad}
-          manualLabel="¿Tu localidad no está aquí? Escríbela" manualPlaceholder="Nombre de la localidad" />
         {upperManual ? (
           <div className="field">
             <label htmlFor={`${idPrefix}-barrio`}>Barrio o vereda <span className="muted">(opcional)</span></label>
-            <input id={`${idPrefix}-barrio`} className={`input ${errors.barrio ? 'invalid' : ''}`} maxLength={120} placeholder="Si lo conoce, escríbalo"
+            <input id={`${idPrefix}-barrio`} className={`input ${errors.barrio ? 'invalid' : ''}`} maxLength={120} placeholder="Si lo conoces, escríbelo"
               value={value.barrio?.manual || ''} onChange={(e) => setBarrio(e.target.value ? { manual: e.target.value } : null)} />
             {errors.barrio && <span className="err">{errors.barrio}</span>}
           </div>
@@ -131,6 +128,9 @@ function SimpleGeoSelect({ value, onChange, errors, idPrefix }) {
             placeholder="Buscar barrio o vereda…" hint={!value.localidad ? 'Si eliges el barrio, la localidad se completa sola.' : undefined}
             manualLabel="¿Tu barrio no está aquí? Escríbelo" manualPlaceholder="Nombre del barrio o vereda" />
         )}
+        <Combobox id={`${idPrefix}-localidad`} label="Localidad" required options={loc.list} loading={loc.loading} value={value.localidad}
+          onChange={setLocalidad} placeholder="Buscar localidad…" error={errors.localidad}
+          manualLabel="¿Tu localidad no está aquí? Escríbela" manualPlaceholder="Nombre de la localidad" />
       </div>
       {path.length > 0 && (
         <div className={`geo-summary ${pending ? 'pending' : ''}`} aria-live="polite">

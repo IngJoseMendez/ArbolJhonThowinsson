@@ -80,6 +80,7 @@ function MyLinkActions({ token, name }) {
     <div className="grow-actions">
       <a className="btn btn-wa" href={`https://wa.me/?text=${encodeURIComponent(message)}`} target="_blank" rel="noopener noreferrer"><WhatsAppIcon size={17} />Enviar mi link</a>
       <button type="button" className="btn" onClick={copy}><Copy size={16} />Copiar</button>
+      <span className="grow-note">Este link no es personal: puedes reenviarlo a todos tus contactos y grupos, todas las veces que quieras.</span>
     </div>
   );
 }
@@ -244,7 +245,7 @@ export default function Panel() {
                   <>
                     <li>
                       <b>Invita a tus líderes</b>
-                      <span>Un link personal para cada uno.</span>
+                      <span>Uno por líder: cada link sirve para una sola persona, así que genera uno nuevo para cada líder. No se puede reenviar.</span>
                       <LeaderInviteActions token={token} pin={pin} name={person.full_name} stats={inviteStats} onStats={setInviteStats} />
                     </li>
                     <li><b>Tus líderes invitan a su gente</b><span>Cada uno comparte su link y tu equipo crece.</span></li>

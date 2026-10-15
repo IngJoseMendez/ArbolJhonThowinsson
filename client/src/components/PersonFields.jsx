@@ -1,5 +1,6 @@
 import { CheckCircle2 } from 'lucide-react';
 import GeoSelect, { emptyGeo, geoToApi } from './GeoSelect.jsx';
+import { Mark, SLOGAN } from '../brand/Brand.jsx';
 import { cedulaError, formatCedula, formatMobile, formatName, mobileError, normalizeCedula, normalizeMobile } from '../lib/validators.js';
 
 export { normalizeMobile };
@@ -130,17 +131,19 @@ export default function PersonFields({ value, onChange, errors = {}, onBlurField
       <GeoSelect simple idPrefix={`${idPrefix}-geo`} value={value.geo} onChange={(geo) => onChange({ ...value, geo })} errors={errors} />
       <fieldset className={`supports ${errors[qk] ? 'invalid' : ''}`} aria-describedby={errors[qk] ? `${idPrefix}-${qk}-err` : undefined}>
         <legend>{QUESTION[qk].label}<span className="req"> *</span></legend>
+        {/* «Sí» es la respuesta que invitamos a dar: más grande y con la marca; «No» queda discreto. */}
         <div className="supports-options" role="radiogroup">
           {[['yes', 'Sí'], ['no', 'No']].map(([v, l]) => (
-            <label key={v} className={`supports-option ${value[qk] === v ? 'active' : ''}`}>
+            <label key={v} className={`supports-option is-${v} ${value[qk] === v ? 'active' : ''}`}>
               <input type="radio" name={`${idPrefix}-${qk}`} id={`${idPrefix}-${qk}-${v}`} value={v} checked={value[qk] === v}
                 onChange={() => setRaw(qk, v)} />
+              {v === 'yes' && <Mark size={20} />}
               {l}
             </label>
           ))}
         </div>
         {errors[qk] && <span className="err" id={`${idPrefix}-${qk}-err`} role="alert">{errors[qk]}</span>}
-        {slogan && <p className="slogan">En tus manos tienes el poder del cambio</p>}
+        {slogan && <p className="slogan">{SLOGAN}</p>}
       </fieldset>
     </div>
   );

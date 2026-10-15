@@ -134,7 +134,7 @@ en el cliente y `validatePersonData` / `resolveLocation` en el servidor):
 | Dirección | Obligatoria |
 | Celular / WhatsApp | Obligatorio y único. 10 dígitos con prefijo móvil colombiano (300–305, 310–324, 333, 350–351; configurable con `PHONE_MOBILE_PREFIXES`). Al escribir o pegar se quita `+57` y se formatea `300 555 0123`. En el celular abre el teclado numérico |
 | Localidad → Barrio/Vereda | Localidad obligatoria, barrio opcional. El formulario no pide la comuna: el barrio se busca entre todos los de la localidad (cada opción indica su comuna o corregimiento) y la comuna se **deduce** y se guarda, así que los filtros y conteos por comuna siguen funcionando |
-| ¿Contamos contigo en este camino? | Sí / No, obligatorio en el registro por enlace (`supports`). Debajo, el eslogan «En tus manos tienes el poder del cambio». Filtro en el directorio y edición en la ficha |
+| ¿Contamos contigo en este camino? | Sí / No, obligatorio en el registro por enlace (`supports`). Debajo, el eslogan «En tus manos tienes el poder de la transformación». Filtro en el directorio y edición en la ficha |
 
 El formulario ya no pide correo. La API sigue aceptándolo (opcional, con validación) y la ficha lo muestra si existe.
 
