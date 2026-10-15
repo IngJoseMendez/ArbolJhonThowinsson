@@ -11,14 +11,23 @@ import { q } from './db.js';
 import { api } from './api.js';
 import { AppError } from './util.js';
 import { resolveInvite, headPerson } from './services/people.js';
+import { photoAt } from './services/photos.js';
 import { securityHeaders } from './security.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /**
- * Título de la vista previa de un enlace de registro: quién invita y a qué («María Gómez te invita…»).
- * Sólo lee el enlace (no lo consume) y, ante cualquier problema, se usa la vista previa general.
+ * Lo que se pide antes de que llegue el código: la foto de John (lo más grande del registro y del panel) y, en el
+ * registro, la de quien invita. Así aparecen junto con la página, sin esperar.
+ */
+const preloadImage = (href, type) => `<link rel="preload" as="image" href="${esc(href)}"${type ? ` type="${type}"` : ''} fetchpriority="high">`;
+const HERO_PRELOAD = preloadImage('/brand/john-hero.webp', 'image/webp');
+
+/**
+ * Título de la vista previa de un enlace de registro: quién invita y a qué («María Gómez te invita…»), y la foto de
+ * quien invita para que llegue con la página. Sólo lee el enlace (no lo consume) y, ante cualquier problema, se usa la
+ * vista previa general.
  */
 async function withInviteMeta(html, token) {
   await ensureDb();
@@ -26,6 +35,9 @@ async function withInviteMeta(html, token) {
   if (!valid) return html;
   const cabeza = head ? await headPerson(head.id) : null;
   const host = owner?.full_name || (role === 'leader' && cabeza?.status === 'active' ? cabeza.full_name : null);
+  // La misma foto que pinta el formulario (quien invita, o quien encabeza el equipo), en su tamaño (160 px).
+  const photo = owner ? (owner.is_leader ? owner.photo_url : null) : role === 'leader' && cabeza?.status === 'active' ? cabeza.photo_url : null;
+  if (photo) html = html.replace('</head>', `${preloadImage(photoAt(photo, 160))}</head>`);
   // Lo lee quien recibe el link (vista previa de WhatsApp): sin «cabeza» ni «líder», como en el formulario.
   const title = role === 'head' ? 'John Thowinsson te invita a ser una de sus personas de confianza'
     : host ? `${host} te invita a ${role === 'leader' ? 'ser una de sus personas de confianza en el' : 'sumarte al'} equipo de John Thowinsson`
@@ -119,10 +131,11 @@ export function createApp() {
       const origin = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
       let html = indexHtml.replaceAll('__PUBLIC_ORIGIN__', esc(origin));
       const m = /^\/registro\/([A-Za-z0-9-]{4,80})$/.exec(req.path);
-      if (m) html = await withInviteMeta(html, m[1]).catch(() => html);
       // Panel: el manifiesto de la app instalable apunta al propio panel desde el primer momento (al instalarlo, el ícono
       // abre «Mi panel»). Los enlaces de registro y de panel son privados: no se indexan en buscadores.
       const panel = /^\/panel\/([A-Za-z0-9_-]{20,60})$/.exec(req.path);
+      if (m || panel) html = html.replace('</head>', `${HERO_PRELOAD}</head>`);
+      if (m) html = await withInviteMeta(html, m[1]).catch(() => html);
       if (panel) {
         html = html.replace('href="/manifest.webmanifest"', `href="/api/public/manifest?start=${encodeURIComponent(`/panel/${panel[1]}`)}"`)
           .replace('name="apple-mobile-web-app-title" content="Thowinsson"', 'name="apple-mobile-web-app-title" content="Mi panel"');

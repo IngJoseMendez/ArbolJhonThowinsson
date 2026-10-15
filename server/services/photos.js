@@ -15,6 +15,15 @@ const MAX_BYTES = 4 * 1024 * 1024;
 // Cuadrado de 640 px centrado en la cara (si no encuentra una, en el centro).
 const INCOMING = 'c_fill,g_face,w_640,h_640';
 
+/**
+ * Tamaños en que se muestra (lado en px: el doble del círculo en pantalla), en WebP: pesa poco y se decodifica rápido
+ * hasta en celulares sencillos. Se generan al subir la foto, así nadie espera a que Cloudinary los prepare la primera
+ * vez que la ve. Deben coincidir con client/src/lib/photos.js.
+ */
+export const PHOTO_SIZES = [96, 160];
+export const photoTransformation = (size) => `c_fill,w_${size},h_${size},q_auto,f_webp`;
+export const photoAt = (url, size) => (url ? url.replace('/image/upload/', `/image/upload/${photoTransformation(size)}/`) : null);
+
 function config() {
   const m = /^cloudinary:\/\/([^:]+):([^@]+)@([\w-]+)/.exec(process.env.CLOUDINARY_URL || '');
   if (m) return { key: m[1], secret: decodeURIComponent(m[2]), cloud: m[3] };
@@ -75,7 +84,9 @@ export function decodeImage(dataUrl) {
 
 /** Sube una foto (ya comprobada) a la carpeta de las personas de confianza. Devuelve { url, publicId }. */
 export async function uploadPhoto(file, publicId) {
-  const up = await cloudinary('upload', { public_id: publicId, asset_folder: FOLDER, transformation: INCOMING }, file);
+  const up = await cloudinary('upload', {
+    public_id: publicId, asset_folder: FOLDER, transformation: INCOMING, eager: PHOTO_SIZES.map(photoTransformation).join('|'),
+  }, file);
   const url = String(up.secure_url || '');
   if (!url.startsWith(`https://res.cloudinary.com/${up.cloud}/image/upload/`)) {
     console.error('[fotos] respuesta inesperada', url);

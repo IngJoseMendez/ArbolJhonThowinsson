@@ -10,8 +10,9 @@ export const CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self'",
-  // Las fotos de las personas de confianza se sirven desde Cloudinary.
-  "img-src 'self' data: https://res.cloudinary.com",
+  // Las fotos de las personas de confianza se sirven desde Cloudinary; la que se elige en el celular se lee como blob:
+  // para reducirla antes de subirla.
+  "img-src 'self' data: blob: https://res.cloudinary.com",
   "font-src 'self'",
   "connect-src 'self'",
   "manifest-src 'self'",

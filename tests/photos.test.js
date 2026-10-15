@@ -100,6 +100,7 @@ test('La persona de confianza pone su foto desde su panel y se ve en su panel, e
   assert.equal(up.ok, true, 'firma válida');
   assert.equal(up.fields.asset_folder, 'thowinsson/personas-de-confianza');
   assert.equal(up.fields.transformation, 'c_fill,g_face,w_640,h_640', 'cuadrado centrado en la cara');
+  assert.equal(up.fields.eager, 'c_fill,w_96,h_96,q_auto,f_webp|c_fill,w_160,h_160,q_auto,f_webp', 'los tamaños que se muestran quedan listos al subirla');
   assert.match(up.fields.public_id, new RegExp(`^persona-${person.id}-[0-9a-f]{12}$`));
   assert.equal(up.file.size, JPEG.length);
   ids.photo = ok.data.photo_url;
@@ -114,6 +115,10 @@ test('La persona de confianza pone su foto desde su panel y se ve en su panel, e
   const inv = await anon.post(`/api/public/panel/${ids.panel}/leader-invite`, { pin: ids.pin });
   const pub = (await anon.get(`/api/public/invite/${inv.data.token}`)).data;
   assert.equal(pub.inviter.photo, ids.photo);
+  // La página del registro pide desde el HTML la foto de John y la de quien invita (llegan con la página).
+  const page = (await anon.get(`/registro/${inv.data.token}`)).data;
+  assert.match(page, /<link rel="preload" as="image" href="\/brand\/john-hero\.webp"/);
+  assert.ok(page.includes(ids.photo.replace('/image/upload/', '/image/upload/c_fill,w_160,h_160,q_auto,f_webp/')), 'la foto de quien invita, en el tamaño que se muestra');
   const leader = await anon.post(`/api/public/register/${inv.data.token}`, form('Rosa', 'Lider Fotos'));
   assert.equal(leader.status, 201);
   assert.equal(leader.data.photos_enabled, true);
