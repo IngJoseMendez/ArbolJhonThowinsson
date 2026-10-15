@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, Focus, GitBranch, Route, UserPlus, X, Crown, ChevronDown, ChevronsDown, ChevronsUp } from 'lucide-react';
 import { api } from '../api.js';
 import { fmtDate, fmtNum, METHOD } from '../lib/format.js';
-import { Avatar, Loading, RoleBadge, StatusBadge, ShareLink, PersonLink, useAsync, ErrorBox, LocationText } from './ui.jsx';
+import { Avatar, Loading, RoleBadge, StatusBadge, ShareLink, PersonLink, useAsync, ErrorBox, LocationText, JohnLink } from './ui.jsx';
 
 /** Ficha resumida de un nodo dentro del explorador del árbol. */
 export default function NodePanel({ personId, onClose, onFocus, onHighlight, onRegisterInvitee, canRegister, onExpandLevel, onExpandAll, onCollapseAll, busy, asSheet }) {
@@ -38,7 +38,7 @@ export default function NodePanel({ personId, onClose, onFocus, onHighlight, onR
               <dt>Identificador</dt><dd className="mono">{p.code}</dd>
               {p.is_leader && <><dt>Código</dt><dd className="mono">{p.leader_code}</dd></>}
               <dt>Estructura</dt><dd>{data.head.cabeza ? <PersonLink id={data.head.cabeza.id} name={data.head.cabeza.full_name} isHead /> : data.head.name}</dd>
-              <dt>Invitado por</dt><dd>{data.inviter ? <PersonLink id={data.inviter.id} name={data.inviter.full_name} isLeader={data.inviter.is_leader} isHead={data.inviter.is_head} /> : <span className="muted">{p.is_head ? 'Nadie: es la cabeza' : 'Cuelga de la estructura'}</span>}</dd>
+              <dt>Invitado por</dt><dd>{data.inviter ? <PersonLink id={data.inviter.id} name={data.inviter.full_name} isLeader={data.inviter.is_leader} isHead={data.inviter.is_head} /> : p.is_head ? <JohnLink plain /> : <span className="muted">Cuelga de la estructura</span>}</dd>
               <dt>Líder responsable</dt><dd>{data.leader ? <><PersonLink id={data.leader.id} name={data.leader.full_name} isLeader />{p.leader_mode === 'manual' && <span className="small muted"> (asignado)</span>}</> : <span className="muted">—</span>}</dd>
               <dt>Registro</dt><dd>{fmtDate(p.created_at)} · {METHOD[p.registration_method]}</dd>
               <dt>Ubicación</dt><dd><LocationText loc={data.location} /></dd>
@@ -60,7 +60,7 @@ export default function NodePanel({ personId, onClose, onFocus, onHighlight, onR
               </div>
             ) : <span className="small muted">No tiene personas debajo en el árbol.</span>}
             <div className="stack" style={{ gap: 8 }}>
-              <button className="btn" onClick={() => onHighlight(p.id)}><Route size={15} />Resaltar camino desde la cabeza</button>
+              <button className="btn" onClick={() => onHighlight(p.id)}><Route size={15} />Resaltar su camino</button>
               <button className="btn" onClick={() => onFocus(p.id)}><Focus size={15} />Centrarse en esta rama</button>
               {canRegister && p.status === 'active' && <button className="btn" onClick={() => onRegisterInvitee(p)}><UserPlus size={15} />Registrar invitado de {p.full_name.split(' ')[0]}</button>}
               <Link className="btn btn-primary" to={`/personas/${p.id}`}>Abrir ficha completa<ArrowRight size={15} /></Link>

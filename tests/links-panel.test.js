@@ -50,7 +50,7 @@ test('Tipos base y tipos personalizados con color', async () => {
 test('Enlace de registro de líder: quien se registra queda como líder, con su enlace y su panel', async () => {
   const link = await admin.post('/api/links', { reg_type_id: ids.aspirante.id, head_id: ids.head, label: 'Aspirantes zona norte' });
   assert.equal(link.status, 201, JSON.stringify(link.data));
-  assert.match(link.data.token, /^REG-LIDER-ASPIRANTE-[A-Z0-9]{6}$/);
+  assert.match(link.data.token, /^REG-[A-Z0-9]{8}$/, 'sin el nombre del tipo');
   const inv = (await anon.get(`/api/public/invite/${link.data.token}`)).data;
   assert.equal(inv.valid, true);
   assert.equal(inv.role, 'leader');
@@ -60,8 +60,8 @@ test('Enlace de registro de líder: quien se registra queda como líder, con su 
   const r = await anon.post(`/api/public/register/${link.data.token}`, form('Ana María', 'Ruiz Díaz'));
   assert.equal(r.status, 201, JSON.stringify(r.data));
   assert.equal(r.data.is_leader, true);
-  assert.equal(r.data.leader_code, 'LID-ANA-MARIA-RUIZ');
-  assert.equal(r.data.invite_token, 'LID-ANA-MARIA-RUIZ');
+  assert.equal(r.data.leader_code, 'ANA-MARIA-RUIZ');
+  assert.equal(r.data.invite_token, 'ANA-MARIA-RUIZ');
   assert.ok(r.data.panel_token && r.data.panel_token.length >= 30);
   ids.ana = { token: r.data.panel_token, invite: r.data.invite_token };
   const found = (await admin.get('/api/people?q=ana maria ruiz')).data.rows[0];
@@ -158,7 +158,7 @@ test('Panel del líder: enlace secreto + PIN, sólo lectura, contactos enmascara
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal(r.data.person.full_name, 'Ana María Ruiz Díaz');
   assert.equal(r.data.type.name, 'Líder aspirante');
-  assert.equal(r.data.invite_token, 'LID-ANA-MARIA-RUIZ');
+  assert.equal(r.data.invite_token, 'ANA-MARIA-RUIZ');
   assert.equal(r.data.stats.total, 2);
   assert.equal(r.data.stats.direct, 2);
   const luis = r.data.people.rows.find((x) => x.full_name === 'Luis Votante Uno');
@@ -220,7 +220,7 @@ test('Enlaces de un solo uso para cabezas y líderes: uno por envío, atómicos,
   const b = await gen({ reg_type_id: ids.concejal.id });
   assert.equal(a.status, 201, JSON.stringify(a.data));
   assert.notEqual(a.data.token, b.data.token, 'cada envío es un enlace distinto');
-  assert.match(a.data.token, /^REG-CONCEJAL-[A-Z2-9]{12}$/, 'código largo, no adivinable');
+  assert.match(a.data.token, /^REG-[A-Z2-9]{12}$/, 'código largo, no adivinable');
   assert.equal(a.data.max_uses, 1);
   assert.equal(a.data.one_time, 1);
   const days = (Date.parse(a.data.expires_at) - Date.now()) / 864e5;

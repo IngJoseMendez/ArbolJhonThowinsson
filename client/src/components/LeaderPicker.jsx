@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import Combobox from './Combobox.jsx';
 
 /**
- * Selector de líder escribible: se busca por nombre o por código (LID-…).
+ * Selector de líder escribible: se busca por nombre o por código.
  * - leaders: filas de GET /leaders
  * - value: id del líder (número o texto) o '' / null
  * - onChange(id | '')

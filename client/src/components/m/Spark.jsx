@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Mark } from '../../brand/Brand.jsx';
+import { JohnPhoto, Mark } from '../../brand/Brand.jsx';
 import { initialsOf } from '../../lib/teams.js';
 
 /** Línea mínima de tendencia (64×24) en el color del equipo. */
@@ -48,6 +48,11 @@ export function TeamAvatar({ head, size = 44 }) {
 }
 
 /** Avatar de una persona: anillo celeste si es líder, dorado si es cabeza. */
+/** John Thowinsson con su foto: de él cuelgan todas las cabezas. */
+export function JohnAvatar({ size = 40 }) {
+  return <span className="m-avatar is-john" style={{ '--s': `${size}px` }} aria-hidden="true"><JohnPhoto sizes={`${size}px`} alt="" /></span>;
+}
+
 export function PersonAvatar({ name, leader, head, size = 40 }) {
   return (
     <span className={`m-avatar ${head ? 'is-head' : leader ? 'is-leader' : ''}`} style={{ '--s': `${size}px` }} aria-hidden="true">

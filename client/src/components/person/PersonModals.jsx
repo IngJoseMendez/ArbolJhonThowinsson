@@ -5,6 +5,7 @@ import { Info } from 'lucide-react';
 import { api, qs } from '../../api.js';
 import { useAuth } from '../../auth.jsx';
 import { METHOD } from '../../lib/format.js';
+import { CAMPAIGN } from '../../brand/Brand.jsx';
 import GeoSelect, { geoFromPerson, geoToApi } from '../GeoSelect.jsx';
 import LeaderPicker from '../LeaderPicker.jsx';
 import {
@@ -40,7 +41,7 @@ export function HistoryDetail({ h, names }) {
   const hn = (id) => names.heads[id] || `#${id}`;
   switch (h.change_type) {
     case 'registered':
-      return <>{METHOD[d.method]} en {d.head || hn(d.head_id)}. {d.inviter_id ? <>Invitado por <b>{pn(d.inviter_id)}</b>. </> : d.is_head ? 'Es la raíz de su estructura. ' : 'Cuelga directamente de la estructura. '}
+      return <>{METHOD[d.method]} en {d.head || hn(d.head_id)}. {d.inviter_id ? <>Invitado por <b>{pn(d.inviter_id)}</b>. </> : d.is_head ? <>Invitada por <b>{CAMPAIGN}</b>: cuelga de él. </> : 'Cuelga directamente de la estructura. '}
         {d.leader_id ? <>Líder responsable: <b>{pn(d.leader_id)}</b>{d.leader_mode === 'manual' ? ' (asignado)' : ''}.</> : ''}{d.is_head ? ' Registrada como cabeza de la estructura.' : d.is_leader ? ` Registrado como líder (${d.leader_code}).` : ''}</>;
     case 'promoted_leader': return <>Código asignado: <span className="mono">{d.leader_code}</span></>;
     case 'head_assigned': return d.adopted ? <>{d.adopted} líderes que colgaban de la estructura pasaron a colgar de ella.</> : null;

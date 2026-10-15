@@ -13,11 +13,12 @@ import { OneTimeLinkCard } from './Links.jsx';
 import {
   HISTORY, SUPPORTS, HistoryDetail, EditModal, LocationModal, MoveModal, LeaderModal, AccountModal,
 } from '../components/person/PersonModals.jsx';
-import { Mark } from '../brand/Brand.jsx';
+import { CAMPAIGN, JohnPhoto, Mark } from '../brand/Brand.jsx';
 import { useRegTypes } from '../lib/regTypes.js';
 import { formatCedula } from '../lib/validators.js';
 import {
   Avatar, ConfirmModal, ErrorBox, Loading, Modal, PersonLink, RoleBadge, ShareLink, StatusBadge, useAsync, useToast, Empty, HeadPill, LocationText,
+  JohnLink,
 } from '../components/ui.jsx';
 
 function Rel({ icon: Icon, color, label, children, sub }) {
@@ -68,8 +69,8 @@ export default function Person() {
             </div>
           </div>
           <div className="row-wrap">
-            <Link className="btn" to={`/arbol?cabeza=${p.head_id}&persona=${p.id}`}><GitBranch size={15} />Ver en el árbol</Link>
-            {stats.total > 0 && <Link className="btn" to={`/arbol?cabeza=${p.head_id}&foco=${p.id}&expandir=todo`} title="Abre la rama con todos sus niveles expandidos"><ChevronsDown size={15} />Ver rama completa</Link>}
+            <Link className="btn" to={`/arbol?persona=${p.id}`}><GitBranch size={15} />Ver en el árbol</Link>
+            {stats.total > 0 && <Link className="btn" to={`/arbol?foco=${p.id}&expandir=todo`} title="Abre la rama con todos sus niveles expandidos"><ChevronsDown size={15} />Ver rama completa</Link>}
             {perm.manage && p.status === 'active' && <button className="btn" onClick={() => setModal('register')}><UserPlus size={15} />Registrar invitado</button>}
           </div>
         </div>
@@ -107,8 +108,8 @@ export default function Person() {
           {leader ? <PersonLink id={leader.id} name={leader.full_name} isLeader isHead={leader.is_head} /> : '—'}
         </Rel>
         <Rel icon={Send} color="var(--series-1)" label="Invitación directa · Invitado por"
-          sub={data.via_link ? `Mediante el enlace ${data.via_link.token}` : p.registration_method === 'manual' ? 'Asignado en registro manual' : ''}>
-          {inviter ? <PersonLink id={inviter.id} name={inviter.full_name} isLeader={inviter.is_leader} isHead={inviter.is_head} /> : p.is_head ? 'Nadie: es la cabeza' : 'Cuelga de la estructura'}
+          sub={p.is_head ? 'Es una de sus cabezas: cuelga de él' : data.via_link ? `Mediante el enlace ${data.via_link.token}` : p.registration_method === 'manual' ? 'Asignado en registro manual' : ''}>
+          {inviter ? <PersonLink id={inviter.id} name={inviter.full_name} isLeader={inviter.is_leader} isHead={inviter.is_head} /> : p.is_head ? <JohnLink locate={p.id} /> : 'Cuelga de la estructura'}
         </Rel>
         <Rel icon={ClipboardList} color="var(--text-2)" label="Registro"
           sub={p.registration_method === 'manual' ? `Por ${data.registered_by?.display_name || '—'}` : 'Autorregistro con enlace'}>
@@ -120,10 +121,17 @@ export default function Person() {
         <div className="stack span-2" style={{ gap: 16 }}>
           {/* Posición */}
           <div className="card">
-            <div className="card-head"><div><h2>Posición en el árbol</h2><p>Camino de invitaciones desde la cabeza · nivel {p.depth + 1}</p></div></div>
+            <div className="card-head"><div><h2>Posición en el árbol</h2><p>Camino de invitaciones desde {CAMPAIGN} · nivel {p.depth + 1}</p></div></div>
             <div className="card-pad">
               <div className="breadcrumb">
-                <span className="crumb" style={{ background: `color-mix(in srgb, ${head.color} 16%, transparent)` }}><Network size={12} />{head.cabeza ? `Equipo de ${head.cabeza.full_name}` : head.name}</span>
+                <Link to={`/arbol?persona=${p.id}`} className="crumb john"><span className="john-link__photo"><JohnPhoto sizes="20px" alt="" /></span>{CAMPAIGN}</Link>
+                {/* La cabeza ya es el primer eslabón; si el camino no empieza en ella (o no hay), se nombra el equipo. */}
+                {!(head.cabeza && chain[0]?.id === head.cabeza.id) && (
+                  <span className="row" style={{ gap: 4 }}>
+                    <ChevronRight size={14} className="sep" />
+                    <span className="crumb" style={{ background: `color-mix(in srgb, ${head.color} 16%, transparent)` }}><Network size={12} />{head.cabeza ? `Equipo de ${head.cabeza.full_name}` : head.name}</span>
+                  </span>
+                )}
                 {chain.map((c) => (
                   <span key={c.id} className="row" style={{ gap: 4 }}>
                     <ChevronRight size={14} className="sep" />
@@ -140,8 +148,8 @@ export default function Person() {
           <div className="card">
             <div className="card-head"><div><h2>Su rama</h2><p>Personas que entraron a través de su cadena de invitaciones</p></div>
               <div className="row-wrap">
-                <Link className="btn btn-sm" to={`/arbol?cabeza=${p.head_id}&foco=${p.id}`}><GitBranch size={14} />Ver rama</Link>
-                {stats.total > 0 && <Link className="btn btn-sm" to={`/arbol?cabeza=${p.head_id}&foco=${p.id}&expandir=todo`}><ChevronsDown size={14} />Expandir todo</Link>}
+                <Link className="btn btn-sm" to={`/arbol?foco=${p.id}`}><GitBranch size={14} />Ver rama</Link>
+                {stats.total > 0 && <Link className="btn btn-sm" to={`/arbol?foco=${p.id}&expandir=todo`}><ChevronsDown size={14} />Expandir todo</Link>}
               </div></div>
             <div className="card-pad stack">
               <div className="grid g-4" style={{ gap: 10 }}>
@@ -298,7 +306,7 @@ export default function Person() {
       {modal === 'register' && <RegisterPersonModal defaultHeadId={p.head_id} onClose={() => setModal(null)} onCreated={() => done('Invitado registrado')}
         defaultInviter={{ id: p.id, full_name: p.full_name, head_id: p.head_id, is_leader: p.is_leader, code: p.code, leader_code: p.leader_code, leader_name: leader?.full_name, status: p.status }} />}
       {modal === 'promote' && <ConfirmModal title="Designar como líder oficial" reason confirmLabel="Designar líder"
-        message={<>Se asignará un código <b>LID-…</b> y un enlace de líder. Las personas de su rama con líder automático pasarán a tenerle como responsable. El historial de invitaciones no cambia.</>}
+        message={<>Se le asignará su código y su enlace de líder. Las personas de su rama con líder automático pasarán a tenerle como responsable. El historial de invitaciones no cambia.</>}
         onConfirm={act(`/people/${p.id}/promote`, {}, 'Designado como líder')} onClose={() => setModal(null)} />}
       {modal === 'demote' && <ConfirmModal title="Retirar liderazgo" reason reasonRequired danger confirmLabel="Retirar liderazgo"
         message="Su enlace de líder se desactivará y sus personas asignadas pasarán al líder superior más cercano."

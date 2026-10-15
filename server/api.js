@@ -15,7 +15,9 @@ import {
   headPerson, setHeadRole, recoverableLeader, recoverPanel,
 } from './services/people.js';
 import { panelData, panelLeaderInvite, panelManifest } from './services/panel.js';
-import { treeChildren, treeSubtree, treeChildrenOf, pathToPerson, search, directory, dashboard, branchStats, NODE_SELECT } from './services/queries.js';
+import {
+  treeChildren, treeSubtree, treeChildrenOf, pathToPerson, search, directory, dashboard, branchStats, networkRoot, NODE_SELECT,
+} from './services/queries.js';
 import {
   listAreas, getArea, createArea, updateArea, importAreas, pendingGroups, resolvePendingGroup, locationStats, setPersonLocation,
 } from './services/geo.js';
@@ -223,6 +225,12 @@ api.patch('/heads/:id', requireAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // Árbol y búsqueda
 // ---------------------------------------------------------------------------
+// La red completa de la coordinación: John Thowinsson arriba y de él todas sus cabezas (cada una con su árbol).
+api.get('/tree/network', requireRole('super_admin', 'head_admin'), async (req, res) => {
+  const r = await networkRoot(req.user);
+  res.json({ root: r.root, nodes: r.nodes.map((n) => ({ ...n, path: undefined })) });
+});
+
 api.get('/tree/:headId/children', requireAuth, async (req, res) => {
   const headId = Number(req.params.headId);
   if (!await getHead(headId) || !canViewHead(req.user, headId)) throw notFound('Cabeza no encontrada.');
@@ -978,7 +986,7 @@ api.post('/public/register/:token', publicLimiter, async (req, res) => {
   } catch (e) {
     // No se revela a quién pertenece un dato duplicado en el formulario público.
     if (e instanceof AppError && e.code === 'DUPLICATE') {
-      throw new AppError(409, 'DUPLICATE', 'Estos datos ya están registrados. Si cree que es un error, contacte con quien le invitó.', { field: e.extra?.field });
+      throw new AppError(409, 'DUPLICATE', 'Estos datos ya están registrados. Si crees que es un error, escríbele a quien te invitó.', { field: e.extra?.field });
     }
     throw e;
   }

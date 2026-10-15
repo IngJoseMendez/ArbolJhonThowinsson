@@ -409,7 +409,7 @@ function LinksTab() {
                       <div className="small muted">{l.kind === 'register' ? 'Enlace de registro' : l.kind === 'leader' ? 'Enlace de líder' : 'Invitación personal'} · creado {fmtDate(l.created_at)}
                         {l.max_uses ? ` · máx. ${l.max_uses}` : ''}{l.expires_at ? ` · caduca ${fmtDate(l.expires_at)}` : ''}</div>
                     </td>
-                    <td>{l.owner_person_id ? <PersonLink id={l.owner_person_id} name={l.owner_name} isLeader={l.owner_is_leader} /> : <span className="muted small">{l.type_role === 'head' ? 'Nueva cabeza' : 'Directo a la cabeza'}</span>}</td>
+                    <td>{l.owner_person_id ? <PersonLink id={l.owner_person_id} name={l.owner_name} isLeader={l.owner_is_leader} /> : <span className="muted small">{l.type_role === 'head' ? CAMPAIGN : 'Directo a la cabeza'}</span>}</td>
                     <td>{l.head_name ? <span className="row nowrap"><span className="dot" style={{ background: l.head_color }} />{teams.name(l.head_id) || l.head_name}</span> : <span className="muted small">Crea una nueva</span>}</td>
                     <td className="tnum"><b>{fmtNum(l.uses)}</b>{l.pending > 0 && <span className="badge badge-warning" style={{ marginLeft: 6 }}>{l.pending} pend.</span>}</td>
                     <td className="small">{l.last_used ? relTime(l.last_used) : <span className="muted">Nunca</span>}</td>

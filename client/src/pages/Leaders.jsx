@@ -20,7 +20,7 @@ export default function Leaders() {
       <div className="row-wrap" style={{ marginBottom: 16 }}>
         <div className="search-input" style={{ width: 300, maxWidth: '100%' }}>
           <Search size={16} />
-          <input className="input" placeholder="Nombre o código LID-…" value={term} onChange={(e) => setTerm(e.target.value)} />
+          <input className="input" placeholder="Nombre o código" value={term} onChange={(e) => setTerm(e.target.value)} />
         </div>
         <select className="select" style={{ width: 220 }} value={headId} onChange={(e) => setHeadId(e.target.value)} aria-label="Cabeza">
           <option value="">Todas las cabezas</option>
@@ -51,7 +51,7 @@ export default function Leaders() {
             </div>
             {l.link_token ? <ShareLink token={l.link_token} ownerName={l.full_name} compact /> : <div className="alert alert-warn small">Enlace desactivado</div>}
             <div className="row-wrap">
-              <Link className="btn btn-sm" to={`/arbol?cabeza=${l.head_id}&foco=${l.id}`}><GitBranch size={14} />Ver rama</Link>
+              <Link className="btn btn-sm" to={`/arbol?foco=${l.id}`}><GitBranch size={14} />Ver rama</Link>
               <Link className="btn btn-sm" to={`/personas?leader_id=${l.id}`}><Users size={14} />Personas asignadas</Link>
               <span className="spacer" />
               <span className="small muted">Líder desde {fmtDate(l.leader_since || l.created_at)}</span>

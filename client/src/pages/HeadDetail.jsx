@@ -12,7 +12,7 @@ import RegisterPersonModal from '../components/RegisterPersonModal.jsx';
 import { useQueryState } from '../lib/useParams.js';
 import { useRegTypes } from '../lib/regTypes.js';
 import { Avatar, ErrorBox, Loading, useAsync, Empty, RoleBadge } from '../components/ui.jsx';
-import { Mark } from '../brand/Brand.jsx';
+import { CAMPAIGN, Mark } from '../brand/Brand.jsx';
 
 export default function HeadDetail() {
   const { id } = useParams();
@@ -69,7 +69,7 @@ export default function HeadDetail() {
               <Mark className="watermark" />
               <span className="avatar head lg" aria-hidden="true">{initials(c.full_name)}</span>
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="row-wrap" style={{ gap: 8 }}><RoleBadge isHead /><span className="muted small">desde el {fmtDate(c.created_at)}{h.status === 'archived' ? ' · estructura archivada' : ''}</span></div>
+                <div className="row-wrap" style={{ gap: 8 }}><RoleBadge isHead /><span className="muted small">de {CAMPAIGN}, desde el {fmtDate(c.created_at)}{h.status === 'archived' ? ' · estructura archivada' : ''}</span></div>
                 <h1 className="cabeza-banner-name">{c.full_name}</h1>
                 <div className="small muted">
                   {fmtNum(c.descendant_count)} personas en su equipo · {fmtNum(c.child_count)} directas

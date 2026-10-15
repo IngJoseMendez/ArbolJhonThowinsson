@@ -1,27 +1,43 @@
 // Almacén del árbol con carga progresiva de ramas (lazy loading + paginación).
 // Lo comparten la vista gráfica y la vista de lista jerárquica.
+//
+// Dos alcances:
+// - Una estructura (cabeza): su árbol, con la estructura como raíz.
+// - La red completa (sin estructura): John Thowinsson arriba y de él todas sus cabezas, cada una con su propio árbol.
+//   Cada nodo sabe de qué estructura es, así que sus ramas se piden a la estructura que corresponde.
 import { api, qs } from '../api.js';
 
 export const PAGE = 50;
 export const NODE_W = 236;
 export const NODE_H = 66;
 export const HEAD_H = 76;
+export const NET_H = 92;
 const GAP_X = 100; // deja sitio a los controles de expansión del nodo
 const GAP_Y = 14;
 const MORE_H = 36;
 
+/** Estructura a la que pertenece un nodo (ninguna para John, la raíz de la red). */
+const headOf = (n) => (n.kind === 'person' ? n.data.head_id : n.kind === 'head' ? n.data.id : null);
+
 export class TreeStore {
+  /**
+   * head: la estructura cuyo árbol se muestra, o null para la red completa de John Thowinsson.
+   * focusPerson: una persona que actúa como raíz (su rama).
+   */
   constructor(head, focusPerson = null) {
     this.head = head;
-    this.focus = focusPerson; // nodo persona que actúa como raíz (rama concreta)
+    this.network = !head;
+    this.focus = focusPerson;
     this.nodes = new Map();
     this.listeners = new Set();
     this.version = 0;
-    const rootKey = focusPerson ? `p${focusPerson.id}` : 'head';
+    const rootKey = focusPerson ? `p${focusPerson.id}` : head ? 'head' : 'red';
     this.rootKey = rootKey;
-    this.nodes.set(rootKey, focusPerson
-      ? { key: rootKey, kind: 'person', data: focusPerson, children: null, total: focusPerson.child_count, expanded: false, loading: false }
-      : { key: 'head', kind: 'head', data: head, children: null, total: null, expanded: false, loading: false });
+    let root;
+    if (focusPerson) root = { kind: 'person', data: focusPerson, total: focusPerson.child_count };
+    else if (head) root = { kind: 'head', data: head, total: null };
+    else root = { kind: 'network', data: {}, total: null };
+    this.nodes.set(rootKey, { key: rootKey, ...root, children: null, expanded: false, loading: false });
   }
 
   subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
@@ -29,19 +45,22 @@ export class TreeStore {
   get(key) { return this.nodes.get(key); }
 
   personKey(id) { return `p${id}`; }
+  /** Estructura sin cabeza colgando de la red. */
+  headKey(id) { return `h${id}`; }
 
   async loadChildren(key, { append = false, include = null } = {}) {
     const n = this.nodes.get(key);
     if (!n || n.loading) return;
     n.loading = true; this.emit();
     try {
+      if (n.kind === 'network') { await this.loadNetwork(n); return; }
       const prev = n.children || [];
       const isExtra = (k) => !!this.nodes.get(k)?.extra;
       const regular = append ? prev.filter((k) => !isExtra(k)) : [];
       const prevExtras = prev.filter(isExtra);
       const offset = regular.length;
       const parent = n.kind === 'head' ? undefined : n.data.id;
-      const r = await api.get(`/tree/${this.head.id}/children${qs({ parent, offset, limit: PAGE, include })}`);
+      const r = await api.get(`/tree/${headOf(n)}/children${qs({ parent, offset, limit: PAGE, include })}`);
       const pageCount = Math.min(PAGE, Math.max(0, r.total - offset));
       const seen = new Set(regular);
       const extras = [];
@@ -65,6 +84,26 @@ export class TreeStore {
     }
   }
 
+  /** John Thowinsson: de él cuelgan sus cabezas (y las estructuras que aún no tienen cabeza). */
+  async loadNetwork(n) {
+    const r = await api.get('/tree/network');
+    n.data = r.root;
+    n.children = r.nodes.map(({ kind, ...d }) => {
+      const k = kind === 'head' ? this.headKey(d.id) : this.personKey(d.id);
+      const existing = this.nodes.get(k);
+      if (existing) {
+        existing.data = d;
+        if (kind === 'person') existing.total = d.child_count;
+        existing.parent = n.key;
+      } else {
+        this.nodes.set(k, { key: k, kind, data: d, children: null, total: kind === 'person' ? d.child_count : null, expanded: false, loading: false, parent: n.key });
+      }
+      return k;
+    });
+    n.total = n.children.length;
+    n.expanded = true;
+  }
+
   async expand(key) {
     const n = this.nodes.get(key);
     if (!n) return;
@@ -85,7 +124,7 @@ export class TreeStore {
   }
 
   hasChildren(n) {
-    return n.kind === 'head' ? true : (n.data.child_count ?? n.total ?? 0) > 0;
+    return n.kind === 'person' ? (n.data.child_count ?? n.total ?? 0) > 0 : true;
   }
 
   /** Expande hasta `levels` niveles bajo un nodo, con un presupuesto de peticiones. */
@@ -127,59 +166,75 @@ export class TreeStore {
 
   /**
    * Expandir todo: descarga la rama completa por bloques ordenados por ruta y abre todos los niveles,
-   * incluidos los que nunca se habían abierto. Informa del progreso en this.progress.
+   * incluidos los que nunca se habían abierto. Desde John (la red), cada cabeza se descarga entera, una tras otra.
+   * Informa del progreso en this.progress.
    */
   async expandAll(key = this.rootKey, { chunk = 2000 } = {}) {
     const root = this.nodes.get(key);
     if (!root) return;
     if (root.kind === 'person' && !(root.data.child_count > 0)) return;
-    const expected = root.kind === 'head' ? (root.data.people ?? null) : root.data.descendant_count;
+    if (root.kind === 'network' && !root.children) await this.loadChildren(key);
+    const expected = root.kind === 'person' ? root.data.descendant_count : (root.data.people ?? null);
+    const label = root.kind === 'network' ? 'toda la red' : root.kind === 'head' ? root.data.cabeza_name || root.data.name : root.data.full_name;
     const token = (this.loadToken = {});
-    this.progress = { key, loaded: 0, total: expected, label: root.kind === 'head' ? root.data.name : root.data.full_name };
+    this.progress = { key, loaded: 0, total: expected, label };
     this.emit();
-    const kids = new Map(); // id padre (o 'root') -> [datos]
-    const all = [];
-    let after = null;
     try {
-      do {
-        const r = await api.get(`/tree/${this.head.id}/subtree${qs({ root: root.kind === 'person' ? root.data.id : undefined, after, limit: chunk })}`);
-        if (this.loadToken !== token) return; // cancelado
-        for (const d of r.nodes) {
-          all.push(d);
-          const k = this.personKey(d.id);
-          const existing = this.nodes.get(k);
-          if (existing) { existing.data = d; existing.total = d.child_count; existing.extra = false; }
-          else this.nodes.set(k, { key: k, kind: 'person', data: d, children: null, total: d.child_count, expanded: false, loading: false, extra: false });
-        }
-        after = r.next;
-        this.progress = { ...this.progress, loaded: all.length };
-        this.emit();
-      } while (after);
-      // Reconstruye las listas completas de hijos y abre todos los niveles.
-      const inBranch = new Set(all.map((d) => d.id));
-      const rootPersonId = root.kind === 'person' ? root.data.id : null;
-      for (const d of all) {
-        // Cuelga de su invitador si está en la rama (o es la raíz); si no, de la raíz visible.
-        const parentKey = d.inviter_id && (inBranch.has(d.inviter_id) || d.inviter_id === rootPersonId) ? this.personKey(d.inviter_id) : key;
-        this.nodes.get(this.personKey(d.id)).parent = parentKey;
-        if (!kids.has(parentKey)) kids.set(parentKey, []);
-        kids.get(parentKey).push(d);
-      }
-      for (const [pk, list] of kids) {
-        const n = this.nodes.get(pk);
-        if (!n) continue;
-        n.children = TreeStore.sortKeys(list).map((d) => this.personKey(d.id));
-        n.total = list.length;
-        n.expanded = true;
-      }
-      for (const d of all) {
-        const n = this.nodes.get(this.personKey(d.id));
-        if (!kids.has(n.key)) { n.children = []; n.total = 0; }
+      const branches = root.kind === 'network' ? root.children || [] : [key];
+      for (const bk of branches) {
+        const b = this.nodes.get(bk);
+        if (!b || (b.kind === 'person' && !(b.data.child_count > 0))) continue;
+        if (!(await this.loadBranch(b, token, chunk))) return; // cancelado
       }
       root.expanded = true;
     } finally {
       if (this.loadToken === token) { this.progress = null; this.loadToken = null; this.emit(); }
     }
+  }
+
+  /** Descarga una rama entera (una persona o una estructura) y abre todos sus niveles. false si se canceló. */
+  async loadBranch(root, token, chunk) {
+    const key = root.key;
+    const kids = new Map(); // clave del padre -> [datos]
+    const all = [];
+    let after = null;
+    do {
+      const r = await api.get(`/tree/${headOf(root)}/subtree${qs({ root: root.kind === 'person' ? root.data.id : undefined, after, limit: chunk })}`);
+      if (this.loadToken !== token) return false;
+      for (const d of r.nodes) {
+        all.push(d);
+        const k = this.personKey(d.id);
+        const existing = this.nodes.get(k);
+        if (existing) { existing.data = d; existing.total = d.child_count; existing.extra = false; }
+        else this.nodes.set(k, { key: k, kind: 'person', data: d, children: null, total: d.child_count, expanded: false, loading: false, extra: false });
+      }
+      after = r.next;
+      this.progress = { ...this.progress, loaded: (this.progress?.loaded || 0) + r.nodes.length };
+      this.emit();
+    } while (after);
+    // Reconstruye las listas completas de hijos y abre todos los niveles.
+    const inBranch = new Set(all.map((d) => d.id));
+    const rootPersonId = root.kind === 'person' ? root.data.id : null;
+    for (const d of all) {
+      // Cuelga de su invitador si está en la rama (o es la raíz); si no, de la raíz de la rama.
+      const parentKey = d.inviter_id && (inBranch.has(d.inviter_id) || d.inviter_id === rootPersonId) ? this.personKey(d.inviter_id) : key;
+      this.nodes.get(this.personKey(d.id)).parent = parentKey;
+      if (!kids.has(parentKey)) kids.set(parentKey, []);
+      kids.get(parentKey).push(d);
+    }
+    for (const [pk, list] of kids) {
+      const n = this.nodes.get(pk);
+      if (!n) continue;
+      n.children = TreeStore.sortKeys(list).map((d) => this.personKey(d.id));
+      n.total = list.length;
+      n.expanded = true;
+    }
+    for (const d of all) {
+      const n = this.nodes.get(this.personKey(d.id));
+      if (!kids.has(n.key)) { n.children = []; n.total = 0; }
+    }
+    root.expanded = true;
+    return true;
   }
 
   cancelLoad() {
@@ -191,41 +246,62 @@ export class TreeStore {
   /** Identificadores de los nodos expandidos (para persistir el estado). */
   snapshot() {
     const expanded = [];
-    for (const n of this.nodes.values()) if (n.expanded && n.kind === 'person') expanded.push(n.data.id);
-    return { rootExpanded: !!this.nodes.get(this.rootKey)?.expanded, expanded };
+    const heads = [];
+    for (const n of this.nodes.values()) {
+      if (!n.expanded || n.key === this.rootKey) continue;
+      if (n.kind === 'person') expanded.push(n.data.id);
+      else if (n.kind === 'head') heads.push(n.data.id);
+    }
+    if (this.focus && this.nodes.get(this.rootKey)?.expanded) expanded.push(this.focus.id);
+    return { rootExpanded: !!this.nodes.get(this.rootKey)?.expanded, expanded, heads };
   }
 
   /**
-   * Restaura un estado guardado: carga por niveles (una petición por cada 2000 ramas abiertas)
+   * Restaura un estado guardado: carga por niveles (una petición por estructura y por cada 2000 ramas abiertas)
    * los hijos de los nodos que estaban expandidos.
    */
   async restore(saved) {
     const want = new Set(saved.expanded || []);
+    const wantHeads = new Set(saved.heads || []);
     const root = this.nodes.get(this.rootKey);
     if (saved.rootExpanded && !root.children) await this.loadChildren(this.rootKey);
     root.expanded = !!saved.rootExpanded;
     let frontier = root.children || [];
     for (let guard = 0; frontier.length && guard < 500; guard++) {
-      const toLoad = frontier.map((k) => this.nodes.get(k)).filter((n) => n && n.kind === 'person' && want.has(n.data.id));
       const next = [];
-      for (let i = 0; i < toLoad.length; i += 2000) {
-        const part = toLoad.slice(i, i + 2000);
-        const r = await api.post(`/tree/${this.head.id}/children-batch`, { parents: part.map((n) => n.data.id) });
-        const byParent = new Map();
-        for (const d of r.nodes) {
-          const k = this.personKey(d.id);
-          if (!this.nodes.has(k)) this.nodes.set(k, { key: k, kind: 'person', data: d, children: null, total: d.child_count, expanded: false, loading: false });
-          else this.nodes.get(k).data = d;
-          if (!byParent.has(d.inviter_id)) byParent.set(d.inviter_id, []);
-          byParent.get(d.inviter_id).push(k);
-        }
-        for (const n of part) {
-          if (!r.parents.includes(n.data.id)) continue;
-          n.children = byParent.get(n.data.id) || [];
-          for (const c of n.children) this.nodes.get(c).parent = n.key;
-          n.total = n.children.length;
-          n.expanded = true;
-          next.push(...n.children);
+      // Estructuras sin cabeza dentro de la red: sus raíces (son pocas).
+      for (const k of frontier) {
+        const n = this.nodes.get(k);
+        if (n?.kind !== 'head' || !wantHeads.has(n.data.id)) continue;
+        await this.loadChildren(k);
+        next.push(...(n.children || []));
+      }
+      const toLoad = frontier.map((k) => this.nodes.get(k)).filter((n) => n && n.kind === 'person' && want.has(n.data.id));
+      const byHead = new Map();
+      for (const n of toLoad) {
+        if (!byHead.has(n.data.head_id)) byHead.set(n.data.head_id, []);
+        byHead.get(n.data.head_id).push(n);
+      }
+      for (const [headId, list] of byHead) {
+        for (let i = 0; i < list.length; i += 2000) {
+          const part = list.slice(i, i + 2000);
+          const r = await api.post(`/tree/${headId}/children-batch`, { parents: part.map((n) => n.data.id) });
+          const byParent = new Map();
+          for (const d of r.nodes) {
+            const k = this.personKey(d.id);
+            if (!this.nodes.has(k)) this.nodes.set(k, { key: k, kind: 'person', data: d, children: null, total: d.child_count, expanded: false, loading: false });
+            else this.nodes.get(k).data = d;
+            if (!byParent.has(d.inviter_id)) byParent.set(d.inviter_id, []);
+            byParent.get(d.inviter_id).push(k);
+          }
+          for (const n of part) {
+            if (!r.parents.includes(n.data.id)) continue;
+            n.children = byParent.get(n.data.id) || [];
+            for (const c of n.children) this.nodes.get(c).parent = n.key;
+            n.total = n.children.length;
+            n.expanded = true;
+            next.push(...n.children);
+          }
         }
       }
       frontier = next;
@@ -241,6 +317,20 @@ export class TreeStore {
     if (this.focus) {
       start = chain.findIndex((c) => c.id === this.focus.id);
       if (start < 0) return null;
+    } else if (this.network) {
+      // Red completa: la cabeza (primer eslabón) cuelga de John; en una estructura sin cabeza, de la estructura.
+      const root = this.nodes.get(this.rootKey);
+      const first = this.personKey(chain[0].id);
+      const hk = this.headKey(chain[0].head_id);
+      const listed = () => !!root.children && (root.children.includes(first) || root.children.includes(hk));
+      if (!listed()) await this.loadChildren(this.rootKey); // p. ej., una cabeza nueva desde que se abrió el árbol
+      else root.expanded = true;
+      if (!listed()) return null;
+      if (!root.children.includes(first)) {
+        const hn = this.nodes.get(hk);
+        if (!hn.children || !hn.children.includes(first)) await this.loadChildren(hk, { include: chain[0].id, append: !!hn.children });
+        else hn.expanded = true;
+      }
     } else {
       // Raíz virtual de la cabeza: el primer eslabón cuelga de ella.
       const root = this.nodes.get('head');
@@ -293,7 +383,7 @@ export class TreeStore {
     let cursor = 0;
     const place = (k, depth) => {
       const n = this.nodes.get(k);
-      const h = n.kind === 'head' ? HEAD_H : NODE_H;
+      const h = n.kind === 'network' ? NET_H : n.kind === 'head' ? HEAD_H : NODE_H;
       const x = depth * (NODE_W + GAP_X);
       const kids = [];
       if (n.expanded && n.children) {

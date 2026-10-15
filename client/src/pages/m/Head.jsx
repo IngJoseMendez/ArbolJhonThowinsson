@@ -8,6 +8,7 @@ import { osName } from '../../lib/device.js';
 import { fmtDate, relTime } from '../../lib/format.js';
 import { useGo } from '../../lib/nav.js';
 import { useQueryState } from '../../lib/useParams.js';
+import { CAMPAIGN } from '../../brand/Brand.jsx';
 import { useOneTimeInvite } from '../../lib/invites.js';
 import { extLinkProps, inviteText, waUrl } from '../../lib/whatsapp.js';
 import Screen, { BarButton } from '../../components/m/Screen.jsx';
@@ -70,7 +71,7 @@ export default function Head() {
       <div className="m-detail__top">
         {c ? <PersonAvatar name={c.full_name} head size={56} /> : headRow ? <TeamAvatar head={headRow} size={56} /> : <span className="skeleton m-sk-avatar" />}
         <span className="m-detail__since">
-          {h ? (c ? `Cabeza desde el ${fmtDate(c.created_at)}` : 'Sin cabeza asignada') : ''}{h?.status === 'archived' ? ', estructura archivada' : ''}
+          {h ? (c ? `Cabeza de ${CAMPAIGN} desde el ${fmtDate(c.created_at)}` : 'Sin cabeza asignada') : ''}{h?.status === 'archived' ? ', estructura archivada' : ''}
         </span>
       </div>
       <h1 ref={ref} className="m-detail__name">{loading && !data ? '…' : title}</h1>
@@ -171,7 +172,7 @@ export default function Head() {
               <Group>
                 {data.stats.recent.slice(0, 5).map((r) => (
                   <Row key={r.id} lead={<PersonAvatar name={r.full_name} leader={r.is_leader} head={r.is_head} />} title={r.full_name} to={`/personas/${r.id}`}
-                    meta={r.inviter_name ? `con ${r.inviter_name}` : r.is_head ? 'Cabeza del equipo' : 'Líder'} trail={<small>{relTime(r.created_at)}</small>} chevron={false} />
+                    meta={r.inviter_name ? `con ${r.inviter_name}` : r.is_head ? `Cabeza, con ${CAMPAIGN}` : 'Líder'} trail={<small>{relTime(r.created_at)}</small>} chevron={false} />
                 ))}
               </Group>
             </Section>

@@ -8,7 +8,7 @@ import { teamName, useTeams } from '../lib/teams.js';
 import { api, qs } from '../api.js';
 import { fmtDate, fmtNum, phoneDisplay } from '../lib/format.js';
 import { useQueryState } from '../lib/useParams.js';
-import { Avatar, ErrorBox, Loading, PersonLink, RoleIcon, StatusBadge, useAsync, Empty } from '../components/ui.jsx';
+import { Avatar, ErrorBox, Loading, PersonLink, RoleIcon, StatusBadge, useAsync, Empty, JohnLink } from '../components/ui.jsx';
 
 const COLS = [
   { key: 'full_name', label: 'Persona', sort: true },
@@ -138,7 +138,7 @@ export default function People() {
                     </td>
                     <td><span className="row nowrap"><span className="dot" style={{ background: r.head_color }} />{teams.name(r.head_id) || r.head_name}</span></td>
                     <td><PersonLink id={r.leader_id} name={r.leader_name} isLeader /></td>
-                    <td>{r.inviter_id ? <PersonLink id={r.inviter_id} name={r.inviter_name} /> : <span className="muted small">Cabeza</span>}</td>
+                    <td>{r.inviter_id ? <PersonLink id={r.inviter_id} name={r.inviter_name} /> : r.is_head ? <JohnLink locate={r.id} /> : <span className="muted small">La estructura</span>}</td>
                     <td className="small">
                       {r.localidad_name ? (
                         <>
@@ -154,7 +154,7 @@ export default function People() {
                     <td className="nowrap small">{fmtDate(r.created_at)}<div className="muted">{r.registration_method === 'manual' ? 'Manual' : 'Enlace'}</div></td>
                     <td><StatusBadge status={r.status} /></td>
                     <td>
-                      <button className="btn btn-sm" title="Ver posición en el árbol" onClick={(e) => { e.stopPropagation(); nav(`/arbol?cabeza=${r.head_id}&persona=${r.id}`); }}>
+                      <button className="btn btn-sm" title="Ver posición en el árbol" onClick={(e) => { e.stopPropagation(); nav(`/arbol?persona=${r.id}`); }}>
                         <GitBranch size={14} /><span className="hide-sm">Árbol</span>
                       </button>
                     </td>

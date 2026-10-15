@@ -12,6 +12,7 @@ import { ActionSheet } from '../../components/m/Sheet.jsx';
 import { Chip, Chips, EmptyState, Group, Row, RowsSkeleton } from '../../components/m/List.jsx';
 import { PersonAvatar } from '../../components/m/Spark.jsx';
 import { RoleIcon } from '../../components/ui.jsx';
+import { CAMPAIGN } from '../../brand/Brand.jsx';
 import RegisterPersonModal from '../../components/RegisterPersonModal.jsx';
 import FiltersSheet, { FILTER_KEYS } from './FiltersSheet.jsx';
 
@@ -122,7 +123,7 @@ export default function People() {
     const team = !params.head_id ? (teams.name(r.head_id) || r.head_name) : null;
     const place = r.barrio_name || r.localidad_name;
     let m;
-    if (r.is_head) m = `cabeza, ${nf.format(r.descendant_count)} en su equipo`;
+    if (r.is_head) m = `cabeza de ${CAMPAIGN}, ${nf.format(r.descendant_count)} en su equipo`;
     else if (r.is_leader) m = `líder, ${nf.format(r.descendant_count)} en su red`;
     else m = [r.inviter_name ? `con ${r.inviter_name}` : null, place].filter(Boolean).join(', ') || 'Persona';
     const out = team && !r.is_head ? `${m}, equipo de ${team}` : m;

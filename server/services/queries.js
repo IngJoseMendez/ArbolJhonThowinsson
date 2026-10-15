@@ -41,6 +41,38 @@ export async function treeChildren(user, headId, parentId, { offset = 0, limit =
 }
 
 /**
+ * La red completa: John Thowinsson es la raíz y de él cuelgan todas las cabezas, cada una con su propio árbol.
+ * Por cada estructura activa visible devuelve a su cabeza (la persona) o, si aún no tiene cabeza (o algo cuelga
+ * suelto de la estructura), la estructura misma. Primero las cabezas, en el orden en que llegaron.
+ */
+export async function networkRoot(user) {
+  const ids = visibleHeadIds(user);
+  const empty = { root: { heads: 0, people: 0, leaders: 0, last7: 0 }, nodes: [] };
+  if (ids !== null && !ids.length) return empty;
+  const scope = ids === null ? '' : ` AND h.id IN (${ids.map(() => '?').join(',')})`;
+  const sp = ids || [];
+  const heads = await q(`SELECT h.id, h.name, h.color, h.region, h.created_at, c.id AS cabeza_id, c.full_name AS cabeza_name,
+        (SELECT COUNT(*) FROM people x WHERE x.head_id = h.id AND x.status <> 'rejected') AS people,
+        (SELECT COUNT(*) FROM people r WHERE r.head_id = h.id AND r.inviter_id IS NULL AND r.status <> 'rejected') AS roots
+      FROM heads h LEFT JOIN people c ON c.head_id = h.id AND c.is_head = 1 AND c.status <> 'rejected'
+      WHERE h.status = 'active'${scope}
+      ORDER BY (c.id IS NULL), COALESCE(c.created_at, h.created_at), h.id LIMIT 1000`).all(...sp);
+  const cabezaIds = heads.filter((h) => h.cabeza_id).map((h) => h.cabeza_id);
+  const cabezas = cabezaIds.length
+    ? await q(`${NODE_SELECT} WHERE p.id IN (${cabezaIds.map(() => '?').join(',')})`).all(...cabezaIds) : [];
+  const byId = new Map(cabezas.map((c) => [c.id, toNode(c)]));
+  const nodes = heads.map((h) => (byId.has(h.cabeza_id) && h.roots <= 1
+    ? { kind: 'person', ...byId.get(h.cabeza_id), head_name: h.name, head_color: h.color }
+    : { kind: 'head', id: h.id, name: h.name, color: h.color, region: h.region, created_at: h.created_at, people: h.people, cabeza_name: h.cabeza_name }));
+  const t = await q(`SELECT COUNT(*) AS people,
+        SUM(CASE WHEN p.is_leader = 1 AND p.is_head = 0 THEN 1 ELSE 0 END) AS leaders,
+        SUM(CASE WHEN p.created_at >= ? THEN 1 ELSE 0 END) AS last7
+      FROM people p JOIN heads h ON h.id = p.head_id WHERE p.status <> 'rejected' AND h.status = 'active'${scope}`)
+    .get(new Date(Date.now() - 7 * 864e5).toISOString(), ...sp);
+  return { root: { heads: heads.length, people: t.people || 0, leaders: t.leaders || 0, last7: t.last7 || 0 }, nodes };
+}
+
+/**
  * Rama completa en bloques ordenados por ruta (carga progresiva para "Expandir todo").
  * rootId = null => toda la cabeza (o la rama propia para líderes y personas).
  * after = última ruta recibida (cursor). Devuelve nodos sin la raíz.

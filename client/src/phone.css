@@ -122,6 +122,8 @@ html.m-phone .m-avatar {
 }
 html.m-phone .m-avatar.is-leader { background: var(--leader-soft); color: var(--leader); box-shadow: inset 0 0 0 2px var(--leader); }
 html.m-phone .m-avatar.is-head { background: var(--navy); color: #fff; box-shadow: inset 0 0 0 2px var(--gold); }
+html.m-phone .m-avatar.is-john { overflow: hidden; background: var(--navy); box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--sky); }
+html.m-phone .m-avatar.is-john picture, html.m-phone .m-avatar.is-john img { width: 100%; height: 100%; display: block; object-fit: cover; }
 /* Sobre el azul de la cabecera, los avatares se aclaran para leerse bien. */
 html.m-phone .m-hero .m-avatar { background: rgba(255, 255, 255, 0.12); color: #fff; }
 html.m-phone .m-hero .m-avatar.is-leader { background: rgba(96, 182, 232, 0.2); color: #fff; box-shadow: inset 0 0 0 2px var(--sky); }

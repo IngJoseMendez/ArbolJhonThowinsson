@@ -12,8 +12,9 @@ import PersonFields, { emptyPerson, validatePerson, personPayload, serverFieldEr
 import { Logo, Mark, JohnPhoto, CAMPAIGN } from '../brand/Brand.jsx';
 import Celebration from '../brand/Celebration.jsx';
 
-const KICKER = { head: 'Registro de cabeza', leader: 'Registro de líder', person: 'Registro' };
-const BUILTIN = { head: 'Cabeza', leader: 'Líder', person: 'Persona' };
+// De cara a quien se registra no hay «cabezas», «líderes» ni nombres de tipos («CAB», «COV»…): quien recibe una
+// invitación personal es una persona de confianza.
+const KICKER = { head: 'Persona de confianza', leader: 'Persona de confianza', person: 'Registro' };
 
 // Registro de una persona (enlace general): si recarga la página en esta pestaña sigue viendo su confirmación.
 const doneKey = (token) => `reg-done:${token}`;
@@ -22,14 +23,15 @@ const saveDone = (token, d) => { try { if (d) sessionStorage.setItem(doneKey(tok
 
 /**
  * Lo que ve quien abre el enlace: quién le invita, con su nombre (nunca nombres internos como «Cabeza …»),
- * y a qué le invita. Un líder sin padrino queda con la cabeza de la estructura: la invitación es de ella.
+ * y a qué le invita. Las invitaciones personales son para ser persona de confianza: de John (quien arma su propio
+ * equipo) o de quien encabeza un equipo. Sin padrino, la invitación es de quien encabeza la estructura.
  */
 function heroCopy(inv) {
   const { role, inviter, cabeza, head } = inv;
   if (role === 'head') {
     return {
-      kicker: 'Te invitamos a ser', title: 'Cabeza del equipo',
-      sub: `de ${CAMPAIGN}. Con tu registro nace tu propio equipo: invitarás a tus líderes y a tus personas.`,
+      kicker: 'Te invita', title: CAMPAIGN,
+      sub: 'a ser una de sus personas de confianza. Con tu registro nace tu propio equipo para sumar a tu gente.',
     };
   }
   const host = inviter || (role === 'leader' && cabeza ? { name: cabeza.name } : null);
@@ -37,12 +39,12 @@ function heroCopy(inv) {
     return {
       kicker: 'Te invita',
       title: host.name,
-      sub: role === 'leader' ? `a ser líder en el equipo de ${CAMPAIGN}.` : `a sumarte al equipo de ${CAMPAIGN}.`,
+      sub: role === 'leader' ? `a ser una de sus personas de confianza en el equipo de ${CAMPAIGN}.` : `a sumarte al equipo de ${CAMPAIGN}.`,
       team: cabeza && cabeza.name !== host.name ? cabeza.name : null,
     };
   }
   return {
-    kicker: 'Te invitamos a ser', title: role === 'leader' ? 'Líder del equipo' : 'Parte del equipo',
+    kicker: 'Te invitamos a ser', title: role === 'leader' ? 'Persona de confianza' : 'Parte del equipo',
     sub: `de ${CAMPAIGN}${head?.display_name ? `, con ${head.display_name}` : ''}.`,
   };
 }
@@ -174,9 +176,7 @@ export default function Register() {
 
   const type = inv?.type || done?.type;
   const role = done ? (done.is_head ? 'head' : done.is_leader ? 'leader' : 'person') : inv?.role;
-  const chip = type && (inv?.valid || done) && (
-    <span className="stage-chip"><i aria-hidden="true" />{KICKER[role]}{type.name !== BUILTIN[role] && <><span className="chip-sep" aria-hidden="true" />{type.name}</>}</span>
-  );
+  const chip = type && (inv?.valid || done) && <span className="stage-chip"><i aria-hidden="true" />{KICKER[role]}</span>;
 
   // ---- Volver al panel con el link de registro ya usado
   if (!done && inv && !inv.valid && inv.recoverable) return <BackToPanel token={token} />;
@@ -212,12 +212,14 @@ export default function Register() {
 
   // ---- Registro completado
   if (done) {
-    const team = done.is_head ? `Equipo ${CAMPAIGN}` : done.cabeza ? `Equipo de ${done.cabeza}` : `Equipo ${CAMPAIGN}`;
+    // De quién es persona de confianza: de John (si encabeza su propio equipo) o de quien la invitó.
+    const host = done.is_head ? CAMPAIGN : done.inviter || done.cabeza;
+    const team = role === 'person' ? (done.cabeza ? `Equipo de ${done.cabeza}` : `Equipo ${CAMPAIGN}`) : host ? `de ${host}` : `Equipo ${CAMPAIGN}`;
     const pending = done.status === 'pending';
     const message = pending
       ? 'Tu registro quedó pendiente de aprobación. Te avisaremos cuando quede confirmado.'
       : role === 'head'
-        ? 'Tu equipo ya existe. En tu panel invitas a tus líderes: ellos suman a su gente y cada persona puede invitar a más.'
+        ? `${CAMPAIGN} ya cuenta contigo. Desde tu panel invitas a tus propias personas de confianza: ellas suman a su gente y cada persona puede invitar a más.`
         : role === 'leader'
           ? 'En tu panel está tu link: quien se registre con él queda en tu red y también podrá invitar a más.'
           : `Ya eres parte del equipo de ${CAMPAIGN}${done.inviter ? `, gracias a la invitación de ${done.inviter}` : ''}.`;
@@ -232,8 +234,8 @@ export default function Register() {
         <div className="pub-right">
           <main className="pub-sheet">
             <div className="sheet-inner">
-              <Celebration role={role} firstName={done.first_name} name={done.full_name} typeName={done.type?.name} team={team}
-                code={done.leader_code || done.code} since={done.created_at} pending={pending}>
+              <Celebration role={role} firstName={done.first_name} name={done.full_name} team={team}
+                code={done.code} since={done.created_at} pending={pending}>
                 <p>{message}</p>
               </Celebration>
               {done.panel_token ? (
@@ -281,10 +283,10 @@ export default function Register() {
               <div className="role-note">
                 <Mark size={18} />
                 <div>
-                  <b>{role === 'head' ? 'Como cabeza tendrás' : 'Como líder tendrás'}</b>
+                  <b>Como persona de confianza tendrás</b>
                   <p>{role === 'head'
-                    ? 'Invitaciones personales para tus líderes, tu link para sumar personas y un panel con todo tu equipo.'
-                    : 'Tu link personal para sumar personas y un panel privado para ver crecer tu red.'}</p>
+                    ? 'Invitaciones personales para tus propias personas de confianza, tu link para sumar a tu gente y un panel con todo tu equipo.'
+                    : 'Tu link personal para sumar a tu gente y un panel privado para ver crecer tu red.'}</p>
                 </div>
               </div>
             )}
@@ -312,7 +314,7 @@ export default function Register() {
               {err && <div className="alert alert-error" role="alert"><AlertCircle size={16} />{err.message}</div>}
               <button className="btn btn-primary btn-lg btn-block" disabled={busy || !consent}>
                 {busy ? <span className="spinner" /> : role === 'person' ? <UserPlus size={19} /> : <Mark size={17} className="btn-mark" />}
-                {role === 'head' ? 'Registrarme como cabeza' : role === 'leader' ? 'Registrarme como líder' : 'Registrarme'}
+                {role === 'person' ? 'Registrarme' : 'Aceptar y registrarme'}
               </button>
               <p className="secure-note"><Lock size={13} />Tus datos viajan cifrados y no se comparten.</p>
             </form>

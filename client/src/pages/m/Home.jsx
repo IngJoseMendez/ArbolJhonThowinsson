@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ClipboardCheck, Clock, Crown, Network, Search, Send, X } from 'lucide-react';
 import { api, qs } from '../../api.js';
 import { useAuth } from '../../auth.jsx';
-import { JohnPhoto, Logo, Mark } from '../../brand/Brand.jsx';
+import { CAMPAIGN, JohnPhoto, Logo, Mark } from '../../brand/Brand.jsx';
 import { useCached } from '../../lib/cache.js';
 import { relTime } from '../../lib/format.js';
 import { useGo, useSwitchTab } from '../../lib/nav.js';
@@ -253,7 +253,7 @@ export default function Home() {
               const team = teams.name(r.head_id) || r.head_name;
               const meta = r.inviter_name
                 ? (r.inviter_name === team ? `con ${r.inviter_name}` : `con ${r.inviter_name}, equipo de ${team}`)
-                : r.is_head ? 'Nueva cabeza' : `Líder de ${team}`;
+                : r.is_head ? `Nueva cabeza, con ${CAMPAIGN}` : `Líder de ${team}`;
               return (
                 <Row key={r.id} className={lastVisitAt && Date.parse(r.created_at) > lastVisitAt ? 'is-new' : ''} to={`/personas/${r.id}`}
                   lead={<PersonAvatar name={r.full_name} leader={r.is_leader} head={r.is_head} />}

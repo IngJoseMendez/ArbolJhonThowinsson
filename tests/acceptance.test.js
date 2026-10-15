@@ -42,14 +42,14 @@ test('1. Se pueden crear varias cabezas y cada una tiene su propio árbol', asyn
 test('2. Se puede registrar un líder dentro de una cabeza (identificador y enlace únicos)', async () => {
   const r = await manual({ full_name: 'Juan Pérez', head_id: ids.norte, is_leader: true });
   assert.equal(r.status, 201, JSON.stringify(r.data));
-  assert.equal(r.data.leader_code, 'LID-JUAN-PEREZ');
+  assert.equal(r.data.leader_code, 'JUAN-PEREZ', 'su link lleva sólo su nombre');
   assert.equal(r.data.registration_method, 'manual');
   ids.juan = r.data.id;
   // Homónimo: identificador distinto
   const r2 = await manual({ full_name: 'Juan Perez', head_id: ids.sur, is_leader: true });
-  assert.equal(r2.data.leader_code, 'LID-JUAN-PEREZ-2');
+  assert.equal(r2.data.leader_code, 'JUAN-PEREZ-2');
   ids.juanSur = r2.data.id;
-  const inv = await anon.get('/api/public/invite/lid-juan-perez');
+  const inv = await anon.get('/api/public/invite/juan-perez');
   assert.equal(inv.status, 200);
   assert.equal(inv.data.valid, true);
   assert.equal(inv.data.head.name, 'Cabeza Norte');
@@ -79,7 +79,7 @@ test('3. Registro manual asignado a su rama, conservando quién lo registró', a
 
 test('4-6. Cadena de invitaciones: personas normales invitan sin ser líderes, cada registro en su lugar', async () => {
   const juanToken = await linkOf(ids.juan);
-  assert.equal(juanToken, 'LID-JUAN-PEREZ');
+  assert.equal(juanToken, 'JUAN-PEREZ');
   const m = await register(juanToken, 'María Gómez');
   assert.equal(m.status, 201, JSON.stringify(m.data));
   assert.ok(m.data.invite_token.startsWith('INV-MARIA-GOMEZ-'));
@@ -117,7 +117,7 @@ test('7. Se distingue líder responsable de invitador directo', async () => {
   const jose = await manual({ full_name: 'José Hernández', head_id: ids.norte, is_leader: true, inviter_id: ids.juan });
   ids.jose = jose.data.id;
   assert.equal(jose.data.leader_id, ids.juan, 'José (líder) responde ante Juan');
-  const ric = await register('LID-JOSE-HERNANDEZ', 'Ricardo Torres');
+  const ric = await register('JOSE-HERNANDEZ', 'Ricardo Torres');
   ids.ricardo = (await admin.get('/api/search?q=ricardo')).data[0].id;
   const sofia = await register(ric.data.invite_token, 'Sofía Castro');
   assert.equal(sofia.status, 201);
@@ -154,7 +154,7 @@ test('7. Se distingue líder responsable de invitador directo', async () => {
 });
 
 test('8. Los enlaces no permiten cambiar la estructura manipulando URL o cuerpo', async () => {
-  const r = await anon.post('/api/public/register/LID-JUAN-PEREZ?head_id=' + ids.sur + '&inviter_id=' + ids.juanSur, {
+  const r = await anon.post('/api/public/register/JUAN-PEREZ?head_id=' + ids.sur + '&inviter_id=' + ids.juanSur, {
     full_name: 'Intruso Manipulador', phone: nextPhone(), ...personFields(LOC), consent: true,
     head_id: ids.sur, inviter_id: ids.juanSur, leader_id: ids.juanSur, is_leader: true, status: 'active', registration_method: 'manual',
   });
@@ -166,7 +166,7 @@ test('8. Los enlaces no permiten cambiar la estructura manipulando URL o cuerpo'
   assert.equal(d.person.is_leader, false);
   assert.equal(d.person.registration_method, 'invitation');
   // Token inexistente o mal formado
-  assert.equal((await anon.get('/api/public/invite/LID-NO-EXISTE')).status, 404);
+  assert.equal((await anon.get('/api/public/invite/NO-EXISTE-NADIE')).status, 404);
   assert.equal((await anon.get('/api/public/invite/..%2F..%2Fetc')).status, 404);
   // Enlace desactivado
   const links = (await admin.get(`/api/links?q=ANA-MORALES`)).data.rows;
@@ -177,8 +177,8 @@ test('8. Los enlaces no permiten cambiar la estructura manipulando URL o cuerpo'
   assert.equal(blocked.data.error.code, 'LINK_INVALID');
   assert.equal((await admin.post(`/api/links/${anaLink.id}/enable`, {})).status, 200);
   // Sin consentimiento o con honeypot
-  assert.equal((await register('LID-JUAN-PEREZ', 'Sin Consentimiento', { consent: false })).status, 400);
-  assert.equal((await register('LID-JUAN-PEREZ', 'Robot Spam', { website: 'x' })).status, 400);
+  assert.equal((await register('JUAN-PEREZ', 'Sin Consentimiento', { consent: false })).status, 400);
+  assert.equal((await register('JUAN-PEREZ', 'Robot Spam', { website: 'x' })).status, 400);
   // Límite de usos
   await admin.patch(`/api/links/${anaLink.id}`, { max_uses: 1 });
   assert.equal((await register(anaLink.token, 'Dentro Del Limite')).status, 201);
@@ -189,11 +189,11 @@ test('8. Los enlaces no permiten cambiar la estructura manipulando URL o cuerpo'
 
 test('9. No se generan duplicados ni relaciones circulares', async () => {
   const p = (await admin.get(`/api/people/${ids.maria}`)).data.person;
-  const dup = await anon.post('/api/public/register/LID-JUAN-PEREZ', { full_name: 'Otra María', phone: p.phone, ...personFields(LOC), consent: true });
+  const dup = await anon.post('/api/public/register/JUAN-PEREZ', { full_name: 'Otra María', phone: p.phone, ...personFields(LOC), consent: true });
   assert.equal(dup.status, 409);
   // Cédula duplicada (con puntos, como suele escribirse) en registro público y manual de otra cabeza
   const ced = p.document_id.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  const dupDoc = await anon.post('/api/public/register/LID-JUAN-PEREZ', { full_name: 'Otra Cédula', phone: nextPhone(), ...personFields(LOC), document_id: ced, consent: true });
+  const dupDoc = await anon.post('/api/public/register/JUAN-PEREZ', { full_name: 'Otra Cédula', phone: nextPhone(), ...personFields(LOC), document_id: ced, consent: true });
   assert.equal(dupDoc.status, 409);
   assert.equal(dupDoc.data.error.field, 'document_id');
   const dupDoc2 = await manual({ full_name: 'Cédula Repetida', head_id: ids.sur, inviter_id: ids.juanSur, document_id: p.document_id });
@@ -297,7 +297,7 @@ test('11. Los permisos impiden consultar o modificar fuera del alcance', async (
 
 test('Flujo de aprobación y movimiento entre cabezas con historial', async () => {
   await admin.patch(`/api/heads/${ids.sur}`, { requires_approval: true });
-  const r = await register('LID-JUAN-PEREZ-2', 'Pendiente Sur');
+  const r = await register('JUAN-PEREZ-2', 'Pendiente Sur');
   assert.equal(r.data.status, 'pending');
   assert.equal(r.data.invite_token, null, 'pendiente: aún no puede invitar');
   const pend = (await admin.get('/api/pending')).data;

@@ -1,7 +1,8 @@
 import { CAMPAIGN } from '../brand/Brand.jsx';
 import { isIOSStandalone, isPhoneNow } from './device.js';
 
-// Enlaces a WhatsApp y mensajes para las personas invitadas (se les habla de tú).
+// Enlaces a WhatsApp y mensajes para las personas invitadas (se les habla de tú). De cara a ellas no hay «cabezas»,
+// «líderes» ni «convenios»: quien recibe una invitación personal es una persona de confianza.
 
 /** Celular colombiano con indicativo: los últimos 10 dígitos con 57 adelante (o vacío si no es un celular). */
 export function normalizePhone57(p) {
@@ -24,18 +25,24 @@ export const extLinkProps = () => (isPhoneNow() ? {} : { target: '_blank', rel: 
 
 const hello = (name) => `Hola${name ? `, ${String(name).trim().split(/\s+/)[0]}` : ''}.`;
 
-/** Invitación personal de un solo uso para ser cabeza o líder. */
+/**
+ * Invitación personal de un solo uso para ser persona de confianza: de John (las cabezas, que arman su propio
+ * equipo) o de quien encabeza un equipo (sus líderes).
+ */
 export function inviteText({ role, name, cabeza, url }) {
   const what = role === 'head'
-    ? `Te invito a ser cabeza del equipo de ${CAMPAIGN}: tendrás tu propio equipo de líderes y personas.`
-    : `Te invito a ser líder en el equipo de ${CAMPAIGN}${cabeza ? ` con ${cabeza}` : ''}.`;
+    ? `${CAMPAIGN} quiere contar contigo como una de sus personas de confianza: con tu registro nace tu propio equipo para sumar a tu gente.`
+    : cabeza
+      ? `${cabeza} quiere contar contigo como una de sus personas de confianza en el equipo de ${CAMPAIGN}.`
+      : `Te invitamos a ser persona de confianza en el equipo de ${CAMPAIGN}.`;
   return `${hello(name)} ${what} Este enlace es personal y sirve para una sola persona, no lo reenvíes: ${url}`;
 }
 
 /** Recordatorio de una invitación que aún no se ha usado (el mismo enlace). */
 export function reminderText({ role, name, cabeza, url }) {
-  const what = role === 'head' ? 'cabeza del equipo' : 'líder en el equipo';
-  return `${hello(name)} Te recuerdo tu invitación para ser ${what} de ${CAMPAIGN}${role !== 'head' && cabeza ? ` con ${cabeza}` : ''}. Es solo para ti: ${url}`;
+  const from = role === 'head' ? CAMPAIGN : cabeza;
+  const what = from ? `la invitación de ${from} para ser una de sus personas de confianza` : 'tu invitación para ser persona de confianza';
+  return `${hello(name)} Te recuerdo ${what}${role === 'head' ? '' : ` en el equipo de ${CAMPAIGN}`}. Es solo para ti: ${url}`;
 }
 
 /** El panel privado de un líder o una cabeza. */

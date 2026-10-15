@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Archive, Plus, Network, Send } from 'lucide-react';
+import { Archive, GitBranch, Plus, Network, Send } from 'lucide-react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { fmtNum, HEAD_COLORS, initials } from '../lib/format.js';
 import { ErrorBox, Loading, Modal, useAsync, useToast, Empty } from '../components/ui.jsx';
-import { Mark } from '../brand/Brand.jsx';
+import { CAMPAIGN, Mark } from '../brand/Brand.jsx';
 
 export function HeadFormModal({ head, usedColors = [], onClose, onSaved }) {
   const a = useAuth();
@@ -30,7 +30,7 @@ export function HeadFormModal({ head, usedColors = [], onClose, onSaved }) {
     catch (ex) { setErr(ex); }
   };
   return (
-    <Modal title={head ? 'Editar estructura' : 'Nueva estructura'} subtitle="Cada estructura es independiente, con su propio árbol. Su cabeza es la persona que la encabeza: regístrela después con el tipo «Cabeza» o desígnela desde su ficha." onClose={onClose}
+    <Modal title={head ? 'Editar estructura' : 'Nueva estructura'} subtitle={`Cada estructura cuelga de ${CAMPAIGN} y tiene su propio árbol. Su cabeza es la persona que la encabeza: regístrela después con el tipo «Cabeza» o desígnela desde su ficha.`} onClose={onClose}
       footer={<>
         {head && a.isSuper && <button className="btn btn-danger" style={{ marginRight: 'auto' }} onClick={archive}><Archive size={15} />{head.status === 'archived' ? 'Reactivar' : 'Archivar'}</button>}
         <button className="btn" onClick={onClose}>Cancelar</button>
@@ -74,7 +74,7 @@ function HeadCard({ h, onOpen }) {
         <div style={{ minWidth: 0 }}>
           <div className="head-name clamp-2">{name}</div>
           <div className="head-struct ellipsis">
-            {h.cabeza_name ? (structure || 'Cabeza de su estructura') : 'Estructura sin cabeza asignada'}
+            {h.cabeza_name ? (structure || `Cabeza de ${CAMPAIGN}`) : 'Estructura sin cabeza asignada'}
             {h.region ? ` · ${h.region}` : ''}{h.status === 'archived' ? ' · Archivada' : ''}
           </div>
         </div>
@@ -106,13 +106,12 @@ export default function Heads() {
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>Cabezas</h1><p>Cada cabeza es una persona al frente de su estructura: de ella salen sus líderes y, de cada líder, sus personas.</p></div>
-        {a.isSuper && (
-          <div className="row-wrap">
-            <Link className="btn btn-primary" to="/enlaces"><Send size={16} />Invitar una cabeza</Link>
-            <button className="btn" onClick={() => setCreating(true)}><Plus size={16} />Nueva estructura</button>
-          </div>
-        )}
+        <div><h1>Cabezas</h1><p>Todas cuelgan de {CAMPAIGN}. Cada cabeza es una persona al frente de su estructura: de ella salen sus líderes y, de cada líder, sus personas.</p></div>
+        <div className="row-wrap">
+          <Link className="btn" to="/arbol"><GitBranch size={16} />Ver la red completa</Link>
+          {a.isSuper && <Link className="btn btn-primary" to="/enlaces"><Send size={16} />Invitar una cabeza</Link>}
+          {a.isSuper && <button className="btn" onClick={() => setCreating(true)}><Plus size={16} />Nueva estructura</button>}
+        </div>
       </div>
       {loading && <Loading />}
       <ErrorBox error={error} />

@@ -9,7 +9,8 @@ import { teamName, useTeams } from '../../lib/teams.js';
 import Screen, { BarButton } from '../../components/m/Screen.jsx';
 import { ActionSheet } from '../../components/m/Sheet.jsx';
 import { EmptyState, Group, Row, RowsSkeleton, Section } from '../../components/m/List.jsx';
-import { Sparkline, TeamAvatar } from '../../components/m/Spark.jsx';
+import { JohnAvatar, Sparkline, TeamAvatar } from '../../components/m/Spark.jsx';
+import { CAMPAIGN } from '../../brand/Brand.jsx';
 import { openSearch } from '../../components/m/SearchOverlay.jsx';
 import { InviteButton, useRoleTypes } from '../../components/invite/InviteBlocks.jsx';
 import { useOneTimeInvite } from '../../lib/invites.js';
@@ -96,6 +97,10 @@ export default function Heads() {
         <BarButton icon={More} label="Más opciones" onClick={() => setMenu('more')} />
       </>}>
       {a.isSuper && <InviteHeadRow />}
+      {/* Las cabezas son de John: él está arriba de todas, y desde aquí se abre la red completa. */}
+      <Group className="m-group--spaced">
+        <Row lead={<JohnAvatar size={44} />} title={CAMPAIGN} meta="Todas las cabezas cuelgan de él" to="/arbol" chevron />
+      </Group>
       {teams.list.length > 8 && (
         <input className="input m-filter-input" type="search" placeholder="Buscar cabeza" aria-label="Buscar cabeza" value={q} onChange={(e) => setQ(e.target.value)} />
       )}

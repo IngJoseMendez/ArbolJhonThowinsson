@@ -7,6 +7,7 @@ import { fmtNum, relTime, METHOD } from '../lib/format.js';
 import { useTeams } from '../lib/teams.js';
 import { GrowthChart, BarList } from '../components/Charts.jsx';
 import { Avatar, ErrorBox, Loading, StatTile, StatusBadge, useAsync, Empty, PersonLink, RoleIcon } from '../components/ui.jsx';
+import { CAMPAIGN } from '../brand/Brand.jsx';
 
 export function DashboardBody({ headId, days, compact }) {
   const nav = useNavigate();
@@ -73,7 +74,7 @@ export function DashboardBody({ headId, days, compact }) {
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div className="row" style={{ gap: 6 }}><b className="ellipsis">{r.full_name}</b><RoleIcon isHead={r.is_head} isLeader={r.is_leader} /></div>
                   <div className="small muted ellipsis">
-                    {r.inviter_name ? <>Invitado por <PersonLink id={r.inviter_id} name={r.inviter_name} /></> : r.is_head ? 'Cabeza de su estructura' : 'Líder raíz'} · {METHOD[r.registration_method]}
+                    {r.inviter_name ? <>Invitado por <PersonLink id={r.inviter_id} name={r.inviter_name} /></> : r.is_head ? `Cabeza, invitada por ${CAMPAIGN}` : 'Líder raíz'} · {METHOD[r.registration_method]}
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>

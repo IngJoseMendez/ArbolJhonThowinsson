@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, ChevronsDown, ChevronsUp, Crown, Network } from 'lucide-react';
-import { Mark } from '../brand/Brand.jsx';
+import { CAMPAIGN, JohnPhoto, Mark } from '../brand/Brand.jsx';
 import { fmtDate, fmtNum } from '../lib/format.js';
 import { StatusBadge } from './ui.jsx';
 
@@ -47,13 +47,25 @@ export default function TreeList({ store, version, selectedId, pathIds, isDimmed
               </div>
             );
           }
+          if (n.kind === 'network') {
+            const heads = n.data.heads;
+            return (
+              <div key={n.key} role="treeitem" aria-level={depth + 1} aria-expanded={!!n.expanded} className="trow trow-john" style={style} onClick={() => store.toggle(n.key)}>
+                <button className="twisty" aria-label={n.expanded ? 'Contraer' : 'Ver sus cabezas'}>{n.expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</button>
+                <span className="trow-john__photo"><JohnPhoto sizes="28px" alt="" /></span>
+                <span className="ellipsis">{CAMPAIGN}</span>
+                {heads != null && <span className="muted small" style={{ fontWeight: 400 }}>{fmtNum(heads)} {heads === 1 ? 'cabeza' : 'cabezas'}, {fmtNum(n.data.people)} personas</span>}
+              </div>
+            );
+          }
           if (n.kind === 'head') {
             return (
               <div key={n.key} className="trow" style={{ ...style, fontWeight: 650 }} onClick={() => store.toggle(n.key)}>
+                {guides}
                 <button className="twisty" aria-label="Expandir">{n.expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</button>
-                <span className="dot" style={{ background: headColor, width: 12, height: 12 }} />
+                <span className="dot" style={{ background: n.data.color || headColor, width: 12, height: 12 }} />
                 <Network size={15} />{n.data.cabeza_name ? `Equipo de ${n.data.cabeza_name}` : n.data.name}
-                <span className="muted small" style={{ fontWeight: 400 }}>{n.data.people != null ? `${fmtNum(n.data.people)} personas` : ''}</span>
+                <span className="muted small" style={{ fontWeight: 400 }}>{n.data.people != null ? `${fmtNum(n.data.people)} ${n.data.people === 1 ? 'persona' : 'personas'}` : ''}</span>
               </div>
             );
           }

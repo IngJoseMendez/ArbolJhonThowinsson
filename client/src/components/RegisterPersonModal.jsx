@@ -111,7 +111,7 @@ export default function RegisterPersonModal({ onClose, onCreated, defaultHeadId,
               </div>
             )}
             <span className="hint">{isHead ? 'Quedará como cabeza de la estructura: invitará líderes y personas desde su panel.'
-              : isLeader ? 'Quedará como líder oficial (código LID-…), con su link y su panel.' : 'Quedará como persona; invitar no la convierte en líder.'}</span>
+              : isLeader ? 'Quedará como líder oficial, con su código, su link y su panel.' : 'Quedará como persona; invitar no la convierte en líder.'}</span>
           </div>
         </div>
 

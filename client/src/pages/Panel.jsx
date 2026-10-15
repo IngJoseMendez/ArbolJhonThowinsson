@@ -27,8 +27,8 @@ function Foot() {
 }
 
 /**
- * Botones para invitar a un líder: cada envío genera un enlace personal de un solo uso (caduca a los 7 días).
- * Si alguien lo reenvía, nadie más puede registrarse con él.
+ * Botones para invitar a una persona de confianza (un líder del equipo): cada envío genera un enlace personal de un
+ * solo uso (caduca a los 7 días). Si alguien lo reenvía, nadie más puede registrarse con él.
  */
 function LeaderInviteActions({ token, pin, name, stats, onStats }) {
   const toast = useToast();
@@ -39,7 +39,7 @@ function LeaderInviteActions({ token, pin, name, stats, onStats }) {
     onStats(r.stats); setErr(null);
     return r;
   };
-  const message = (url) => `Hola, soy ${first(name)}. Te invito a ser líder en mi equipo con ${CAMPAIGN}. `
+  const message = (url) => `Hola, soy ${first(name)}. Te invito a ser una de mis personas de confianza en el equipo de ${CAMPAIGN}. `
     + `Este link es solo para ti, no lo reenvíes: ${url}`;
   const sendWhatsApp = async () => {
     // La ventana se abre en el mismo toque (si no, el navegador la bloquea) y luego va a WhatsApp con el enlace nuevo.
@@ -55,13 +55,13 @@ function LeaderInviteActions({ token, pin, name, stats, onStats }) {
     setBusy(true);
     try {
       const l = await generate();
-      if (await copyText(message(inviteUrl(l.token)))) toast('Invitación copiada: pégala en el chat de tu líder');
+      if (await copyText(message(inviteUrl(l.token)))) toast('Invitación copiada: pégala en el chat de esa persona');
     } catch (e) { setErr(e); } finally { setBusy(false); }
   };
   return (
     <>
       <div className="grow-actions">
-        <button type="button" className="btn btn-wa" disabled={busy} onClick={sendWhatsApp}>{busy ? <span className="spinner" /> : <WhatsAppIcon size={17} />}Invitar un líder</button>
+        <button type="button" className="btn btn-wa" disabled={busy} onClick={sendWhatsApp}>{busy ? <span className="spinner" /> : <WhatsAppIcon size={17} />}Invitar por WhatsApp</button>
         <button type="button" className="btn" disabled={busy} onClick={copyNew}><Copy size={16} />Copiar</button>
       </div>
       {stats?.sent > 0 && <span className="grow-meta">{fmtNum(stats.sent)} enviadas · {fmtNum(stats.used)} usadas · {fmtNum(stats.open)} sin usar</span>}
@@ -178,7 +178,9 @@ export default function Panel() {
   const total = data.people.total;
   const leaders = data.leaders || [];
   const view = isHead ? tab : 'red';
-  const team = isHead ? `Equipo ${CAMPAIGN}` : head?.cabeza ? `Equipo de ${head.cabeza}` : `Equipo ${CAMPAIGN}`;
+  // De quién es persona de confianza: quien encabeza un equipo, de John; los demás, de quien encabeza el suyo.
+  const trustOf = isHead ? CAMPAIGN : head?.cabeza;
+  const team = trustOf ? `de ${trustOf}` : `Equipo ${CAMPAIGN}`;
   const peopleList = (
     <>
       <div className="search-input" style={{ margin: '4px 0 6px' }}><Search size={16} />
@@ -187,9 +189,9 @@ export default function Panel() {
       <ul className="panel-list">
         {rows.map((r) => (
           <li key={r.id}>
-            <span className="dot" style={{ background: r.type_color || 'var(--muted)', width: 10, height: 10 }} title={r.type_name} />
+            <span className="dot" style={{ background: r.type_color || 'var(--muted)', width: 10, height: 10 }} aria-hidden="true" />
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div className="row" style={{ gap: 6 }}><b className="ellipsis" style={{ fontWeight: 600 }}>{r.full_name}</b>{r.is_leader && <Crown size={13} color="var(--leader)" aria-label="Líder" />}
+              <div className="row" style={{ gap: 6 }}><b className="ellipsis" style={{ fontWeight: 600 }}>{r.full_name}</b>{r.is_leader && <Crown size={13} color="var(--leader)" aria-label="Persona de confianza" />}
                 {r.status === 'pending' && <span className="badge badge-warning">Pendiente</span>}</div>
               <div className="small muted ellipsis">
                 {[r.barrio || r.localidad, r.direct ? 'Directo contigo' : r.inviter_name ? `Con ${r.inviter_name}` : null].filter(Boolean).join(' · ')}
@@ -209,7 +211,7 @@ export default function Panel() {
         <span className="stage-chip"><i aria-hidden="true" />Tu panel · solo lectura</span>
         <h1 className="panel-hello">Hola, {first(person.first_names || person.full_name)}</h1>
         <div className="panel-role">
-          <span className={`role-pill ${isHead ? 'head' : ''}`}>{isHead ? <Mark size={12} /> : <Crown size={13} />}{isHead ? 'Cabeza' : 'Líder'}</span>
+          <span className={`role-pill ${isHead ? 'head' : ''}`}>{isHead ? <Mark size={12} /> : <Crown size={13} />}Persona de confianza</span>
           <span className="panel-team">{team}</span>
         </div>
         <div className="panel-big"><b className="tnum">{fmtNum(stats.total)}</b><span>{isHead ? 'personas en tu equipo' : 'personas en tu red'}</span></div>
@@ -231,7 +233,7 @@ export default function Panel() {
             {person.status === 'pending' && <div className="alert alert-warn">Tu registro aún está pendiente de aprobación: tu link se activará cuando lo aprueben.</div>}
             <div className="panel-strip">
               {isHead
-                ? <div><b className="tnum">{fmtNum(stats.leaders)}</b><span>líderes</span></div>
+                ? <div><b className="tnum">{fmtNum(stats.leaders)}</b><span>{stats.leaders === 1 ? 'persona de confianza' : 'personas de confianza'}</span></div>
                 : <div><b className="tnum">{fmtNum(stats.direct)}</b><span>invitaste tú</span></div>}
               <div><b className="tnum">+{fmtNum(stats.last7)}</b><span>esta semana</span></div>
               <div><b className="tnum">{fmtNum(stats.supports_yes)}</b><span>«cuenten conmigo»</span></div>
@@ -244,11 +246,11 @@ export default function Panel() {
                 {isHead ? (
                   <>
                     <li>
-                      <b>Invita a tus líderes</b>
-                      <span>Uno por líder: cada link sirve para una sola persona, así que genera uno nuevo para cada líder. No se puede reenviar.</span>
+                      <b>Invita a tus personas de confianza</b>
+                      <span>Uno por persona: cada link sirve para una sola persona, así que genera uno nuevo para cada una. No se puede reenviar.</span>
                       <LeaderInviteActions token={token} pin={pin} name={person.full_name} stats={inviteStats} onStats={setInviteStats} />
                     </li>
-                    <li><b>Tus líderes invitan a su gente</b><span>Cada uno comparte su link y tu equipo crece.</span></li>
+                    <li><b>Tus personas de confianza suman a su gente</b><span>Cada una comparte su link y tu equipo crece.</span></li>
                     <li><b>Cada persona invita a más</b><span>Al registrarse recibe su propio link.</span></li>
                   </>
                 ) : (
@@ -270,12 +272,12 @@ export default function Panel() {
               )}
             </section>
 
-            {/* Menú: líderes y equipo (la cabeza) o la red (el líder). */}
+            {/* Menú: sus personas de confianza y el equipo (quien encabeza un equipo) o la red (los demás). */}
             <section className="sheet-card">
               {isHead ? (
                 <div className="seg full" role="tablist" aria-label="Ver">
                   <button type="button" role="tab" aria-selected={view === 'lideres'} className={view === 'lideres' ? 'active' : ''} onClick={() => setTab('lideres')}>
-                    <Crown size={15} />Líderes <span className="seg-count tnum">{fmtNum(leaders.length)}</span></button>
+                    <Crown size={15} />De confianza <span className="seg-count tnum">{fmtNum(leaders.length)}</span></button>
                   <button type="button" role="tab" aria-selected={view === 'red'} className={view === 'red' ? 'active' : ''} onClick={() => setTab('red')}>
                     <Users size={15} />Equipo <span className="seg-count tnum">{fmtNum(stats.total)}</span></button>
                 </div>
@@ -284,7 +286,7 @@ export default function Panel() {
               )}
               {view === 'lideres' ? (
                 <div className="leader-list">
-                  {leaders.length === 0 && <p className="text-2" style={{ margin: '12px 0 0' }}>Aún no tienes líderes. Invita al primero arriba.</p>}
+                  {leaders.length === 0 && <p className="text-2" style={{ margin: '12px 0 0' }}>Aún no tienes personas de confianza. Invita a la primera arriba.</p>}
                   {leaders.map((l) => (
                     <div key={l.id} className="leader-row">
                       <span className="avatar leader" aria-hidden="true">{initials(l.full_name)}</span>

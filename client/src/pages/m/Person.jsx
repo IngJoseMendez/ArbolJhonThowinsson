@@ -5,7 +5,7 @@ import {
   Pencil, Phone, Power, RefreshCw, UserCheck, UserPlus, Users, XCircle,
 } from 'lucide-react';
 import { api } from '../../api.js';
-import { Mark } from '../../brand/Brand.jsx';
+import { CAMPAIGN, Mark } from '../../brand/Brand.jsx';
 import { useCached, invalidate } from '../../lib/cache.js';
 import { haptic, osName } from '../../lib/device.js';
 import { fmtDate, fmtDateTime, inviteUrl, phoneDisplay, relTime } from '../../lib/format.js';
@@ -18,7 +18,7 @@ import Screen, { BarButton } from '../../components/m/Screen.jsx';
 import Sheet, { ActionSheet } from '../../components/m/Sheet.jsx';
 import { Group, Row, Section } from '../../components/m/List.jsx';
 import { PersonAvatar } from '../../components/m/Spark.jsx';
-import { ConfirmModal, ErrorBox, LocationText, RoleBadge, StatusBadge, inviteMessage, useToast, WhatsAppIcon } from '../../components/ui.jsx';
+import { ConfirmModal, ErrorBox, JohnLink, LocationText, RoleBadge, StatusBadge, inviteMessage, useToast, WhatsAppIcon } from '../../components/ui.jsx';
 import { useRoleTypes } from '../../components/invite/InviteBlocks.jsx';
 import RegisterPersonModal from '../../components/RegisterPersonModal.jsx';
 import { ReasonSheet } from '../../components/invite/LinkRows.jsx';
@@ -86,7 +86,7 @@ export default function Person() {
         </div>
       </div>
       <h1 ref={ref} className="m-detail__name">{p.full_name}</h1>
-      <p className="m-detail__line">{p.is_head ? 'Cabeza de su equipo' : team}</p>
+      <p className="m-detail__line">{p.is_head ? `Cabeza de ${CAMPAIGN}` : team}</p>
       <div className="m-quick">
         <Quick icon="wa" label="WhatsApp" wa href={canCall ? waUrl('', p.phone) : undefined} disabled={!canCall} linkProps={extLinkProps()} />
         <Quick icon={Phone} label="Llamar" href={canCall ? `tel:+${normalizePhone57(p.phone)}` : undefined} disabled={!canCall} />
@@ -129,10 +129,12 @@ export default function Person() {
       <Section title="En la red">
         <dl className="card list-card m-group" style={{ margin: 0 }}>
           <Kv label="Cabeza" action={!p.is_head && head.cabeza ? <button type="button" className="m-link-btn" onClick={() => go(`/cabezas/${head.id}`)}>Ver</button> : null}>
-            {p.is_head ? 'Ella misma' : head.cabeza ? head.cabeza.full_name : `${head.name} (sin cabeza)`}
+            {p.is_head ? 'Encabeza su equipo' : head.cabeza ? head.cabeza.full_name : `${head.name} (sin cabeza)`}
           </Kv>
-          <Kv label="Llegó con" action={inviter ? <button type="button" className="m-link-btn" onClick={() => go(`/personas/${inviter.id}`)}>Ver</button> : null}>
-            {inviter ? inviter.full_name : p.is_head ? 'Es la cabeza' : 'Directo con la estructura'}
+          <Kv label="Llegó con" action={inviter
+            ? <button type="button" className="m-link-btn" onClick={() => go(`/personas/${inviter.id}`)}>Ver</button>
+            : p.is_head ? <button type="button" className="m-link-btn" onClick={() => go(`/arbol?persona=${p.id}`)}>Ver</button> : null}>
+            {inviter ? inviter.full_name : p.is_head ? <JohnLink plain /> : 'Directo con la estructura'}
           </Kv>
           {!p.is_head && <Kv label="Líder a cargo" action={leader && leader.id !== inviter?.id ? <button type="button" className="m-link-btn" onClick={() => go(`/personas/${leader.id}`)}>Ver</button> : null}>
             {leader ? leader.full_name : 'Sin líder por encima'}

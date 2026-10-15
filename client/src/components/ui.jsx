@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { Check, Copy, Crown, Search, Share2, X, AlertCircle, CheckCircle2, Clock, CircleSlash, Ban, ExternalLink } from 'lucide-react';
 import { api, qs } from '../api.js';
 import { STATUS, initials, inviteUrl } from '../lib/format.js';
-import { Mark, CAMPAIGN } from '../brand/Brand.jsx';
+import { Mark, CAMPAIGN, JohnPhoto } from '../brand/Brand.jsx';
 import { extLinkProps, waUrl } from '../lib/whatsapp.js';
 import Sheet from './m/Sheet.jsx';
 
@@ -142,6 +142,16 @@ export function PersonLink({ id, name, isLeader, isHead }) {
       <RoleIcon isHead={isHead} isLeader={isLeader} size={12} />{name}
     </Link>
   );
+}
+
+/**
+ * John Thowinsson, de quien cuelgan todas las cabezas: su foto y su nombre. Lleva a la red completa (y, con
+ * `locate`, ubica allí a esa persona); `plain`, sin enlace.
+ */
+export function JohnLink({ locate, plain }) {
+  const inner = <><span className="john-link__photo"><JohnPhoto sizes="22px" alt="" /></span>{CAMPAIGN}</>;
+  if (plain) return <span className="john-link">{inner}</span>;
+  return <Link to={`/arbol${locate ? `?persona=${locate}` : ''}`} className="john-link" onClick={(e) => e.stopPropagation()}>{inner}</Link>;
 }
 
 export function Spinner() { return <span className="spinner" aria-label="Cargando" />; }

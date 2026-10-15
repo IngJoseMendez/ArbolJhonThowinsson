@@ -97,7 +97,7 @@ test('Panel de la cabeza: ve a sus líderes e invita líderes con enlaces de un 
   assert.equal((await invite({ pin: wrong })).data.error.code, 'PIN_INVALID');
   const a = await invite();
   assert.equal(a.status, 201, JSON.stringify(a.data));
-  assert.match(a.data.token, /^REG-LIDER-[A-Z2-9]{12}$/);
+  assert.match(a.data.token, /^REG-[A-Z2-9]{12}$/, 'sin «LÍDER» en el link: lo ve quien lo recibe');
   assert.deepEqual(a.data.stats, { sent: 1, used: 0, open: 1 });
   const inv = (await anon.get(`/api/public/invite/${a.data.token}`)).data;
   assert.equal(inv.role, 'leader');
@@ -197,6 +197,38 @@ test('Volver al panel con el enlace de registro ya usado: cédula + celular, enl
   const rocio = await find('rocio recupera panel');
   const hist = (await admin.get(`/api/people/${rocio.id}`)).data.history;
   assert.ok(hist.some((h) => h.change_type === 'panel_recovered'));
+});
+
+test('La red de John: de él cuelgan todas las cabezas (y las estructuras aún sin cabeza), cada una con su árbol', async () => {
+  // La estructura que nace de una invitación de cabeza queda a nombre de la cuenta de la coordinación que la envió.
+  const me = (await admin.get('/api/me')).data;
+  assert.equal((await admin.get('/api/heads')).data.find((x) => x.id === ids.head).created_by, me.user.id);
+
+  const suelta = await admin.post('/api/heads', { name: 'Estructura Sin Cabeza' });
+  const raiz = await admin.post('/api/people', { ...form('Raúl', 'Raiz Suelta'), head_id: suelta.data.id, is_leader: true });
+  assert.equal(raiz.status, 201, JSON.stringify(raiz.data));
+  const net = await admin.get('/api/tree/network');
+  assert.equal(net.status, 200, JSON.stringify(net.data));
+  const juan = net.data.nodes.find((n) => n.kind === 'person' && n.id === ids.cabeza.id);
+  assert.ok(juan, 'la cabeza cuelga de John');
+  assert.equal(juan.is_head, true);
+  assert.equal(juan.head_id, ids.head);
+  assert.equal(juan.path, undefined, 'sin rutas internas');
+  const sinCabeza = net.data.nodes.find((n) => n.kind === 'head' && n.id === suelta.data.id);
+  assert.ok(sinCabeza, 'sin cabeza, cuelga de John la estructura');
+  assert.ok(net.data.nodes.indexOf(juan) < net.data.nodes.indexOf(sinCabeza), 'primero las cabezas');
+  assert.equal(net.data.root.heads, net.data.nodes.length);
+  assert.equal(net.data.root.people, (await admin.get('/api/people?pageSize=5')).data.total, 'John suma toda la red');
+  // Cada cabeza conserva su árbol: sus ramas se piden a su estructura.
+  const kids = (await admin.get(`/api/tree/${ids.head}/children?parent=${ids.cabeza.id}`)).data.nodes;
+  assert.ok(kids.some((k) => k.id === ids.lucia.id));
+
+  // Una coordinación de una sola cabeza ve a John con esa cabeza; sin sesión no hay red.
+  assert.equal((await admin.post('/api/users', { username: 'adm.red', password: 'AdmRed1234!', role: 'head_admin', head_ids: [ids.head] })).status, 201);
+  const coord = await new Client(srv.base).login('adm.red', 'AdmRed1234!');
+  const mine = (await coord.get('/api/tree/network')).data;
+  assert.deepEqual(mine.nodes.map((n) => n.id), [ids.cabeza.id]);
+  assert.equal((await anon.get('/api/tree/network')).status, 401);
 });
 
 test('Manifiesto instalable del panel: abre directo el panel', async () => {

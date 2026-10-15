@@ -14,22 +14,28 @@ import RegisterPersonModal from './RegisterPersonModal.jsx';
 import GeoSelect, { emptyGeo } from './GeoSelect.jsx';
 import LeaderPicker from './LeaderPicker.jsx';
 import { PersonPicker, Loading, ErrorBox, useToast } from './ui.jsx';
+import { CAMPAIGN } from '../brand/Brand.jsx';
 
 const emptyFilters = { status: '', from: '', to: '', geo: emptyGeo, geoPending: false };
 
 /**
- * Explorador del árbol de una cabeza. Estado sincronizable con la URL a través de `params`/`setParams`
- * (cabeza, foco, persona, vista, expandir=todo). El estado de expansión, zoom, selección y filtros se
- * conserva al navegar a otra página y volver (memoria) y al recargar (sessionStorage).
+ * Explorador del árbol. La coordinación ve por defecto la red completa: John Thowinsson arriba y de él todas sus
+ * cabezas, cada una con su propio árbol; también puede ver el árbol de una sola cabeza. Estado sincronizable con la
+ * URL a través de `params`/`setParams` (cabeza, foco, persona, vista, expandir=todo). El estado de expansión, zoom,
+ * selección y filtros se conserva al navegar a otra página y volver (memoria) y al recargar (sessionStorage).
  */
 export default function TreeExplorerView({ heads, params, setParams, lockHead, compact }) {
   const a = useAuth();
   const toast = useToast();
-  const headId = Number(params.cabeza) || heads[0]?.id;
-  const head = heads.find((h) => h.id === headId);
+  const canNetwork = !lockHead && a.isAdmin;
+  const requested = Number(params.cabeza) || null;
+  const picked = requested ? heads.find((h) => h.id === requested) : null;
+  const network = canNetwork && !picked;
+  const head = network ? null : picked || heads[0] || null;
+  const headId = head?.id ?? null;
   const focusId = Number(params.foco) || null;
   const view = params.vista === 'lista' ? 'lista' : 'arbol';
-  const cacheKey = `${a.user?.id}:${headId}:${focusId || ''}`;
+  const cacheKey = `${a.user?.id}:${network ? 'red' : headId}:${focusId || ''}`;
 
   const [store, setStore] = useState(null);
   const [error, setError] = useState(null);
@@ -54,9 +60,9 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
   );
 
   useEffect(() => {
-    if (!headId) return;
-    api.get(`/leaders${qs({ head_id: headId })}`).then(setLeaders).catch(() => setLeaders([]));
-  }, [headId]);
+    if (!headId && !network) return;
+    api.get(`/leaders${qs({ head_id: headId || undefined })}`).then(setLeaders).catch(() => setLeaders([]));
+  }, [headId, network]);
 
   const applyUi = (ui = {}) => {
     setSelected(ui.selected ?? null);
@@ -66,9 +72,9 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
     setInitialTransform(ui.t || null);
   };
 
-  // (Re)construye o recupera el almacén cuando cambia la cabeza o el foco.
+  // (Re)construye o recupera el almacén cuando cambia la cabeza (o la red completa) o el foco.
   useEffect(() => {
-    if (!head) return;
+    if (!head && !network) return;
     let alive = true;
     setError(null);
     (async () => {
@@ -77,7 +83,7 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
         if (focusId) {
           const { chain } = await api.get(`/tree/path/${focusId}`);
           focus = chain[chain.length - 1];
-          if (focus.head_id !== head.id) { setParams({ foco: null }); return; }
+          if (!network && focus.head_id !== head.id) { setParams({ foco: null }); return; }
         }
         if (!alive) return;
         setFocusNode(focus);
@@ -93,7 +99,7 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
           return;
         }
         setStore(null);
-        const s = new TreeStore(head, focus);
+        const s = new TreeStore(network ? null : head, focus);
         s.builtAt = Date.now();
         const saved = loadTreeState(cacheKey);
         if (saved?.tree) {
@@ -132,7 +138,7 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
       } catch (e) { if (alive) setError(e); }
     })();
     return () => { alive = false; };
-  }, [head?.id, focusId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [network ? 'red' : head?.id, focusId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const afterReady = (s, keepView) => {
     const target = pendingLocate.current;
@@ -148,7 +154,7 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
 
   const refreshStore = async (old, focus) => {
     try {
-      const s = new TreeStore(head, focus ?? focusNode);
+      const s = new TreeStore(network ? null : head, focus ?? focusNode);
       s.builtAt = Date.now();
       await s.restore(old.snapshot());
       s.ui = old.ui;
@@ -194,7 +200,7 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
 
   const onSearchPick = (p) => {
     if (!p) return;
-    if (p.head_id !== headId) {
+    if (!network && p.head_id !== headId) {
       pendingLocate.current = p.id;
       setParams({ cabeza: p.head_id, foco: null, persona: null });
       return;
@@ -211,9 +217,11 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
   // ---- Expansión jerárquica
   const targetKey = store && selected && store.get(`p${selected}`) ? `p${selected}` : store?.rootKey;
   const targetNode = store && targetKey ? store.get(targetKey) : null;
-  const targetName = targetNode ? (targetNode.kind === 'head'
-    ? (targetNode.data.cabeza_name ? `Equipo de ${targetNode.data.cabeza_name}` : targetNode.data.name) : targetNode.data.full_name) : '';
-  const targetHasKids = targetNode && (targetNode.kind === 'head' || targetNode.data.child_count > 0);
+  const targetName = !targetNode ? '' : targetNode.kind === 'network' ? CAMPAIGN : targetNode.kind === 'head'
+    ? (targetNode.data.cabeza_name ? `Equipo de ${targetNode.data.cabeza_name}` : targetNode.data.name) : targetNode.data.full_name;
+  const targetHasKids = targetNode && (targetNode.kind !== 'person' || targetNode.data.child_count > 0);
+  // Cabeza de la persona elegida (en la red, cada persona es de la suya).
+  const selectedHeadId = (selected && store?.get(`p${selected}`)?.data.head_id) || headId;
 
   async function runExpandAll(s, key) {
     try {
@@ -259,7 +267,8 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
     + (geoIds.localidad ? 1 : 0) + (filters.geoPending ? 1 : 0);
   const progress = store?.progress;
 
-  if (!head) return <div className="page"><ErrorBox error={{ message: 'No hay cabezas disponibles.' }} /></div>;
+  if (!head && !network) return <div className="page"><ErrorBox error={{ message: 'No hay cabezas disponibles.' }} /></div>;
+  const pickHead = (e) => { setSelected(null); setParams({ cabeza: e.target.value || null, foco: null, persona: null }); };
 
   // Celular: una sola fila de herramientas; filtros, búsqueda y acciones de rama en hojas.
   const filterFields = (
@@ -302,13 +311,13 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
       {compactBar}
       {!compact && <div className="tree-bar">
         {!lockHead && (
-          <select className="select" style={{ width: 180 }} value={headId} aria-label="Cabeza"
-            onChange={(e) => { setSelected(null); setParams({ cabeza: e.target.value, foco: null, persona: null }); }}>
+          <select className="select" style={{ width: 210 }} value={network ? '' : headId} aria-label="Árbol que se muestra" onChange={pickHead}>
+            {canNetwork && <option value="">Red de {CAMPAIGN}</option>}
             {heads.map((h) => <option key={h.id} value={h.id}>{h.cabeza_name || h.name}</option>)}
           </select>
         )}
         <div style={{ width: 240, maxWidth: '100%' }}>
-          <PersonPicker headId={a.isSuper ? undefined : headId} value={null} onChange={onSearchPick} placeholder="Buscar y localizar…" />
+          <PersonPicker headId={a.isSuper || network ? undefined : headId} value={null} onChange={onSearchPick} placeholder="Buscar y localizar…" />
         </div>
         <div style={{ width: 220, maxWidth: '100%' }}>
           <LeaderPicker id="tree-leader" leaders={leaders} compact placeholder="Todos los líderes"
@@ -388,19 +397,19 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
         {!store && !error && <div style={{ flex: 1 }}><Loading /></div>}
         {store && view === 'arbol' && (
           <TreeCanvas ref={canvas} store={store} version={version} selectedId={selected} pathIds={pathIds} foundId={foundId}
-            isDimmed={isDimmed} headColor={head.color} onSelect={(n) => setSelected(n.data.id)}
+            isDimmed={isDimmed} headColor={head?.color} onSelect={(n) => setSelected(n.data.id)}
             initialTransform={initialTransform} onTransform={onTransform}
             onExpandAll={(key) => runExpandAll(store, key)} />
         )}
         {store && view === 'lista' && (
           <TreeList store={store} version={version} selectedId={selected} pathIds={pathIds} isDimmed={isDimmed}
-            headColor={head.color} scrollToId={scrollToId} onSelect={(n) => setSelected(n.data.id)}
+            headColor={head?.color} scrollToId={scrollToId} onSelect={(n) => setSelected(n.data.id)}
             onExpandAll={(key) => runExpandAll(store, key)} onCollapseAll={(key) => store.collapseBranch(key)} />
         )}
         {selected && compact && (
           <Sheet title="Ficha rápida" onClose={() => setSelected(null)}>
             <NodePanel asSheet personId={selected} onClose={() => setSelected(null)}
-              canRegister={a.canManageHead(headId)}
+              canRegister={a.canManageHead(selectedHeadId)}
               onRegisterInvitee={(p) => { setSelected(null); setRegisterFor({ id: p.id, full_name: p.full_name, head_id: p.head_id, is_leader: p.is_leader, code: p.code, leader_code: p.leader_code, leader_name: null, status: p.status }); }}
               onFocus={(id) => { setSelected(null); setParams({ foco: id, persona: null }); }}
               onHighlight={(id) => { setSelected(null); highlight(id); }}
@@ -412,7 +421,7 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
         )}
         {selected && !compact && (
           <NodePanel personId={selected} onClose={() => setSelected(null)}
-            canRegister={a.canManageHead(headId)}
+            canRegister={a.canManageHead(selectedHeadId)}
             onRegisterInvitee={(p) => setRegisterFor({ id: p.id, full_name: p.full_name, head_id: p.head_id, is_leader: p.is_leader, code: p.code, leader_code: p.leader_code, leader_name: null, status: p.status })}
             onFocus={(id) => { setSelected(null); setParams({ foco: id, persona: null }); }}
             onHighlight={highlight}
@@ -424,7 +433,7 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
       </div>
       {sheet === 'locate' && (
         <Sheet title="Localizar en el árbol" subtitle="Escriba el nombre, la cédula o el celular." onClose={() => setSheet(null)}>
-          {({ close }) => <PersonPicker headId={a.isSuper ? undefined : headId} value={null} placeholder="Buscar y localizar…"
+          {({ close }) => <PersonPicker headId={a.isSuper || network ? undefined : headId} value={null} placeholder="Buscar y localizar…"
             onChange={(p) => { close(); onSearchPick(p); }} />}
         </Sheet>
       )}
@@ -435,10 +444,10 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
             <button type="button" className="btn btn-primary" onClick={close}>Listo</button>
           </>}>
           <div className="stack">
-            {!lockHead && heads.length > 1 && (
-              <div className="field"><label htmlFor="tree-head-m">Cabeza</label>
-                <select id="tree-head-m" className="select" value={headId}
-                  onChange={(e) => { setSelected(null); setParams({ cabeza: e.target.value, foco: null, persona: null }); }}>
+            {!lockHead && (heads.length > 1 || canNetwork) && (
+              <div className="field"><label htmlFor="tree-head-m">Árbol</label>
+                <select id="tree-head-m" className="select" value={network ? '' : headId} onChange={pickHead}>
+                  {canNetwork && <option value="">Red de {CAMPAIGN}</option>}
                   {heads.map((h) => <option key={h.id} value={h.id}>{h.cabeza_name || h.name}</option>)}
                 </select>
               </div>
@@ -460,7 +469,7 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
         ]]} />
       )}
       {registerFor && (
-        <RegisterPersonModal defaultHeadId={headId} defaultInviter={registerFor} onClose={() => setRegisterFor(null)}
+        <RegisterPersonModal defaultHeadId={registerFor.head_id ?? headId} defaultInviter={registerFor} onClose={() => setRegisterFor(null)}
           onCreated={async (p) => {
             const parentKey = `p${registerFor.id}`;
             const parent = store.get(parentKey);

@@ -21,9 +21,12 @@ async function tokenTaken(token) {
     || await q('SELECT 1 FROM people WHERE leader_code = ?').get(token));
 }
 
-/** LID-JUAN-PEREZ, LID-JUAN-PEREZ-2, ... (único aunque haya homónimos). */
+/**
+ * JUAN-PEREZ, JUAN-PEREZ-2, ... (único aunque haya homónimos). Es también el link personal con el que suma a su gente:
+ * lo ven las personas, así que lleva sólo su nombre, sin prefijos internos (antes «LID-…»; esos siguen sirviendo).
+ */
 export async function generateLeaderCode(fullName) {
-  const base = `LID-${slugUpper(fullName)}`;
+  const base = slugUpper(fullName);
   if (!await tokenTaken(base)) return base;
   for (let i = 2; ; i++) {
     const c = `${base}-${i}`;
@@ -296,9 +299,9 @@ export async function createRegisterLink(body, user, ip) {
       maxUses = 1;
       expires = new Date(Date.now() + ONE_TIME_DAYS * 864e5).toISOString();
     }
-    const base = `REG-${slugUpper(type.name, 2)}`;
+    // Quien lo recibe ve el link: sin el nombre del tipo («CAB», «LÍDER», «COV»…), sólo un código.
     let token;
-    do token = `${base}-${randomCode(body.oneTime ? 12 : 6)}`; while (await tokenTaken(token));
+    do token = `REG-${randomCode(body.oneTime ? 12 : 8)}`; while (await tokenTaken(token));
     const r = await q(`INSERT INTO invite_links (token, kind, owner_person_id, reg_type_id, head_id, label, max_uses, expires_at, created_by, is_general, one_time)
                  VALUES (?, 'register', ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(token, owner?.id ?? null, type.id, headId, label, maxUses, expires, user.id,
       body.general ? 1 : 0, body.oneTime ? 1 : 0);
@@ -404,13 +407,14 @@ export async function markOneTimeSent(id, { label } = {}, user, ip) {
  */
 export async function createHeadLeaderInvite(cabeza, ip) {
   return await tx(async () => {
-    if (!cabeza.is_head) throw forbidden('Sólo la cabeza de una estructura invita líderes.');
+    // Los mensajes los lee la persona en su panel: se le habla de tú y sin nombres internos («cabeza», «líder»).
+    if (!cabeza.is_head) throw forbidden('Desde tu panel puedes compartir tu link; las invitaciones personales las envía quien encabeza tu equipo.');
     if (cabeza.status !== 'active') throw badRequest('NOT_ACTIVE', 'Tu registro aún no está activo.');
     const head = await getHead(cabeza.head_id);
-    if (head.status !== 'active') throw badRequest('HEAD_ARCHIVED', 'La estructura está archivada.');
+    if (head.status !== 'active') throw badRequest('HEAD_ARCHIVED', 'Tu equipo ya no está activo.');
     const type = await builtinType('leader');
     let token;
-    do token = `REG-${slugUpper(type.name, 2)}-${randomCode(12)}`; while (await tokenTaken(token));
+    do token = `REG-${randomCode(12)}`; while (await tokenTaken(token));
     const expires = new Date(Date.now() + ONE_TIME_DAYS * 864e5).toISOString();
     const r = await q(`INSERT INTO invite_links (token, kind, owner_person_id, reg_type_id, head_id, label, max_uses, expires_at, created_by, is_general, one_time)
                  VALUES (?, 'register', ?, ?, ?, ?, 1, ?, NULL, 0, 1)`).run(token, cabeza.id, type.id, head.id, `Invitación de ${cabeza.full_name}`, expires);
@@ -650,7 +654,9 @@ export async function registerViaInvite(token, body, ip) {
       // Se valida antes de crear la cabeza; si algo falla después, la transacción la deshace.
       validatePersonData(data);
       const { full_name } = validateNames(data);
-      targetHead = await createHeadRecord({ name: `${type.name} ${full_name}`, color: type.color, description: `Registrada con el enlace ${link.token}` });
+      // La estructura nace de la invitación de John Thowinsson: queda a nombre de la cuenta de la coordinación que la envió.
+      targetHead = await createHeadRecord({ name: `${type.name} ${full_name}`, color: type.color, description: `Registrada con el enlace ${link.token}` },
+        link.created_by ?? null);
       await audit(null, 'head.create_via_link', 'head', targetHead.id, { link_id: link.id, reg_type: type.name }, ip);
       person = await createPerson({ ...common, headId: targetHead.id, inviterId: null, isHead: true, status: 'active' });
     } else {

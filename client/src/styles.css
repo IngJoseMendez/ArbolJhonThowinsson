@@ -421,6 +421,8 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .breadcrumb .crumb.head .mark { color: var(--sky); }
 .breadcrumb .crumb.current { background: var(--sky); color: var(--navy); font-weight: 600; }
 .breadcrumb .sep { color: var(--muted); }
+.breadcrumb .crumb.john { background: var(--navy); color: #fff; padding-left: 4px; font-weight: 600; }
+.breadcrumb .crumb.john .john-link__photo { width: 20px; height: 20px; }
 
 .timeline { list-style: none; margin: 0; padding: 0; }
 .timeline li { position: relative; padding: 0 0 16px 24px; }
@@ -490,6 +492,15 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .node-card.onpath .bg { stroke: var(--sky); stroke-width: 2; }
 .node-card.found .bg { fill: var(--accent-soft); }
 .node-card.headp.found .bg { fill: var(--navy-2); }
+/* John Thowinsson: la raíz de la red, con su foto; de él cuelgan sus cabezas. */
+.node-john .bg { fill: var(--navy); stroke: var(--sky); stroke-width: 2.5; }
+.node-john:hover .bg { stroke: var(--sky-2); }
+.node-john .john-ring { fill: var(--navy-3); stroke: var(--sky); stroke-width: 2.5; }
+.node-john .john-name { fill: #fff; font: 600 16px var(--font-display); }
+.node-john .node-sub { fill: var(--sky-2); }
+.node-john .john-toggle { fill: var(--sky); stroke: var(--sky); }
+.node-john .node-toggle text { fill: var(--navy); }
+.legend-swatch.legend-john { width: 12px; height: 12px; border-radius: 50%; background: var(--navy); border-color: var(--sky); }
 .node-name { fill: var(--text); font-size: 13px; font-weight: 600; }
 .node-sub { fill: var(--muted); font-size: 11px; }
 .node-toggle circle { fill: var(--surface); stroke: var(--border-strong); }
@@ -516,6 +527,12 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .trow .twisty { width: 28px; height: 28px; display: grid; place-items: center; border: none; background: none; cursor: pointer; border-radius: 6px; color: var(--text-2); flex: none; }
 .trow .twisty:hover { background: var(--surface-3); }
 .trow .guide { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--grid); }
+.john-link { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; max-width: 100%; }
+.john-link__photo { width: 22px; height: 22px; flex: none; border-radius: 50%; overflow: hidden; box-shadow: 0 0 0 1.5px var(--sky); }
+.john-link__photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.trow-john { font-weight: 650; }
+.trow-john__photo { width: 28px; height: 28px; flex: none; border-radius: 50%; overflow: hidden; box-shadow: 0 0 0 2px var(--sky); }
+.trow-john__photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* ---------- Gráficas ---------- */
 .chart { position: relative; }
@@ -706,7 +723,6 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .credential-avatar { width: 58px; height: 58px; border-radius: 50%; display: grid; place-items: center; background: rgba(96, 182, 232, 0.16);
   box-shadow: inset 0 0 0 2px var(--sky); font: 700 21px var(--font-display); color: #fff; flex: none; }
 .credential-role { font: 700 15px var(--font-display); color: var(--sky); display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.credential-type { font: 500 12px var(--font-ui); color: rgba(255, 255, 255, 0.72); }
 .credential-name { font: 700 23px/1.08 var(--font-display); color: #fff; overflow-wrap: anywhere; }
 .credential-team { font-size: 13px; color: var(--sky-2); margin-top: 3px; }
 .credential-foot { position: relative; display: flex; justify-content: space-between; gap: 10px; font-size: 11.5px; color: rgba(255, 255, 255, 0.74); border-top: 1px dashed rgba(255, 255, 255, 0.2); padding-top: 9px; }

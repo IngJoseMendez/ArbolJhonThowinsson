@@ -1,7 +1,8 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Maximize2, Minus, Plus, Crosshair } from 'lucide-react';
 import { NODE_W, NODE_H } from '../lib/treeStore.js';
 import { initials, fmtNum, fmtDate } from '../lib/format.js';
+import { CAMPAIGN } from '../brand/Brand.jsx';
 
 const MIN_K = 0.15;
 const MAX_K = 2.2;
@@ -158,13 +159,14 @@ const TreeCanvas = forwardRef(function TreeCanvas(
   const visibleItems = layout.items.filter(inView);
   const visibleEdges = layout.edges.filter((e) => inView(e.from) || inView(e.to)
     || (Math.min(e.from.y, e.to.y) <= vy1 && Math.max(e.from.y, e.to.y) >= vy0 && e.from.x <= vx1 && e.to.x >= vx0));
-  const onPath = (key) => pathIds && key.startsWith('p') && pathIds.has(Number(key.slice(1)));
+  // En la red, John (la raíz) también es parte del camino resaltado: de él cuelga la cabeza de esa persona.
+  const onPath = (key) => !!pathIds && ((store.network && key === store.rootKey) || (key.startsWith('p') && pathIds.has(Number(key.slice(1)))));
   const detail = t.k >= 0.45; // a poco zoom se simplifican los nodos
 
   return (
     <div ref={wrap} className={`tree-canvas ${dragging ? 'dragging' : ''}`}
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
-      <svg role="tree" aria-label="Árbol de la estructura">
+      <svg role="tree" aria-label={store.network ? `Red de ${CAMPAIGN}` : 'Árbol de la estructura'}>
         <g transform={`translate(${t.x},${t.y}) scale(${t.k})`}>
           {visibleEdges.map((e) => {
             const x1 = e.from.x + NODE_W; const y1 = e.from.y + e.from.h / 2;
@@ -186,7 +188,8 @@ const TreeCanvas = forwardRef(function TreeCanvas(
               );
             }
             const n = it.node;
-            if (it.kind === 'head') return <HeadNode key={it.key} it={it} n={n} color={headColor} detail={detail} onToggle={click(() => store.toggle(it.key))} />;
+            if (it.kind === 'network') return <NetworkNode key={it.key} it={it} n={n} detail={detail} onToggle={click(() => store.toggle(it.key))} />;
+            if (it.kind === 'head') return <HeadNode key={it.key} it={it} n={n} color={n.data.color || headColor} detail={detail} onToggle={click(() => store.toggle(it.key))} />;
             const d = n.data;
             const cls = ['node-card', d.is_head ? 'headp' : d.is_leader ? 'leader' : '', d.status === 'pending' ? 'pending' : '', d.status === 'inactive' ? 'inactive' : '',
               selectedId === d.id ? 'selected' : '', onPath(it.key) ? 'onpath' : '', foundId === d.id ? 'found' : '', isDimmed?.(n) ? 'dim' : ''].join(' ');
@@ -262,7 +265,9 @@ const TreeCanvas = forwardRef(function TreeCanvas(
         <button className="btn btn-sm btn-icon btn-ghost" onClick={() => centerOn(selectedId ? `p${selectedId}` : store.rootKey)} aria-label="Centrar" title="Centrar en selección"><Crosshair size={15} /></button>
       </div>
       <div className="tree-legend" onPointerDown={(e) => e.stopPropagation()}>
-        <span><span className="legend-swatch" style={{ borderColor: headColor, background: 'var(--surface)' }} />Estructura</span>
+        {store.network
+          ? <span><span className="legend-swatch legend-john" />{CAMPAIGN}</span>
+          : <span><span className="legend-swatch" style={{ borderColor: headColor, background: 'var(--surface)' }} />Estructura</span>}
         <span><span className="legend-swatch" style={{ borderColor: 'var(--sky)', background: 'var(--navy)' }} />Cabeza</span>
         <span><span className="legend-swatch" style={{ borderColor: 'var(--leader)', background: 'var(--leader-soft)' }} />Líder</span>
         <span><span className="legend-swatch" style={{ borderColor: 'var(--border-strong)' }} />Persona</span>
@@ -273,6 +278,35 @@ const TreeCanvas = forwardRef(function TreeCanvas(
     </div>
   );
 });
+
+/** John Thowinsson, la raíz de la red: con su foto, y de él cuelgan todas sus cabezas. */
+function NetworkNode({ it, n, detail, onToggle }) {
+  const d = n.data;
+  const clip = `john-${useId().replace(/[^\w-]/g, '')}`;
+  const cy = it.h / 2;
+  const heads = d.heads ?? null;
+  return (
+    <g className="node-card node-john" transform={`translate(${it.x},${it.y})`} role="treeitem" aria-expanded={!!n.expanded} onClick={onToggle}
+      aria-label={`${CAMPAIGN}${heads != null ? `: ${heads} ${heads === 1 ? 'cabeza' : 'cabezas'}, ${d.people} personas en la red` : ''}`}>
+      <rect className="bg" width={NODE_W} height={it.h} rx={16} />
+      <clipPath id={clip}><circle cx={42} cy={cy} r={27} /></clipPath>
+      <circle className="john-ring" cx={42} cy={cy} r={29.5} />
+      <image href="/brand/john-face-160.webp" x={15} y={cy - 27} width={54} height={54} clipPath={`url(#${clip})`} preserveAspectRatio="xMidYMid slice" />
+      <text className="node-name john-name" x={82} y={detail ? 36 : cy + 5}>{CAMPAIGN}</text>
+      {detail && heads != null && (
+        <>
+          <text className="node-sub" x={82} y={55}>{fmtNum(heads)} {heads === 1 ? 'cabeza' : 'cabezas'}</text>
+          <text className="node-sub" x={82} y={71}>{fmtNum(d.people)} {d.people === 1 ? 'persona' : 'personas'} en la red</text>
+        </>
+      )}
+      <g className="node-toggle" transform={`translate(${NODE_W - 2},${cy})`} onClick={onToggle} role="button" aria-label={n.expanded ? 'Contraer' : 'Ver sus cabezas'}>
+        <title>{n.expanded ? 'Contraer' : 'Ver sus cabezas'}</title>
+        <rect x={-2} y={-12} width={30} height={24} rx={12} className="john-toggle" />
+        <text x={13} y={4} textAnchor="middle" fontSize={12} fontWeight={700}>{n.loading ? '…' : n.expanded ? '−' : '+'}</text>
+      </g>
+    </g>
+  );
+}
 
 function HeadNode({ it, n, color, detail, onToggle }) {
   const d = n.data;
@@ -286,7 +320,7 @@ function HeadNode({ it, n, color, detail, onToggle }) {
         <circle cx={12} cy={5} r={3} stroke="none" /><circle cx={5} cy={19} r={2.6} stroke="none" /><circle cx={12} cy={19} r={2.6} stroke="none" /><circle cx={19} cy={19} r={2.6} stroke="none" />
       </g>
       <text className="node-name" x={60} y={detail ? 30 : 42} fontSize={15}>{trunc(d.cabeza_name ? `Equipo de ${d.cabeza_name}` : d.name, 22)}</text>
-      {detail && <text className="node-sub" x={60} y={50}>{d.cabeza_name ? 'Estructura' : 'Estructura sin cabeza'}{d.people != null ? ` · ${fmtNum(d.people)} personas` : ''}</text>}
+      {detail && <text className="node-sub" x={60} y={50}>{d.cabeza_name ? 'Estructura' : 'Estructura sin cabeza'}{d.people != null ? ` · ${fmtNum(d.people)} ${d.people === 1 ? 'persona' : 'personas'}` : ''}</text>}
       <g className="node-toggle" transform={`translate(${NODE_W - 2},${it.h / 2})`} onClick={onToggle} role="button" aria-label={n.expanded ? 'Contraer' : 'Expandir'}>
         <rect x={-2} y={-12} width={30} height={24} rx={12} fill={n.expanded ? color : 'var(--surface)'} stroke={color} />
         <text x={13} y={4} textAnchor="middle" fontSize={12} fontWeight={700} fill={n.expanded ? '#fff' : color}>{n.loading ? '…' : n.expanded ? '−' : '+'}</text>

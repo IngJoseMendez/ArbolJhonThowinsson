@@ -30,7 +30,7 @@ test('Preparar: la misma invitación por dispositivo hasta entregarla; otro disp
   const a = await prepare(admin, { reg_type_id: head });
   assert.equal(a.status, 200, JSON.stringify(a.data));
   assert.equal(a.data.prepared, true);
-  assert.match(a.data.token, /^REG-CABEZA-[A-Z0-9]{12}$/);
+  assert.match(a.data.token, /^REG-[A-Z0-9]{12}$/);
   assert.equal((await prepare(admin, { reg_type_id: head })).data.id, a.data.id, 'se reutiliza');
   const other = await admin.post('/api/links/one-time', { prepare: true, device: 'otro-telefono-02', reg_type_id: head });
   assert.notEqual(other.data.id, a.data.id);

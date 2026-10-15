@@ -103,7 +103,7 @@ Usuarios de ejemplo creados por `npm run seed`:
 | `admin` | `Admin1234!` | Administrador general |
 | `admin.norte` | `Norte1234!` | Administrador de la Cabeza Norte |
 | `admin.sur` | `Sur12345!` | Administrador de la Cabeza Sur |
-| `juan` | `Juan1234!` | Líder (Juan Pérez, `LID-JUAN-PEREZ`) |
+| `juan` | `Juan1234!` | Líder (Juan Pérez, `JUAN-PEREZ`) |
 | `maria` | `Maria1234!` | Persona registrada (María Gómez, no es líder) |
 
 Desarrollo con recarga: `npm run dev:server` y, en otra terminal, `npm run dev:client` (Vite en :5173 con proxy a la API).
@@ -171,7 +171,7 @@ nombre del tipo, así se sabe qué enlace es. Según el tipo:
 | Pertenece a | Quien se registra… | Requiere |
 |---|---|---|
 | Persona | Queda como persona invitada por quien se indique | Cabeza y persona de la que cuelga |
-| Líder | Queda como **líder oficial automáticamente** (código `LID-…`, su enlace para invitar personas y su panel) | Estructura; padrino opcional (sin padrino cuelga de la **cabeza** de la estructura) |
+| Líder | Queda como **líder oficial automáticamente** (su código, su enlace para invitar personas y su panel) | Estructura; padrino opcional (sin padrino cuelga de la **cabeza** de la estructura) |
 | Cabeza | Crea una **estructura nueva** («Concejal Nombre Apellido», con el color del tipo) y queda como **su cabeza** | Sólo el administrador general; 1 registro por enlace por defecto |
 
 **Enlaces para compartir** (tarjetas de color al inicio de *Enlaces*, con botones de WhatsApp y Copiar):
@@ -204,15 +204,32 @@ lista de su red con los celulares enmascarados y el botón «Comparte tu link pa
 - Desde la ficha del líder se ve cuándo lo abrió por última vez. Ahí se puede generar uno nuevo, que invalida el
   anterior, o desactivarlo.
 
-## La cabeza: una persona al frente de su estructura
+## John arriba de todo, y cada cabeza al frente de su estructura
+
+Toda la red es de **John Thowinsson**: él es la raíz y de él cuelgan todas las cabezas. Sólo él (el administrador
+general) invita cabezas, así que cada cabeza es suya; cada una tiene, además, su propio árbol:
+
+```
+John Thowinsson ──► Cabezas (personas) ──► Líderes ──► Personas
+                          └──────────────────────────► Personas (también puede sumarlas directamente)
+```
+
+- **Árbol** abre por defecto la **red completa**: John con su foto arriba y debajo sus cabezas (y las estructuras que
+  aún no tienen cabeza); cada rama se carga de su estructura. El selector deja ver el árbol de una sola cabeza.
+  API: `GET /api/tree/network` (coordinación; cada cuenta ve las cabezas que tiene asignadas).
+- En las fichas, una cabeza aparece **invitada por John Thowinsson** y el camino de invitaciones empieza en él.
+  La estructura que nace de una invitación de cabeza queda a nombre de la cuenta que la envió (`heads.created_by`).
+- John no es un registro de `people`: es la raíz de la red en la interfaz y en las consultas.
+
+**De cara a las personas** no hay «cabezas», «líderes» ni nombres de tipos («CAB», «COV»…): quien recibe una
+invitación personal es una **persona de confianza** (de John, si arma su propio equipo, o de quien encabeza el equipo).
+Así lo dicen el formulario («Te invita John Thowinsson a ser una de sus personas de confianza»), la credencial, el
+panel y los mensajes de WhatsApp. El panel interno de la coordinación sigue hablando de cabezas y líderes. Los links
+tampoco lo dicen: las invitaciones son `/registro/REG-…` (un código, sin el tipo) y el link personal de cada persona
+de confianza lleva sólo su nombre (`/registro/JUAN-PEREZ`; los `LID-…` anteriores siguen sirviendo).
 
 La cabeza **es una persona**, no sólo el nombre de una estructura: es el líder raíz de su estructura (`people.is_head`,
-una por estructura) y de ella se desprenden sus líderes y sus personas:
-
-```
-Cabeza (persona) ──► Líderes ──► Personas
-      └──────────────► Personas (también puede sumarlas directamente)
-```
+una por estructura) y de ella se desprenden sus líderes y sus personas.
 
 | Quién | Qué tiene | De su enlace salen |
 |---|---|---|
@@ -314,7 +331,7 @@ duplicados.
 
 ## Enlaces e invitaciones
 
-- **Líder:** el código es fácil de recordar y único (`LID-JUAN-PEREZ`, `LID-JUAN-PEREZ-2` para un homónimo), con el enlace `/registro/LID-JUAN-PEREZ`.
+- **Líder:** el código es fácil de recordar y único (`JUAN-PEREZ`, `JUAN-PEREZ-2` para un homónimo), con el enlace `/registro/JUAN-PEREZ`.
 - **Persona:** al activarse recibe una invitación personal con un sufijo aleatorio no adivinable (`/registro/INV-MARIA-GOMEZ-7KQ3`).
   Puede desactivarse por cabeza.
 - El servidor deriva la cabeza, el invitador y el líder **exclusivamente del token**. Cualquier `head_id`, `inviter_id`,

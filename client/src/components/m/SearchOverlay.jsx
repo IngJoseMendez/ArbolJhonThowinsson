@@ -7,6 +7,7 @@ import { osName } from '../../lib/device.js';
 import Sheet from './Sheet.jsx';
 import { Group, Row, Section } from './List.jsx';
 import { PersonAvatar } from './Spark.jsx';
+import { CAMPAIGN } from '../../brand/Brand.jsx';
 
 let openFn = null;
 /** Abre el buscador y enfoca el campo en el mismo toque (así el iPhone abre el teclado). */
@@ -57,7 +58,7 @@ export default function SearchOverlay() {
   ].filter(([, list]) => list.length) : [];
   const row = (p) => (
     <Row key={p.id} lead={<PersonAvatar name={p.full_name} leader={p.is_leader} head={p.is_head} />} title={p.full_name}
-      meta={p.is_head ? 'Cabeza de su equipo' : p.is_leader ? `Líder${p.inviter_name ? `, con ${p.inviter_name}` : ''}` : p.inviter_name ? `Con ${p.inviter_name}` : p.head_name}
+      meta={p.is_head ? `Cabeza de ${CAMPAIGN}` : p.is_leader ? `Líder${p.inviter_name ? `, con ${p.inviter_name}` : ''}` : p.inviter_name ? `Con ${p.inviter_name}` : p.head_name}
       chevron onClick={() => pick(p)} />
   );
   return (

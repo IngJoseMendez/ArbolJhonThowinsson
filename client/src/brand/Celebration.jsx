@@ -73,8 +73,11 @@ function Confetti({ amount = 150, delay = 350 }) {
   return <canvas ref={ref} className="confetti" aria-hidden="true" />;
 }
 
-/** Credencial de cabeza o de líder: el «carné» del equipo, con la foto de John. */
-export function Credential({ role, name, typeName, team, code, since }) {
+/**
+ * Credencial de persona de confianza: el «carné» del equipo, con la foto de John. De cara a la persona no hay
+ * «cabezas», «líderes» ni tipos internos; la credencial dice de quién es persona de confianza (`team`).
+ */
+export function Credential({ role, name, team, code, since }) {
   return (
     <div className={`credential credential-${role}`}>
       <div className="credential-glow" aria-hidden="true" />
@@ -86,10 +89,7 @@ export function Credential({ role, name, typeName, team, code, since }) {
       <div className="credential-body">
         <span className="credential-avatar" aria-hidden="true">{initials(name)}</span>
         <div style={{ minWidth: 0 }}>
-          <div className="credential-role">
-            {role === 'head' ? 'Cabeza' : 'Líder'}
-            {typeName && typeName !== (role === 'head' ? 'Cabeza' : 'Líder') && <span className="credential-type">{typeName}</span>}
-          </div>
+          <div className="credential-role">Persona de confianza</div>
           <div className="credential-name">{name}</div>
           <div className="credential-team">{team}</div>
         </div>
@@ -104,21 +104,20 @@ export function Credential({ role, name, typeName, team, code, since }) {
 }
 
 /**
- * Bienvenida tras registrarse. Cabezas y líderes reciben su credencial con una lluvia de papelitos y el doble
- * ángulo que sube; las personas, un agradecimiento con un corazón que late.
+ * Bienvenida tras registrarse. Las personas de confianza (cabezas y líderes) reciben su credencial con una lluvia
+ * de papelitos y el doble ángulo que sube; las personas, un agradecimiento con un corazón que late.
  */
-export default function Celebration({ role, firstName, name, typeName, team, code, since, pending, children }) {
+export default function Celebration({ role, firstName, name, team, code, since, pending, children }) {
   const big = role === 'head' || role === 'leader';
   const title = pending ? `¡Gracias, ${firstName}!`
-    : role === 'head' ? `¡Ya eres cabeza, ${firstName}!`
-      : role === 'leader' ? `¡Ya eres líder, ${firstName}!`
-        : `¡Gracias por sumarte, ${firstName}!`;
+    : big ? `¡Ya eres persona de confianza, ${firstName}!`
+      : `¡Gracias por sumarte, ${firstName}!`;
   return (
     <section className={`celebrate ${big ? 'celebrate-big' : ''}`} aria-live="polite">
       {!pending && <Confetti amount={big ? 170 : 80} />}
       <div className="celebrate-rise" aria-hidden="true"><Mark duo size={56} /></div>
       {big && !pending ? (
-        <Credential role={role} name={name} typeName={typeName} team={team} code={code} since={since} />
+        <Credential role={role} name={name} team={team} code={code} since={since} />
       ) : (
         <div className="thanks-seal" aria-hidden="true">
           <JohnPhoto variant="face" eager alt="" />
