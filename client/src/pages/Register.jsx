@@ -129,9 +129,9 @@ export default function Register() {
     const message = pending
       ? 'Tu registro quedó pendiente de aprobación. Te avisaremos cuando quede confirmado.'
       : role === 'head'
-        ? 'Tu equipo ya existe. Desde tu panel invitas a tus líderes: cada invitación es personal y sirve para una sola persona.'
+        ? 'Tu equipo ya existe. Invita a tus líderes desde tu panel: ellos suman a su gente y cada persona puede invitar a más.'
         : role === 'leader'
-          ? 'Comparte tu link para sumar personas: quedarán contigo y las verás crecer en tu panel.'
+          ? 'Comparte tu link: quien se registre queda en tu red y también podrá invitar a más.'
           : `Ya eres parte del equipo de ${CAMPAIGN}${done.inviter ? `, gracias a la invitación de ${done.inviter}` : ''}.`;
     return (
       <div className="pub" style={typeVars(type?.color)}>

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { AlertCircle, Copy, Crown, Eye, Lock, LogOut, Search, Users } from 'lucide-react';
 import { api } from '../api.js';
-import { ShareLink, copyText, useToast, WhatsAppIcon } from '../components/ui.jsx';
+import { copyText, inviteMessage, useToast, WhatsAppIcon } from '../components/ui.jsx';
 import InstallHint from '../components/InstallHint.jsx';
 import { fmtDate, fmtNum, relTime, inviteUrl, initials } from '../lib/format.js';
 import { typeVars } from '../lib/regTypes.js';
@@ -29,21 +29,20 @@ function Foot() {
 }
 
 /**
- * La cabeza invita a sus líderes: cada envío genera un enlace personal de un solo uso (caduca a los 7 días).
+ * Botones para invitar a un líder: cada envío genera un enlace personal de un solo uso (caduca a los 7 días).
  * Si alguien lo reenvía, nadie más puede registrarse con él.
  */
-function LeaderInvites({ token, pin, name, stats, onStats }) {
+function LeaderInviteActions({ token, pin, name, stats, onStats }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
-  const [last, setLast] = useState(null);
   const [err, setErr] = useState(null);
   const generate = async () => {
     const r = await api.post(`/public/panel/${encodeURIComponent(token)}/leader-invite`, { pin });
-    onStats(r.stats); setLast(r); setErr(null);
+    onStats(r.stats); setErr(null);
     return r;
   };
   const message = (url) => `Hola, soy ${first(name)}. Te invito a ser líder en mi equipo con ${CAMPAIGN}. `
-    + `Este link es personal y sirve para una sola persona, no lo reenvíes: ${url}`;
+    + `Este link es solo para ti, no lo reenvíes: ${url}`;
   const sendWhatsApp = async () => {
     // La ventana se abre en el mismo toque (si no, el navegador la bloquea) y luego va a WhatsApp con el enlace nuevo.
     const w = window.open('about:blank', '_blank');
@@ -58,26 +57,31 @@ function LeaderInvites({ token, pin, name, stats, onStats }) {
     setBusy(true);
     try {
       const l = await generate();
-      if (await copyText(message(inviteUrl(l.token)))) toast('Invitación copiada: pégala en el chat del futuro líder');
+      if (await copyText(message(inviteUrl(l.token)))) toast('Invitación copiada: pégala en el chat de tu líder');
     } catch (e) { setErr(e); } finally { setBusy(false); }
   };
   return (
-    <div className="sheet-card share-card">
-      <h3 className="row" style={{ gap: 8 }}><Crown size={19} color="var(--leader)" />Invita a tus líderes</h3>
-      <p className="sheet-lead" style={{ marginTop: -6 }}>Cada invitación es personal y sirve para una sola persona. Quien se registre quedará como líder de tu equipo, con su link y su panel.</p>
-      <div className="share-actions">
-        <button type="button" className="btn btn-lg btn-wa" disabled={busy} onClick={sendWhatsApp}>{busy ? <span className="spinner" /> : <WhatsAppIcon size={20} />}Invitar un líder por WhatsApp</button>
-        <button type="button" className="btn" style={{ gridColumn: '1 / -1' }} disabled={busy} onClick={copyNew}><Copy size={16} />Copiar una invitación nueva</button>
+    <>
+      <div className="grow-actions">
+        <button type="button" className="btn btn-wa" disabled={busy} onClick={sendWhatsApp}>{busy ? <span className="spinner" /> : <WhatsAppIcon size={17} />}Invitar un líder</button>
+        <button type="button" className="btn" disabled={busy} onClick={copyNew}><Copy size={16} />Copiar</button>
       </div>
-      {last && <span className="share-url">Última invitación: {inviteUrl(last.token)} · caduca el {fmtDate(last.expires_at)}</span>}
-      {stats && (
-        <div className="invite-stats">
-          <span><b className="tnum">{fmtNum(stats.sent)}</b>enviadas</span>
-          <span><b className="tnum">{fmtNum(stats.used)}</b>usadas</span>
-          <span><b className="tnum">{fmtNum(stats.open)}</b>por usar</span>
-        </div>
-      )}
-      {err && <div className="alert alert-error" role="alert"><AlertCircle size={16} />{err.message}</div>}
+      {stats?.sent > 0 && <span className="grow-meta">{fmtNum(stats.sent)} enviadas · {fmtNum(stats.used)} usadas · {fmtNum(stats.open)} sin usar</span>}
+      {err && <div className="alert alert-error" role="alert" style={{ marginTop: 8 }}><AlertCircle size={16} />{err.message}</div>}
+    </>
+  );
+}
+
+/** Botones para enviar el propio link de invitación de personas (WhatsApp o copiar para cualquier otra app). */
+function MyLinkActions({ token, name }) {
+  const toast = useToast();
+  const url = inviteUrl(token);
+  const message = inviteMessage({ url, ownerName: name, asOwner: true });
+  const copy = async () => { if (await copyText(message)) toast('Invitación copiada: pégala donde quieras'); };
+  return (
+    <div className="grow-actions">
+      <a className="btn btn-wa" href={`https://wa.me/?text=${encodeURIComponent(message)}`} target="_blank" rel="noopener noreferrer"><WhatsAppIcon size={17} />Enviar mi link</a>
+      <button type="button" className="btn" onClick={copy}><Copy size={16} />Copiar</button>
     </div>
   );
 }
@@ -93,6 +97,7 @@ export default function Panel() {
   const [rows, setRows] = useState([]);
   const [page, setPage] = useState(1);
   const [inviteStats, setInviteStats] = useState(null);
+  const [tab, setTab] = useState('lideres');
   const firstRun = useRef(true);
   usePanelManifest(token);
 
@@ -171,7 +176,33 @@ export default function Panel() {
   const { person, stats, type, head } = data;
   const isHead = person.is_head;
   const total = data.people.total;
+  const leaders = data.leaders || [];
+  const view = isHead ? tab : 'red';
   const team = isHead ? `Equipo ${CAMPAIGN}` : head?.cabeza ? `Equipo de ${head.cabeza}` : `Equipo ${CAMPAIGN}`;
+  const peopleList = (
+    <>
+      <div className="search-input" style={{ margin: '4px 0 6px' }}><Search size={16} />
+        <input className="input" value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Buscar por nombre" aria-label={isHead ? 'Buscar en mi equipo' : 'Buscar en mi red'} /></div>
+      {rows.length === 0 && <p className="text-2" style={{ margin: '8px 0 0' }}>{term ? 'Nadie coincide con la búsqueda.' : 'Aún no se ha registrado nadie. ¡Comparte tu link!'}</p>}
+      <ul className="panel-list">
+        {rows.map((r) => (
+          <li key={r.id}>
+            <span className="dot" style={{ background: r.type_color || 'var(--muted)', width: 10, height: 10 }} title={r.type_name} />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div className="row" style={{ gap: 6 }}><b className="ellipsis" style={{ fontWeight: 600 }}>{r.full_name}</b>{r.is_leader && <Crown size={13} color="var(--leader)" aria-label="Líder" />}
+                {r.status === 'pending' && <span className="badge badge-warning">Pendiente</span>}</div>
+              <div className="small muted ellipsis">
+                {[r.barrio || r.localidad, r.direct ? 'Directo contigo' : r.inviter_name ? `Con ${r.inviter_name}` : null].filter(Boolean).join(' · ')}
+              </div>
+            </div>
+            <div className="small muted nowrap" style={{ textAlign: 'right' }} title={fmtDate(r.created_at)}>{relTime(r.created_at)}
+              <div className="mono">{r.phone}</div></div>
+          </li>
+        ))}
+      </ul>
+      {rows.length < total && <button className="btn btn-block" style={{ marginTop: 12 }} disabled={busy} onClick={() => load({ pg: page + 1 })}>{busy && <span className="spinner" />}Ver más</button>}
+    </>
+  );
   return (
     <div className="pub" style={typeVars(type?.color || head?.color)}>
       <Stage>
@@ -187,74 +218,78 @@ export default function Panel() {
         <main className="pub-sheet">
           <div className="sheet-inner">
             {person.status === 'pending' && <div className="alert alert-warn">Tu registro aún está pendiente de aprobación: tu link se activará cuando lo aprueben.</div>}
-            <div className="panel-stats">
-              {isHead && <div className="panel-stat"><b className="tnum">{fmtNum(stats.leaders)}</b><span>líderes</span></div>}
-              <div className="panel-stat"><b className="tnum">{fmtNum(stats.direct)}</b><span>{isHead ? 'directos contigo' : 'invitadas por ti'}</span></div>
-              <div className="panel-stat"><b className="tnum">{fmtNum(stats.last7)}</b><span>en 7 días</span></div>
-              <div className="panel-stat"><b className="tnum">{fmtNum(stats.last30)}</b><span>en 30 días</span></div>
-              <div className="panel-stat"><b className="tnum">{fmtNum(stats.supports_yes)}</b><span>dicen «cuenten conmigo»</span></div>
-              <div className="panel-stat"><b className="tnum">{fmtNum(stats.secure_votes)}</b><span>votos seguros</span></div>
+            <div className="panel-strip">
+              {isHead
+                ? <div><b className="tnum">{fmtNum(stats.leaders)}</b><span>líderes</span></div>
+                : <div><b className="tnum">{fmtNum(stats.direct)}</b><span>invitaste tú</span></div>}
+              <div><b className="tnum">+{fmtNum(stats.last7)}</b><span>esta semana</span></div>
+              <div><b className="tnum">{fmtNum(stats.supports_yes)}</b><span>«cuenten conmigo»</span></div>
             </div>
 
-            {isHead && <LeaderInvites token={token} pin={pin} name={person.full_name} stats={inviteStats} onStats={setInviteStats} />}
-
-            {isHead && data.leaders && (
-              <div className="sheet-card">
-                <h3 className="row" style={{ gap: 8, fontFamily: 'var(--font-display)', fontSize: 19, marginBottom: 6 }}><Users size={19} />Tus líderes <span className="muted small" style={{ fontFamily: 'var(--font-ui)', fontWeight: 400 }}>{fmtNum(data.leaders.length)}</span></h3>
-                {data.leaders.length === 0 && <p className="text-2" style={{ margin: 0 }}>Todavía no tienes líderes. Invita al primero: cada líder suma a su propia gente.</p>}
-                {data.leaders.map((l) => (
-                  <div key={l.id} className="leader-row">
-                    <span className="avatar leader" aria-hidden="true">{initials(l.full_name)}</span>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div className="ellipsis" style={{ fontWeight: 600 }}>{l.full_name}</div>
-                      <div className="small muted">{l.status === 'pending' ? 'Pendiente de aprobación' : `Líder desde el ${fmtDate(l.created_at)}`}</div>
-                    </div>
-                    <div className="num"><b className="tnum">{fmtNum(l.network)}</b><span>{l.last7 > 0 ? `+${fmtNum(l.last7)} esta semana` : 'en su red'}</span></div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {data.invite_token && (
-              <div className="sheet-card share-card">
-                <h3>Invita personas</h3>
-                <p className="sheet-lead" style={{ marginTop: -6 }}>Quienes se registren con tu link quedarán contigo y aparecerán aquí.</p>
-                <ShareLink token={data.invite_token} ownerName={person.full_name} asOwner big />
-              </div>
-            )}
-
-            <div className="sheet-card" style={{ padding: 0 }}>
-              <div className="stack" style={{ gap: 10, padding: '18px 18px 10px' }}>
-                <h3 className="row" style={{ gap: 8, fontFamily: 'var(--font-display)', fontSize: 19 }}><Users size={19} />{isHead ? 'Tu equipo' : 'Tu red'} <span className="muted small" style={{ fontFamily: 'var(--font-ui)', fontWeight: 400 }}>{fmtNum(total)}</span></h3>
-                <div className="search-input"><Search size={16} />
-                  <input className="input" value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Buscar por nombre" aria-label={isHead ? 'Buscar en mi equipo' : 'Buscar en mi red'} /></div>
-              </div>
-              {rows.length === 0 && <p className="text-2" style={{ margin: 0, padding: '4px 18px 18px' }}>{term ? 'Nadie coincide con la búsqueda.' : 'Aún no se ha registrado nadie con tu link. ¡Compártelo!'}</p>}
-              <ul className="panel-list">
-                {rows.map((r) => (
-                  <li key={r.id}>
-                    <span className="dot" style={{ background: r.type_color || 'var(--muted)', width: 10, height: 10 }} title={r.type_name} />
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div className="row" style={{ gap: 6 }}><b className="ellipsis" style={{ fontWeight: 600 }}>{r.full_name}</b>{r.is_leader && <Crown size={13} color="var(--leader)" aria-label="Líder" />}
-                        {r.status === 'pending' && <span className="badge badge-warning">Pendiente</span>}</div>
-                      <div className="small muted ellipsis">
-                        {[r.barrio || r.localidad, r.direct ? 'Directo contigo' : r.inviter_name ? `Con ${r.inviter_name}` : null].filter(Boolean).join(' · ')}
-                      </div>
-                    </div>
-                    <div className="small muted nowrap" style={{ textAlign: 'right' }} title={fmtDate(r.created_at)}>{relTime(r.created_at)}
-                      <div className="mono">{r.phone}</div></div>
-                  </li>
-                ))}
-              </ul>
-              {rows.length < total && (
-                <div style={{ padding: '0 18px 18px' }}>
-                  <button className="btn btn-block" disabled={busy} onClick={() => load({ pg: page + 1 })}>{busy && <span className="spinner" />}Ver más</button>
+            {/* Cómo crece la red, en pasos cortos, con la acción donde toca. */}
+            <section className="sheet-card grow">
+              <h2 className="sheet-title">{isHead ? 'Así crece tu equipo' : 'Así crece tu red'}</h2>
+              <ol className="grow-steps">
+                {isHead ? (
+                  <>
+                    <li>
+                      <b>Invita a tus líderes</b>
+                      <span>Un link personal para cada uno.</span>
+                      <LeaderInviteActions token={token} pin={pin} name={person.full_name} stats={inviteStats} onStats={setInviteStats} />
+                    </li>
+                    <li><b>Tus líderes invitan a su gente</b><span>Cada uno comparte su link y tu equipo crece.</span></li>
+                    <li><b>Cada persona invita a más</b><span>Al registrarse recibe su propio link.</span></li>
+                  </>
+                ) : (
+                  <>
+                    <li>
+                      <b>Comparte tu link</b>
+                      <span>Quien se registre queda en tu red.</span>
+                      {data.invite_token && <MyLinkActions token={data.invite_token} name={person.full_name} />}
+                    </li>
+                    <li><b>Cada persona invita a más</b><span>Al registrarse recibe su propio link: todo suma a tu red.</span></li>
+                  </>
+                )}
+              </ol>
+              {isHead && data.invite_token && (
+                <div className="grow-also">
+                  <span><b>¿Quieres sumar a alguien tú mismo?</b> Envía tu link de personas.</span>
+                  <MyLinkActions token={data.invite_token} name={person.full_name} />
                 </div>
               )}
-            </div>
+            </section>
+
+            {/* Menú: líderes y equipo (la cabeza) o la red (el líder). */}
+            <section className="sheet-card">
+              {isHead ? (
+                <div className="seg full" role="tablist" aria-label="Ver">
+                  <button type="button" role="tab" aria-selected={view === 'lideres'} className={view === 'lideres' ? 'active' : ''} onClick={() => setTab('lideres')}>
+                    <Crown size={15} />Líderes <span className="seg-count tnum">{fmtNum(leaders.length)}</span></button>
+                  <button type="button" role="tab" aria-selected={view === 'red'} className={view === 'red' ? 'active' : ''} onClick={() => setTab('red')}>
+                    <Users size={15} />Equipo <span className="seg-count tnum">{fmtNum(stats.total)}</span></button>
+                </div>
+              ) : (
+                <h2 className="sheet-title row" style={{ gap: 8 }}><Users size={19} />Tu red <span className="seg-count tnum">{fmtNum(stats.total)}</span></h2>
+              )}
+              {view === 'lideres' ? (
+                <div className="leader-list">
+                  {leaders.length === 0 && <p className="text-2" style={{ margin: '12px 0 0' }}>Aún no tienes líderes. Invita al primero arriba.</p>}
+                  {leaders.map((l) => (
+                    <div key={l.id} className="leader-row">
+                      <span className="avatar leader" aria-hidden="true">{initials(l.full_name)}</span>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div className="ellipsis" style={{ fontWeight: 600 }}>{l.full_name}</div>
+                        <div className="small muted">{l.status === 'pending' ? 'Pendiente de aprobación' : l.last7 > 0 ? `+${fmtNum(l.last7)} esta semana` : `Desde el ${fmtDate(l.created_at)}`}</div>
+                      </div>
+                      <div className="num"><b className="tnum">{fmtNum(l.network)}</b><span>en su red</span></div>
+                    </div>
+                  ))}
+                </div>
+              ) : peopleList}
+            </section>
 
             <InstallHint what="tu panel" storageKey="panel" />
-            <p className="secure-note" style={{ textAlign: 'center' }}>Este panel es privado y de solo lectura. Si crees que alguien más tiene tu enlace, pide uno nuevo a tu coordinador.</p>
+            <p className="secure-note" style={{ textAlign: 'center' }}>Panel privado y de solo lectura. Si alguien más tiene tu enlace, pide uno nuevo a tu coordinador.</p>
             <button className="btn btn-ghost" onClick={() => { savePin(token, ''); setPin(''); setData(null); setRows([]); }}><LogOut size={16} />Salir</button>
           </div>
         </main>
