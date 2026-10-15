@@ -1,7 +1,7 @@
 // Reglas de negocio de personas, líderes, árbol de invitación y enlaces.
 import { q, tx, now, pathUpper, MAX_PATH, sqlExec, adoptRootLeaders } from '../db.js';
 import {
-  badRequest, conflict, notFound, forbidden, normalizeText, slugUpper, randomCode,
+  AppError, badRequest, conflict, notFound, forbidden, normalizeText, slugUpper, randomCode,
   validatePhone, validateMobile, validateCedula, validateEmail, assertEmailDomain, normalizePhone, str, sha256, slugLower,
 } from '../util.js';
 import crypto from 'node:crypto';
@@ -393,8 +393,54 @@ export async function revokeOpenOneTime(regTypeId, headId, user, ip) {
 /** Emite (o reemplaza) el enlace secreto del panel. Sólo se guarda su huella: el enlace anterior deja de funcionar. */
 export async function issuePanelToken(personId) {
   const token = crypto.randomBytes(24).toString('base64url');
-  await q('UPDATE people SET panel_token_hash = ?, panel_created_at = ?, panel_viewed_at = NULL WHERE id = ?').run(sha256(token), now(), personId);
+  // Un enlace nuevo empieza sin intentos fallidos ni bloqueo.
+  await q(`UPDATE people SET panel_token_hash = ?, panel_created_at = ?, panel_viewed_at = NULL, panel_fails = 0, panel_locked_until = NULL
+           WHERE id = ?`).run(sha256(token), now(), personId);
   return token;
+}
+
+const RECOVER_MAX = 5;
+const RECOVER_LOCK_MS = 30 * 60e3;
+
+/** Líder o cabeza que se registró con este enlace de un solo uso (ya usado) y puede volver a su panel. */
+export async function recoverableLeader(link) {
+  if (!link?.one_time || !link.used_at) return null;
+  return await q(`SELECT * FROM people WHERE invite_link_id = ? AND is_leader = 1 AND status IN ('active','pending')
+                  ORDER BY id LIMIT 1`).get(link.id);
+}
+
+/**
+ * Volver al panel con el enlace de registro ya usado: quien se registró escribe su cédula y su celular completos.
+ * Hace falta tener el enlace privado (código aleatorio de 12 caracteres) y los dos datos. Emite un enlace nuevo del
+ * panel (el anterior deja de funcionar). Tras 5 intentos fallidos el enlace se bloquea 30 minutos; el contador vive en
+ * la base de datos, así que vale aunque haya varias instancias del servidor.
+ */
+export async function recoverPanel(rawToken, body, ip) {
+  const token = String(rawToken ?? '').trim().toUpperCase();
+  if (!/^[A-Z0-9-]{4,80}$/.test(token)) throw notFound('Este enlace no es válido.');
+  const link = await q('SELECT * FROM invite_links WHERE token = ?').get(token);
+  const person = await recoverableLeader(link);
+  if (!person) throw notFound('Este enlace no sirve para volver a un panel. Pide uno nuevo a tu coordinador.');
+  if (link.recover_locked_until && link.recover_locked_until > now()) {
+    throw new AppError(429, 'RECOVER_LOCKED', 'Demasiados intentos. Espera 30 minutos e inténtalo de nuevo.');
+  }
+  const doc = String(body?.document_id ?? '').replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+  const phone = normalizePhone(body?.phone);
+  if (!doc || !phone || doc !== person.document_id || phone !== person.phone) {
+    const { recover_fails: fails } = await q('UPDATE invite_links SET recover_fails = recover_fails + 1 WHERE id = ? RETURNING recover_fails').get(link.id);
+    await audit(null, 'panel.recover_failed', 'person', person.id, { link_id: link.id, fails }, ip);
+    if (fails >= RECOVER_MAX) {
+      await q('UPDATE invite_links SET recover_fails = 0, recover_locked_until = ? WHERE id = ?')
+        .run(new Date(Date.now() + RECOVER_LOCK_MS).toISOString(), link.id);
+      throw new AppError(429, 'RECOVER_LOCKED', 'Demasiados intentos. Espera 30 minutos e inténtalo de nuevo.');
+    }
+    throw new AppError(401, 'RECOVER_MISMATCH', `La cédula o el celular no coinciden con este registro. Te quedan ${RECOVER_MAX - fails} intentos.`);
+  }
+  await q('UPDATE invite_links SET recover_fails = 0, recover_locked_until = NULL WHERE id = ?').run(link.id);
+  const panelToken = await issuePanelToken(person.id);
+  await history(person.id, 'panel_recovered', { link_id: link.id });
+  await audit(null, 'panel.recover', 'person', person.id, { link_id: link.id }, ip);
+  return { panel_token: panelToken, is_head: !!person.is_head };
 }
 
 export async function revokePanelToken(personId) {

@@ -166,6 +166,39 @@ test('La cabeza no se mueve ni se degrada; se puede retirar y designar (adopta a
   assert.equal((await admin.get('/api/admin/integrity')).data.ok, true);
 });
 
+test('Volver al panel con el enlace de registro ya usado: cédula + celular, enlace nuevo y bloqueo en la base de datos', async () => {
+  const link = await admin.post('/api/links/one-time', { reg_type_id: ids.types.leader.id, head_id: ids.head });
+  const data = form('Rocío', 'Recupera Panel');
+  const r = await anon.post(`/api/public/register/${link.data.token}`, data);
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const oldPanel = r.data.panel_token;
+  const inv = (await anon.get(`/api/public/invite/${link.data.token}`)).data;
+  assert.equal(inv.valid, false, 'el enlace de un solo uso sigue apagado');
+  assert.equal(inv.recoverable, true);
+  const recover = (body) => anon.post(`/api/public/recover/${link.data.token}`, body);
+  const bad = await recover({ document_id: data.document_id, phone: '3159999999' });
+  assert.equal(bad.status, 401);
+  assert.equal(bad.data.error.code, 'RECOVER_MISMATCH');
+  const ok = await recover({ document_id: data.document_id, phone: `+57 ${data.phone}` });
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+  assert.ok(ok.data.panel_token && ok.data.panel_token !== oldPanel);
+  const pin = data.document_id.slice(-4);
+  assert.equal((await anon.post(`/api/public/panel/${oldPanel}`, { pin })).status, 404, 'el enlace anterior del panel deja de funcionar');
+  assert.equal((await anon.post(`/api/public/panel/${ok.data.panel_token}`, { pin })).status, 200);
+  // Cinco intentos fallidos bloquean la recuperación 30 minutos, aunque después se acierte
+  for (let i = 0; i < 4; i++) assert.equal((await recover({ document_id: '1234567', phone: data.phone })).status, 401);
+  assert.equal((await recover({ document_id: '1234567', phone: data.phone })).data.error.code, 'RECOVER_LOCKED');
+  assert.equal((await recover({ document_id: data.document_id, phone: data.phone })).data.error.code, 'RECOVER_LOCKED');
+  // Un enlace sin usar no sirve para entrar a ningún panel
+  const fresh = await admin.post('/api/links/one-time', { reg_type_id: ids.types.leader.id, head_id: ids.head });
+  assert.equal((await anon.get(`/api/public/invite/${fresh.data.token}`)).data.recoverable, false);
+  assert.equal((await anon.post(`/api/public/recover/${fresh.data.token}`, { document_id: data.document_id, phone: data.phone })).status, 404);
+  // El registro guarda la recuperación en su historial
+  const rocio = await find('rocio recupera panel');
+  const hist = (await admin.get(`/api/people/${rocio.id}`)).data.history;
+  assert.ok(hist.some((h) => h.change_type === 'panel_recovered'));
+});
+
 test('Manifiesto instalable del panel: abre directo el panel', async () => {
   const m = await anon.get(`/api/public/manifest?start=/panel/${ids.cabezaPanel}`);
   assert.equal(m.status, 200);

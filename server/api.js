@@ -11,7 +11,7 @@ import {
   createPerson, registerViaInvite, resolveInvite, promoteToLeader, demoteLeader, setResponsibleLeader, movePerson,
   setStatus, updatePersonData, regeneratePersonLink, integrityReport, recountCounters, getPerson, getHead, findDuplicate,
   createRegisterLink, ensureGeneralLink, createOneTimeLink, oneTimeStats, revokeOpenOneTime, issuePanelToken, revokePanelToken, regTypeById,
-  headPerson, setHeadRole,
+  headPerson, setHeadRole, recoverableLeader, recoverPanel,
 } from './services/people.js';
 import { panelData, panelLeaderInvite, panelManifest } from './services/panel.js';
 import { treeChildren, treeSubtree, treeChildrenOf, pathToPerson, search, directory, dashboard, branchStats, NODE_SELECT } from './services/queries.js';
@@ -865,7 +865,15 @@ api.get('/public/invite/:token', lookupLimiter, async (req, res) => {
     } : null,
     ...pub,
     requires_approval: role !== 'head' && !!head?.requires_approval,
+    // Enlace de un solo uso ya usado por un líder o una cabeza: puede volver a su panel con su cédula y su celular.
+    recoverable: !valid && !!(await recoverableLeader(link)),
   });
+});
+
+// Volver al panel con el enlace de registro ya usado (si se perdió el enlace del panel o se recargó la página).
+const recoverLimiter = rateLimit({ windowMs: 10 * 60e3, max: 20, key: (req) => `recover:${req.ip}` });
+api.post('/public/recover/:token', recoverLimiter, async (req, res) => {
+  res.json(await recoverPanel(req.params.token, req.body || {}, ip(req)));
 });
 
 api.post('/public/register/:token', publicLimiter, async (req, res) => {

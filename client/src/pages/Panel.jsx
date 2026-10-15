@@ -1,17 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { AlertCircle, Copy, Crown, Eye, Lock, LogOut, Search, Users } from 'lucide-react';
+import { AlertCircle, Copy, Crown, Eye, Lock, LogOut, Search, Users, X } from 'lucide-react';
 import { api } from '../api.js';
 import { copyText, inviteMessage, useToast, WhatsAppIcon } from '../components/ui.jsx';
 import InstallHint from '../components/InstallHint.jsx';
 import { fmtDate, fmtNum, relTime, inviteUrl, initials } from '../lib/format.js';
 import { typeVars } from '../lib/regTypes.js';
 import { usePanelManifest } from '../lib/pwa.js';
+import { readPin, savePin, isNewPanel, clearNewPanel } from '../lib/panelSession.js';
 import { Logo, Mark, JohnPhoto, CAMPAIGN } from '../brand/Brand.jsx';
 
-const pinKey = (token) => `panel-pin:${token.slice(0, 10)}`;
-const readPin = (token) => { try { return sessionStorage.getItem(pinKey(token)) || ''; } catch { return ''; } };
-const savePin = (token, pin) => { try { if (pin) sessionStorage.setItem(pinKey(token), pin); else sessionStorage.removeItem(pinKey(token)); } catch { /* sin almacenamiento */ } };
 const first = (s) => String(s || '').trim().split(/\s+/)[0] || '';
 
 function Stage({ children }) {
@@ -98,6 +96,7 @@ export default function Panel() {
   const [page, setPage] = useState(1);
   const [inviteStats, setInviteStats] = useState(null);
   const [tab, setTab] = useState('lideres');
+  const [fresh, setFresh] = useState(() => isNewPanel(token));
   const firstRun = useRef(true);
   usePanelManifest(token);
 
@@ -217,6 +216,17 @@ export default function Panel() {
       <div className="pub-right">
         <main className="pub-sheet">
           <div className="sheet-inner">
+            {fresh && (
+              <div className="save-panel" role="note">
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <b>Esta página es tu panel</b>
+                  <span>Para volver, abre el mismo link con el que te registraste, o guárdalo aquí.</span>
+                  <a className="btn btn-sm btn-wa" href={`https://wa.me/?text=${encodeURIComponent(`Mi panel del equipo ${CAMPAIGN} (privado, no reenviar): ${window.location.origin}/panel/${token}`)}`}
+                    target="_blank" rel="noopener noreferrer" onClick={() => { clearNewPanel(token); setFresh(false); }}><WhatsAppIcon size={15} />Guardar en mi WhatsApp</a>
+                </div>
+                <button type="button" className="btn btn-ghost btn-sm btn-icon" aria-label="Cerrar" onClick={() => { clearNewPanel(token); setFresh(false); }}><X size={16} /></button>
+              </div>
+            )}
             {person.status === 'pending' && <div className="alert alert-warn">Tu registro aún está pendiente de aprobación: tu link se activará cuando lo aprueben.</div>}
             <div className="panel-strip">
               {isHead
@@ -290,7 +300,7 @@ export default function Panel() {
 
             <InstallHint what="tu panel" storageKey="panel" />
             <p className="secure-note" style={{ textAlign: 'center' }}>Panel privado y de solo lectura. Si alguien más tiene tu enlace, pide uno nuevo a tu coordinador.</p>
-            <button className="btn btn-ghost" onClick={() => { savePin(token, ''); setPin(''); setData(null); setRows([]); }}><LogOut size={16} />Salir</button>
+            <button className="btn btn-ghost" onClick={() => { savePin(token, ''); clearNewPanel(token); setPin(''); setData(null); setRows([]); }}><LogOut size={16} />Salir</button>
           </div>
         </main>
         <Foot />

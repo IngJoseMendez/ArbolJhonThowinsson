@@ -323,6 +323,15 @@ UPDATE reg_types SET color = '#2f9be0' WHERE builtin = 1 AND role = 'leader' AND
 UPDATE reg_types SET color = '#1d4f91' WHERE builtin = 1 AND role = 'person' AND color = '#2563eb';
 `;
 
+// v9: volver al panel con el enlace de registro ya usado (c\u00e9dula + celular), y los intentos fallidos (PIN del panel y
+// recuperaci\u00f3n) guardados en la base de datos: el bloqueo vale igual con varias instancias del servidor (Vercel).
+const MIGRATION_9 = `
+ALTER TABLE invite_links ADD COLUMN IF NOT EXISTS recover_fails INT NOT NULL DEFAULT 0;
+ALTER TABLE invite_links ADD COLUMN IF NOT EXISTS recover_locked_until TEXT;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS panel_fails INT NOT NULL DEFAULT 0;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS panel_locked_until TEXT;
+`;
+
 /**
  * Cuelga de la cabeza `head` (persona ra\u00edz) los dem\u00e1s l\u00edderes ra\u00edz de su estructura, con sus ramas completas.
  * `exec(sql, params)` ejecuta con par\u00e1metros $1\u2026; sirve tanto en la migraci\u00f3n como dentro de una transacci\u00f3n.
@@ -380,6 +389,7 @@ const MIGRATIONS = [
   { version: 6, sql: MIGRATION_6 },
   { version: 7, sql: MIGRATION_7 },
   { version: 8, sql: MIGRATION_8, after: adoptAllRootLeaders },
+  { version: 9, sql: MIGRATION_9 },
 ];
 
 let pool = null;

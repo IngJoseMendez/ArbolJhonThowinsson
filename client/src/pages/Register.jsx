@@ -1,18 +1,24 @@
-import { useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { AlertCircle, Clock, Lock, Link2Off, UserPlus } from 'lucide-react';
+import { useLayoutEffect, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { AlertCircle, ArrowRight, Clock, KeyRound, Lock, Link2Off, UserPlus } from 'lucide-react';
 import { api } from '../api.js';
-import { ShareLink, useAsync } from '../components/ui.jsx';
-import PanelLinkBox from '../components/PanelLinkBox.jsx';
-import InstallHint from '../components/InstallHint.jsx';
+import { ShareLink, useAsync, inviteMessage, WhatsAppIcon } from '../components/ui.jsx';
 import { typeVars } from '../lib/regTypes.js';
 import { usePanelManifest } from '../lib/pwa.js';
+import { openPanelHere, savePin, markNewPanel, pinFromCedula } from '../lib/panelSession.js';
+import { formatCedula, formatMobile, normalizeCedula, normalizeMobile } from '../lib/validators.js';
+import { inviteUrl } from '../lib/format.js';
 import PersonFields, { emptyPerson, validatePerson, personPayload, serverFieldError } from '../components/PersonFields.jsx';
 import { Logo, Mark, JohnPhoto, CAMPAIGN } from '../brand/Brand.jsx';
 import Celebration from '../brand/Celebration.jsx';
 
 const KICKER = { head: 'Registro de cabeza', leader: 'Registro de líder', person: 'Registro' };
 const BUILTIN = { head: 'Cabeza', leader: 'Líder', person: 'Persona' };
+
+// Registro de una persona (enlace general): si recarga la página en esta pestaña sigue viendo su confirmación.
+const doneKey = (token) => `reg-done:${token}`;
+const readDone = (token) => { try { return JSON.parse(sessionStorage.getItem(doneKey(token)) || 'null'); } catch { return null; } };
+const saveDone = (token, d) => { try { if (d) sessionStorage.setItem(doneKey(token), JSON.stringify(d)); else sessionStorage.removeItem(doneKey(token)); } catch { /* sin almacenamiento */ } };
 
 /**
  * Lo que ve quien abre el enlace: quién le invita, con su nombre (nunca nombres internos como «Cabeza …»),
@@ -54,6 +60,78 @@ function Stage({ chip, children, compact }) {
   );
 }
 
+function Foot() {
+  return (
+    <footer className="pub-foot">
+      <Logo tone="navy" />
+      <span>Equipo {CAMPAIGN} · Santa Marta</span>
+    </footer>
+  );
+}
+
+/** Cada pantalla nueva empieza arriba (en el celular se desplaza la página; en PC, la columna del formulario). */
+function useScrollTop(dep) {
+  useLayoutEffect(() => {
+    window.scrollTo(0, 0);
+    document.querySelector('.pub-right')?.scrollTo(0, 0);
+  }, [dep]);
+}
+
+/**
+ * Enlace de un solo uso que ya se usó para registrar a un líder o una cabeza: quien se registró vuelve a su panel
+ * escribiendo su cédula y su celular. No hace falta haber guardado el enlace del panel.
+ */
+function BackToPanel({ token }) {
+  const nav = useNavigate();
+  const [doc, setDoc] = useState('');
+  const [phone, setPhone] = useState('');
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      const r = await api.post(`/public/recover/${encodeURIComponent(token)}`, { document_id: normalizeCedula(doc), phone: normalizeMobile(phone) });
+      savePin(r.panel_token, pinFromCedula(doc));
+      markNewPanel(r.panel_token);
+      nav(`/panel/${r.panel_token}`, { replace: true });
+    } catch (ex) { setErr(ex); } finally { setBusy(false); }
+  };
+  return (
+    <div className="pub">
+      <Stage chip={<span className="stage-chip"><i aria-hidden="true" />Ya te registraste</span>}>
+        <p className="stage-kicker">Equipo {CAMPAIGN}</p>
+        <h1 className="stage-title long">Vuelve a tu panel</h1>
+      </Stage>
+      <div className="pub-right">
+        <main className="pub-sheet">
+          <div className="sheet-inner" style={{ maxWidth: 480 }}>
+            <form className="sheet-card stack" style={{ gap: 16 }} onSubmit={submit} noValidate>
+              <div>
+                <h2 className="sheet-title">Entra con tus datos</h2>
+                <p className="sheet-lead">Escribe la cédula y el celular con los que te registraste.</p>
+              </div>
+              <div className="field field-lg"><label htmlFor="bk-doc">Cédula</label>
+                <input id="bk-doc" className="input" inputMode="numeric" autoComplete="off" placeholder="1.082.345.678" maxLength={13}
+                  value={formatCedula(doc)} onChange={(e) => setDoc(normalizeCedula(e.target.value))} required /></div>
+              <div className="field field-lg"><label htmlFor="bk-phone">Celular / WhatsApp</label>
+                <input id="bk-phone" className="input" type="tel" inputMode="numeric" autoComplete="tel-national" placeholder="300 555 0123" maxLength={12}
+                  value={formatMobile(phone)} onChange={(e) => setPhone(normalizeMobile(e.target.value))}
+                  onPaste={(e) => { e.preventDefault(); setPhone(normalizeMobile(e.clipboardData.getData('text'))); }} required /></div>
+              {err && <div className="alert alert-error" role="alert"><AlertCircle size={16} />{err.message}</div>}
+              <button className="btn btn-primary btn-lg btn-block" disabled={busy || normalizeCedula(doc).length < 4 || normalizeMobile(phone).length < 10}>
+                {busy ? <span className="spinner" /> : <KeyRound size={18} />}Entrar a mi panel</button>
+              <p className="secure-note"><Lock size={13} />Sólo entra quien conoce la cédula y el celular del registro.</p>
+            </form>
+            <p className="secure-note">¿No te registraste con este link? Pide uno nuevo a quien te invitó.</p>
+          </div>
+        </main>
+        <Foot />
+      </div>
+    </div>
+  );
+}
+
 /** Formulario público de registro mediante enlace (pensado para el celular). */
 export default function Register() {
   const { token } = useParams();
@@ -65,8 +143,9 @@ export default function Register() {
   const [submitted, setSubmitted] = useState(false);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(null);
+  const [done, setDone] = useState(() => readDone(token));
   usePanelManifest(done?.panel_token);
+  useScrollTop(done);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -81,9 +160,16 @@ export default function Register() {
     }
     setErr(null); setBusy(true);
     try {
-      setDone(await api.post(`/public/register/${encodeURIComponent(token)}`, { ...personPayload(f), consent, website }));
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      const d = await api.post(`/public/register/${encodeURIComponent(token)}`, { ...personPayload(f), consent, website });
+      // Cabezas y líderes: esta página pasa a ser su panel. Si recargan, entran directo (el PIN queda sólo en esta pestaña).
+      if (d.panel_token) openPanelHere(d.panel_token, f.document_id);
+      else saveDone(token, d);
+      setDone(d);
     } catch (ex) { setErr(ex); setFieldErrors((x) => ({ ...x, ...serverFieldError(ex.body?.error) })); } finally { setBusy(false); }
+  };
+  const registerAnother = () => {
+    saveDone(token, null);
+    setDone(null); setF(emptyPerson); setConsent(false); setSubmitted(false); setFieldErrors({}); setErr(null);
   };
 
   const type = inv?.type || done?.type;
@@ -91,6 +177,9 @@ export default function Register() {
   const chip = type && (inv?.valid || done) && (
     <span className="stage-chip"><i aria-hidden="true" />{KICKER[role]}{type.name !== BUILTIN[role] && <><span className="chip-sep" aria-hidden="true" />{type.name}</>}</span>
   );
+
+  // ---- Volver al panel con el link de registro ya usado
+  if (!done && inv && !inv.valid && inv.recoverable) return <BackToPanel token={token} />;
 
   // ---- Estados sin formulario
   if (!done && (loading || error || (inv && !inv.valid))) {
@@ -129,10 +218,13 @@ export default function Register() {
     const message = pending
       ? 'Tu registro quedó pendiente de aprobación. Te avisaremos cuando quede confirmado.'
       : role === 'head'
-        ? 'Tu equipo ya existe. Invita a tus líderes desde tu panel: ellos suman a su gente y cada persona puede invitar a más.'
+        ? 'Tu equipo ya existe. En tu panel invitas a tus líderes: ellos suman a su gente y cada persona puede invitar a más.'
         : role === 'leader'
-          ? 'Comparte tu link: quien se registre queda en tu red y también podrá invitar a más.'
+          ? 'En tu panel está tu link: quien se registre con él queda en tu red y también podrá invitar a más.'
           : `Ya eres parte del equipo de ${CAMPAIGN}${done.inviter ? `, gracias a la invitación de ${done.inviter}` : ''}.`;
+    const shareWa = done.invite_token
+      ? `https://wa.me/?text=${encodeURIComponent(inviteMessage({ url: inviteUrl(done.invite_token), ownerName: done.full_name, asOwner: true }))}`
+      : null;
     return (
       <div className="pub" style={typeVars(type?.color)}>
         <Stage compact chip={<span className="stage-chip"><i aria-hidden="true" />Registro completado</span>}>
@@ -145,20 +237,25 @@ export default function Register() {
                 code={done.leader_code || done.code} since={done.created_at} pending={pending}>
                 <p>{message}</p>
               </Celebration>
-              {role === 'head' && done.panel_token && (
-                <div className="sheet-card"><PanelLinkBox token={done.panel_token} firstTime head /></div>
-              )}
-              {done.invite_token && (
-                <div className="sheet-card share-card">
-                  <h3>{role === 'person' ? 'Invita a más personas' : 'Tu link para sumar personas'}</h3>
-                  <p className="sheet-lead" style={{ marginTop: -6 }}>Quienes se registren con él quedarán contigo{done.is_leader ? ' y los verás en tu panel' : ''}.</p>
-                  <ShareLink token={done.invite_token} ownerName={done.full_name} asOwner big />
+              {done.panel_token ? (
+                // Cabeza o líder: un solo paso siguiente, su panel. Volver otro día no exige haber guardado nada.
+                <div className="sheet-card next-card">
+                  <Link className="btn btn-primary btn-lg btn-block" to={`/panel/${done.panel_token}`}>Entrar a mi panel<ArrowRight size={19} /></Link>
+                  {shareWa && <a className="btn btn-wa btn-block" href={shareWa} target="_blank" rel="noopener noreferrer"><WhatsAppIcon size={17} />Compartir mi link</a>}
+                  <p className="next-note"><KeyRound size={15} />¿Vas a volver otro día? Abre el mismo link con el que te registraste y entra con tu cédula y tu celular.</p>
                 </div>
+              ) : (
+                <>
+                  {done.invite_token && (
+                    <div className="sheet-card share-card">
+                      <h3>Invita a más personas</h3>
+                      <p className="sheet-lead" style={{ marginTop: -6 }}>Quienes se registren con tu link quedarán contigo.</p>
+                      <ShareLink token={done.invite_token} ownerName={done.full_name} asOwner big />
+                    </div>
+                  )}
+                  <button type="button" className="btn btn-ghost" onClick={registerAnother}><UserPlus size={16} />Registrar a otra persona</button>
+                </>
               )}
-              {role === 'leader' && done.panel_token && (
-                <div className="sheet-card"><PanelLinkBox token={done.panel_token} firstTime /></div>
-              )}
-              {done.panel_token && <InstallHint what="tu panel" storageKey="panel" />}
             </div>
           </main>
           <Foot />
@@ -226,14 +323,5 @@ export default function Register() {
         <Foot />
       </div>
     </div>
-  );
-}
-
-function Foot() {
-  return (
-    <footer className="pub-foot">
-      <Logo tone="navy" />
-      <span>Equipo {CAMPAIGN} · Santa Marta</span>
-    </footer>
   );
 }

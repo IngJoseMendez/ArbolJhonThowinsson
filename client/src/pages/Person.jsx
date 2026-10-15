@@ -35,6 +35,7 @@ const HISTORY = {
   reactivated: 'Reactivada',
   data_updated: 'Datos actualizados',
   link_regenerated: 'Enlace de invitación regenerado',
+  panel_recovered: 'Volvió a su panel con su link de registro (cédula y celular)',
   head_assigned: 'Designada como cabeza de la estructura',
   head_removed: 'Dejó de ser la cabeza de la estructura',
   location_changed: 'Ubicación corregida',

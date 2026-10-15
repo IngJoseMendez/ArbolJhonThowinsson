@@ -184,7 +184,12 @@ hay en su red (directas y por debajo), las altas de los últimos 7 y 30 días, c
 lista de su red con los celulares enmascarados y el botón «Comparte tu link para unir más personas».
 
 - Es un enlace **distinto** del de invitación: compartir el enlace de invitación no da acceso al panel.
-- Para abrirlo pide los **últimos 4 dígitos de la cédula**. Tras 8 intentos fallidos se bloquea 15 minutos.
+- Para abrirlo pide los **últimos 4 dígitos de la cédula**. Tras 8 intentos fallidos se bloquea 15 minutos. Los intentos se
+  cuentan en la base de datos (migración v9), así que el bloqueo vale igual con varias instancias del servidor (Vercel).
+- **No hace falta guardar el enlace del panel.** Al registrarse, la página de bienvenida pasa a ser el panel (si la persona
+  recarga, entra directo; el PIN se recuerda sólo en esa pestaña). Otro día puede abrir **el mismo link con el que se
+  registró**: como ya está usado, pide su **cédula y su celular completos** y la lleva a su panel con un enlace nuevo (el
+  anterior deja de funcionar). Tras 5 intentos fallidos ese link se bloquea 30 minutos. Queda en el historial y la auditoría.
 - En la base de datos sólo se guarda la huella (sha256) del enlace. Se muestra una vez, al registrarse o al generarlo
   desde la ficha, y no se puede volver a consultar.
 - Desde la ficha del líder se ve cuándo lo abrió por última vez. Ahí se puede generar uno nuevo, que invalida el

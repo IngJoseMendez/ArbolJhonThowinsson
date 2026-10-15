@@ -85,7 +85,7 @@ export default function Layout() {
     <div className="app">
       <aside className="sidebar" aria-label="Navegación">
         <div className="brand">
-          <Logo tone="sky" />
+          <Logo tone="navy" />
           <span className="brand-sub">Equipo John Thowinsson</span>
         </div>
         <nav className="nav" aria-label="Principal">

@@ -5,26 +5,29 @@ import { q, now, pathUpper } from '../db.js';
 import { AppError, notFound, sha256, normalizeText, maskPhone } from '../util.js';
 import { createHeadLeaderInvite, headInviteStats, headPerson } from './people.js';
 
-const FAILS = new Map(); // huella del enlace -> { count, reset }
 const MAX_FAILS = 8;
-const WINDOW = 15 * 60e3;
+const LOCK_MS = 15 * 60e3;
 
 const pinOf = (p) => String(p.document_id || p.phone || '').replace(/\D/g, '').slice(-4);
 
-function checkPin(p, pin) {
-  const k = p.panel_token_hash;
-  const t = Date.now();
-  let e = FAILS.get(k);
-  if (e && e.reset < t) { FAILS.delete(k); e = null; }
-  if (e && e.count >= MAX_FAILS) throw new AppError(429, 'PIN_LOCKED', 'Demasiados intentos fallidos. Espere 15 minutos.');
-  if (!pin) throw new AppError(401, 'PIN_REQUIRED', 'Escriba los últimos 4 dígitos de su cédula.');
-  if (String(pin).replace(/\D/g, '') !== pinOf(p)) {
-    if (!e) { e = { count: 0, reset: t + WINDOW }; FAILS.set(k, e); }
-    e.count++;
-    if (FAILS.size > 10000) for (const [kk, v] of FAILS) if (v.reset < t) FAILS.delete(kk);
-    throw new AppError(401, 'PIN_INVALID', `PIN incorrecto. Le quedan ${MAX_FAILS - e.count} intentos.`);
+/**
+ * PIN del panel. Los intentos fallidos se cuentan en la base de datos (no en la memoria del servidor): el bloqueo de
+ * 15 minutos tras 8 fallos vale igual aunque haya varias instancias, como en Vercel.
+ */
+async function checkPin(p, pin) {
+  if (p.panel_locked_until && p.panel_locked_until > now()) {
+    throw new AppError(429, 'PIN_LOCKED', 'Demasiados intentos fallidos. Espera 15 minutos.');
   }
-  FAILS.delete(k);
+  if (!pin) throw new AppError(401, 'PIN_REQUIRED', 'Escribe los últimos 4 dígitos de tu cédula.');
+  if (String(pin).replace(/\D/g, '') !== pinOf(p)) {
+    const { panel_fails: fails } = await q('UPDATE people SET panel_fails = panel_fails + 1 WHERE id = ? RETURNING panel_fails').get(p.id);
+    if (fails >= MAX_FAILS) {
+      await q('UPDATE people SET panel_fails = 0, panel_locked_until = ? WHERE id = ?').run(new Date(Date.now() + LOCK_MS).toISOString(), p.id);
+      throw new AppError(429, 'PIN_LOCKED', 'Demasiados intentos fallidos. Espera 15 minutos.');
+    }
+    throw new AppError(401, 'PIN_INVALID', `PIN incorrecto. Te quedan ${MAX_FAILS - fails} intentos.`);
+  }
+  if (p.panel_fails || p.panel_locked_until) await q('UPDATE people SET panel_fails = 0, panel_locked_until = NULL WHERE id = ?').run(p.id);
 }
 
 /** Valida enlace + PIN y devuelve la persona dueña del panel. */
@@ -32,7 +35,7 @@ async function openPanel(token, pin) {
   if (!/^[A-Za-z0-9_-]{20,60}$/.test(String(token || ''))) throw notFound('Este panel no existe o fue desactivado.');
   const p = await q('SELECT * FROM people WHERE panel_token_hash = ?').get(sha256(String(token)));
   if (!p || p.status === 'rejected') throw notFound('Este panel no existe o fue desactivado.');
-  checkPin(p, pin);
+  await checkPin(p, pin);
   return p;
 }
 
