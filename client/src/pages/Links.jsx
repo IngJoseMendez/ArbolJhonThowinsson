@@ -94,7 +94,7 @@ function CreateLinkModal({ onClose, onDone }) {
           <div className="type-grid" role="radiogroup">
             {active.map((t) => (
               <button key={t.id} type="button" role="radio" aria-checked={typeId === t.id} className={`type-card ${typeId === t.id ? 'active' : ''}`}
-                style={{ '--chip': t.color }} onClick={() => { setTypeId(t.id); if (t.role === 'head' && maxUses === '') setMaxUses('1'); }}>
+                style={{ '--chip': t.color }} onClick={() => { setTypeId(t.id); if (t.role !== 'person' && maxUses === '') setMaxUses('1'); }}>
                 <span className="type-card-bar" /><b>{t.name}</b><span className="small muted">{ROLE_LABEL[t.role]}</span>
               </button>
             ))}
@@ -118,7 +118,7 @@ function CreateLinkModal({ onClose, onDone }) {
           <div className="field"><label>Máximo de registros</label><input className="input" type="number" min="1" value={maxUses} onChange={(e) => setMaxUses(e.target.value)} placeholder="Sin límite" /></div>
           <div className="field"><label>Caduca el</label><input className="input" type="date" value={expires} onChange={(e) => setExpires(e.target.value)} /></div>
         </div>
-        {type?.role === 'head' && <span className="small muted">Cada enlace de cabeza admite por defecto un solo registro: cree uno por persona.</span>}
+        {type && type.role !== 'person' && <span className="small muted">Por seguridad, los enlaces de cabeza y de líder admiten por defecto un solo registro: cree uno por persona.</span>}
         <ErrorBox error={err} />
       </div>
     </Modal>
@@ -267,6 +267,101 @@ function GeneralLinkCard({ type, heads }) {
   );
 }
 
+/**
+ * Tarjeta de un tipo de cabeza o de líder: cada envío genera un enlace personal de un solo uso
+ * (caduca a los 7 días). Si la persona lo reenvía, nadie más puede registrarse con él.
+ */
+function OneTimeLinkCard({ type, heads }) {
+  const toast = useToast();
+  const onlyHead = heads.length === 1 ? String(heads[0].id) : '';
+  const [headId, setHeadId] = useState(() => recall(`gl:${type.id}:head`) || onlyHead);
+  const needsHead = type.role === 'leader';
+  const validHead = !needsHead ? '' : heads.some((h) => String(h.id) === String(headId)) ? headId : onlyHead;
+  const head = heads.find((h) => String(h.id) === String(validHead));
+  const ready = !needsHead || !!validHead;
+  const scope = { reg_type_id: type.id, head_id: needsHead ? Number(validHead) : null };
+  const [stats, setStats] = useState(null);
+  const [last, setLast] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [confirm, setConfirm] = useState(false);
+
+  const loadStats = () => api.get(`/links/one-time/stats${qs(scope)}`).then(setStats).catch(() => setStats(null));
+  useEffect(() => { setLast(null); setErr(null); if (ready) loadStats(); }, [type.id, validHead]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const generate = async () => {
+    const l = await api.post('/links/one-time', scope);
+    setStats(l.stats); setLast(l); setErr(null);
+    return l;
+  };
+  const messageFor = (url) => `Te envío tu enlace personal para registrarte como ${type.name}${head ? ` en ${head.name}` : ''}. `
+    + `Es de un solo uso y solo sirve para ti, no lo reenvíes: ${url}`;
+  const sendWhatsApp = async () => {
+    // La ventana se abre en el mismo toque (si no, el navegador la bloquea) y se dirige a WhatsApp con el enlace nuevo.
+    const w = window.open('about:blank', '_blank');
+    setBusy(true);
+    try {
+      const l = await generate();
+      const wa = `https://wa.me/?text=${encodeURIComponent(messageFor(inviteUrl(l.token)))}`;
+      if (w) { w.opener = null; w.location.href = wa; } else window.location.href = wa;
+    } catch (e) { w?.close(); setErr(e); } finally { setBusy(false); }
+  };
+  const copyNew = async () => {
+    setBusy(true);
+    try {
+      const l = await generate();
+      if (await copyText(inviteUrl(l.token))) toast('Enlace nuevo de un solo uso copiado');
+      else toast('Enlace generado: cópielo abajo', 'error');
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="glink" style={{ '--chip': type.color, ...typeVars(type.color) }}>
+      <div className="glink-head">
+        <b>{type.name}</b>
+        <span className="small">{type.role === 'head' ? 'Registra cabezas' : 'Registra líderes'} · un solo uso</span>
+      </div>
+      <div className="glink-body">
+        {needsHead && heads.length > 1 && (
+          <select className="select" value={validHead} aria-label={`Cabeza para ${type.name}`}
+            onChange={(e) => { setHeadId(e.target.value); remember(`gl:${type.id}:head`, e.target.value); }}>
+            <option value="">¿En qué cabeza?</option>{heads.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+          </select>
+        )}
+        {needsHead && heads.length === 1 && <span className="small text-2 row" style={{ gap: 6 }}><span className="dot" style={{ background: heads[0].color }} />{heads[0].name}</span>}
+        {ready && (
+          <>
+            <div className="row-wrap" style={{ gap: 6 }}>
+              <button type="button" className="btn btn-sm btn-wa" disabled={busy} onClick={sendWhatsApp}>{busy && <span className="spinner" />}WhatsApp</button>
+              <button type="button" className="btn btn-sm" disabled={busy} onClick={copyNew}><Copy size={14} />Copiar</button>
+            </div>
+            <span className="small muted">Cada envío crea un enlace nuevo para una sola persona; caduca en 7 días si no se usa.</span>
+            {last && (
+              <div className="link-box" title="Último enlace generado">
+                <code>{inviteUrl(last.token)}</code>
+                <button type="button" className="btn btn-sm btn-icon" aria-label="Copiar último enlace" onClick={async () => { if (await copyText(inviteUrl(last.token))) toast('Enlace copiado'); }}><Copy size={14} /></button>
+              </div>
+            )}
+            {stats && (
+              <div className="small text-2 row-wrap" style={{ gap: 8 }}>
+                <span><b className="tnum">{fmtNum(stats.sent || 0)}</b> enviados</span>
+                <span><b className="tnum">{fmtNum(stats.used || 0)}</b> usados</span>
+                <span><b className="tnum">{fmtNum(stats.open || 0)}</b> sin usar</span>
+                {stats.open > 0 && <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 6px', height: 24 }} onClick={() => setConfirm(true)}>Anular sin usar</button>}
+              </div>
+            )}
+          </>
+        )}
+        {err && <span className="small" style={{ color: 'var(--critical)' }}>{err.message}</span>}
+      </div>
+      {confirm && <ConfirmModal title={`Anular enlaces sin usar · ${type.name}`} danger confirmLabel="Anular"
+        message={`Los ${stats.open} enlaces de un solo uso enviados que aún nadie ha usado dejarán de funcionar. Úselo si alguno llegó a quien no debía.`}
+        onConfirm={async () => { const r = await api.post('/links/one-time/revoke-open', scope); toast(`${r.revoked} enlaces anulados`); setLast(null); loadStats(); }}
+        onClose={() => setConfirm(false)} />}
+    </div>
+  );
+}
+
 function GeneralLinks() {
   const a = useAuth();
   const types = useRegTypes();
@@ -278,9 +373,12 @@ function GeneralLinks() {
     <div className="card card-pad" style={{ marginBottom: 16 }}>
       <div className="row-wrap" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
         <div><h2>Enlaces para compartir</h2>
-          <p className="small text-2" style={{ margin: '2px 0 0' }}>Un enlace por tipo: envíelo directo por WhatsApp. Quien se registre queda con ese tipo y su color.</p></div>
+          <p className="small text-2" style={{ margin: '2px 0 0' }}>Envíelos directo por WhatsApp. Cabezas y líderes reciben un enlace personal de un solo uso;
+            las personas, un enlace general que pueden compartir.</p></div>
       </div>
-      <div className="glink-grid">{list.map((t) => <GeneralLinkCard key={t.id} type={t} heads={manageable} />)}</div>
+      <div className="glink-grid">{list.map((t) => (t.role === 'person'
+        ? <GeneralLinkCard key={t.id} type={t} heads={manageable} />
+        : <OneTimeLinkCard key={t.id} type={t} heads={manageable} />))}</div>
     </div>
   );
 }
@@ -332,7 +430,7 @@ function LinksTab() {
                   <tr key={l.id}>
                     <td>
                       <div className="row" style={{ gap: 6 }}>{l.kind === 'register' ? <span className="type-swatch" style={{ background: l.type_color }} /> : l.kind === 'leader' ? <Crown size={14} color="var(--leader)" /> : <Link2 size={14} className="muted" />}<span className="mono">{l.token}</span></div>
-                      {l.kind === 'register' && <div className="row-wrap" style={{ gap: 6, margin: '3px 0' }}><TypeChip name={l.type_name} color={l.type_color} /><span className="small text-2">registra {ROLE_LABEL[l.type_role]?.toLowerCase()}s</span>{l.label && <span className="small"><b>{l.label}</b></span>}{l.is_general ? <span className="badge badge-outline">General</span> : null}</div>}
+                      {l.kind === 'register' && <div className="row-wrap" style={{ gap: 6, margin: '3px 0' }}><TypeChip name={l.type_name} color={l.type_color} /><span className="small text-2">registra {ROLE_LABEL[l.type_role]?.toLowerCase()}s</span>{l.label && <span className="small"><b>{l.label}</b></span>}{l.is_general ? <span className="badge badge-outline">General</span> : null}{l.one_time ? <span className="badge badge-outline">Un solo uso</span> : null}</div>}
                       <div className="small muted">{l.kind === 'register' ? 'Enlace de registro' : l.kind === 'leader' ? 'Enlace de líder' : 'Invitación personal'} · creado {fmtDate(l.created_at)}
                         {l.max_uses ? ` · máx. ${l.max_uses}` : ''}{l.expires_at ? ` · caduca ${fmtDate(l.expires_at)}` : ''}</div>
                     </td>
@@ -340,18 +438,20 @@ function LinksTab() {
                     <td>{l.head_name ? <span className="row nowrap"><span className="dot" style={{ background: l.head_color }} />{l.head_name}</span> : <span className="muted small">Crea una nueva</span>}</td>
                     <td className="tnum"><b>{fmtNum(l.uses)}</b>{l.pending > 0 && <span className="badge badge-warning" style={{ marginLeft: 6 }}>{l.pending} pend.</span>}</td>
                     <td className="small">{l.last_used ? relTime(l.last_used) : <span className="muted">Nunca</span>}</td>
-                    <td>{l.status === 'active'
+                    <td>{l.disabled_reason === 'auto:usado'
+                      ? <span className="badge badge-good" title={l.used_at ? `Usado ${fmtDate(l.used_at)}` : ''}><CheckCircle2 size={12} />Usado</span>
+                      : l.status === 'active'
                       ? <span className="badge badge-good"><Check size={12} />Activo</span>
                       : <span className="badge badge-muted" title={l.disabled_reason || ''}><Ban size={12} />Desactivado</span>}
-                      {l.status !== 'active' && l.disabled_reason && <div className="small muted ellipsis" style={{ maxWidth: 180 }}>{l.disabled_reason.startsWith('auto:') ? 'Automático' : l.disabled_reason}</div>}
+                      {l.status !== 'active' && l.disabled_reason && l.disabled_reason !== 'auto:usado' && <div className="small muted ellipsis" style={{ maxWidth: 180 }}>{l.disabled_reason.startsWith('auto:') ? 'Automático' : l.disabled_reason}</div>}
                     </td>
                     <td>
                       <div className="row nowrap" style={{ gap: 4 }}>
                         {l.status === 'active' && <button className="btn btn-sm btn-icon" title="Copiar" aria-label="Copiar" onClick={() => copy(l.token)}><Copy size={14} /></button>}
                         {l.status === 'active' && <a className="btn btn-sm btn-wa" href={`https://wa.me/?text=${encodeURIComponent(`Te invito a registrarte${l.kind === 'register' ? ` como ${l.type_name}` : ''}${l.head_name ? ` en ${l.head_name}` : ''}: ${inviteUrl(l.token)}`)}`} target="_blank" rel="noopener noreferrer">WhatsApp</a>}
-                        {l.can_manage && l.status === 'active' && <button className="btn btn-sm btn-icon" title="Límites" aria-label="Límites" onClick={() => setModal({ type: 'limits', link: l })}><Settings2 size={14} /></button>}
+                        {l.can_manage && l.status === 'active' && !l.one_time && <button className="btn btn-sm btn-icon" title="Límites" aria-label="Límites" onClick={() => setModal({ type: 'limits', link: l })}><Settings2 size={14} /></button>}
                         {l.can_manage && l.status === 'active' && <button className="btn btn-sm btn-danger" onClick={() => setModal({ type: 'disable', link: l })}><Power size={14} />Desactivar</button>}
-                        {l.can_manage && l.status !== 'active' && (l.kind === 'register' || l.owner_status === 'active') && <button className="btn btn-sm" onClick={() => setModal({ type: 'enable', link: l })}>Reactivar</button>}
+                        {l.can_manage && l.status !== 'active' && !l.one_time && (l.kind === 'register' || l.owner_status === 'active') && <button className="btn btn-sm" onClick={() => setModal({ type: 'enable', link: l })}>Reactivar</button>}
                       </div>
                     </td>
                   </tr>

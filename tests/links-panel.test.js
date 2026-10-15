@@ -200,32 +200,65 @@ test('«¿Es voto seguro?» la valora quien registra; el registro público no pu
   assert.equal((await admin.get('/api/people?secure_vote=no&q=tomas publico')).data.total, 1);
 });
 
-test('Enlaces generales por tipo: uno por tipo (y cabeza/dueño), reutilizable y sin límite', async () => {
-  // Cabeza: el mismo enlace sirve para registrar varias cabezas
-  const g1 = await admin.post('/api/links/general', { reg_type_id: ids.concejal.id });
-  assert.equal(g1.status, 200, JSON.stringify(g1.data));
-  assert.equal(g1.data.is_general, 1);
-  assert.equal(g1.data.max_uses, null, 'sin límite');
-  const again = await admin.post('/api/links/general', { reg_type_id: ids.concejal.id });
-  assert.equal(again.data.token, g1.data.token, 'se reutiliza');
-  for (const [f, l] of [['Ana', 'Concejal Uno'], ['Beto', 'Concejal Dos']]) {
-    const r = await anon.post(`/api/public/register/${g1.data.token}`, form(f, l));
-    assert.equal(r.status, 201, JSON.stringify(r.data));
-  }
-  assert.equal((await admin.post('/api/links/general', { reg_type_id: ids.concejal.id })).data.uses, 2);
-  // Líder: uno por cabeza
-  const gl = await admin.post('/api/links/general', { reg_type_id: ids.types.leader.id, head_id: ids.head });
-  assert.equal(gl.status, 200, JSON.stringify(gl.data));
-  assert.equal((await anon.post(`/api/public/register/${gl.data.token}`, form('Lina', 'Lider General'))).data.is_leader, true);
-  assert.equal((await admin.post('/api/links/general', { reg_type_id: ids.types.leader.id })).data.error.field, 'head_id');
-  // Persona: uno por cabeza y líder del que cuelgan
+test('Enlaces generales: sólo para tipos de persona (uno por cabeza y líder, reutilizable)', async () => {
+  // Cabezas y líderes no tienen enlace general: se registran con enlaces de un solo uso
+  assert.equal((await admin.post('/api/links/general', { reg_type_id: ids.concejal.id })).data.error.code, 'ONE_TIME_ONLY');
+  assert.equal((await admin.post('/api/links/general', { reg_type_id: ids.types.leader.id, head_id: ids.head })).data.error.code, 'ONE_TIME_ONLY');
   assert.equal((await admin.post('/api/links/general', { reg_type_id: ids.voto.id, head_id: ids.head })).data.error.field, 'owner_person_id');
   const gp = await admin.post('/api/links/general', { reg_type_id: ids.voto.id, head_id: ids.head, owner_person_id: ids.leader.id });
-  assert.equal(gp.status, 200);
-  assert.notEqual(gp.data.token, (await admin.post('/api/links/general', { reg_type_id: ids.voto.id, head_id: ids.head, owner_person_id: ids.anaId })).data.token);
-  // Si se desactiva, se crea uno nuevo
-  await admin.post(`/api/links/${g1.data.id}/disable`, { reason: 'Se filtró el enlace' });
-  const g2 = await admin.post('/api/links/general', { reg_type_id: ids.concejal.id });
-  assert.notEqual(g2.data.token, g1.data.token);
+  assert.equal(gp.status, 200, JSON.stringify(gp.data));
+  assert.equal(gp.data.max_uses, null);
+  assert.equal((await admin.post('/api/links/general', { reg_type_id: ids.voto.id, head_id: ids.head, owner_person_id: ids.leader.id })).data.token, gp.data.token);
+  for (const n of ['Uno', 'Dos']) {
+    assert.equal((await anon.post(`/api/public/register/${gp.data.token}`, form('Votante', `General ${n}`))).status, 201);
+  }
+});
+
+test('Enlaces de un solo uso para cabezas y líderes: uno por envío, atómicos, no reutilizables y con caducidad', async () => {
+  const gen = (body) => admin.post('/api/links/one-time', body);
+  const a = await gen({ reg_type_id: ids.concejal.id });
+  const b = await gen({ reg_type_id: ids.concejal.id });
+  assert.equal(a.status, 201, JSON.stringify(a.data));
+  assert.notEqual(a.data.token, b.data.token, 'cada envío es un enlace distinto');
+  assert.match(a.data.token, /^REG-CONCEJAL-[A-Z2-9]{12}$/, 'código largo, no adivinable');
+  assert.equal(a.data.max_uses, 1);
+  assert.equal(a.data.one_time, 1);
+  const days = (Date.parse(a.data.expires_at) - Date.now()) / 864e5;
+  assert.ok(days > 6.9 && days < 7.1, 'caduca a los 7 días');
+  assert.equal((await gen({ reg_type_id: ids.voto.id })).status, 400, 'las personas usan el enlace general');
+  // Primer uso: crea la cabeza. Segundo uso (reenviado): rechazado.
+  assert.equal((await anon.post(`/api/public/register/${a.data.token}`, form('Primera', 'Concejal'))).status, 201);
+  const reuse = await anon.post(`/api/public/register/${a.data.token}`, form('Reenvio', 'Concejal'));
+  assert.equal(reuse.data.error.code, 'LINK_INVALID');
+  assert.match(reuse.data.error.message, /ya fue usado/);
+  assert.equal((await anon.get(`/api/public/invite/${a.data.token}`)).data.valid, false);
+  // Dos registros simultáneos con el mismo enlace: sólo uno pasa
+  const race = await Promise.all([1, 2, 3].map((i) => anon.post(`/api/public/register/${b.data.token}`, form('Carrera', `Concejal ${['Uno', 'Dos', 'Tres'][i - 1]}`))));
+  assert.deepEqual(race.map((r) => r.status).sort(), [201, 400, 400]);
+  // Rechazar el registro no reabre el enlace
+  const winner = (await admin.get('/api/people?q=carrera concejal')).data.rows[0];
+  await admin.post(`/api/people/${winner.id}/status`, { status: 'rejected', reason: 'Prueba de rechazo' });
+  assert.equal((await anon.post(`/api/public/register/${b.data.token}`, form('Tras', 'Rechazo'))).data.error.code, 'LINK_INVALID');
+  // Un enlace usado no se puede reactivar ni ampliar
+  assert.equal((await admin.post(`/api/links/${a.data.id}/enable`, {})).data.error.code, 'ONE_TIME');
+  assert.equal((await admin.patch(`/api/links/${a.data.id}`, { max_uses: 50 })).data.error.code, 'ONE_TIME');
+  // Líderes: uno por envío, de la cabeza indicada; un administrador de otra cabeza no puede generarlos
+  const l = await gen({ reg_type_id: ids.aspirante.id, head_id: ids.head });
+  assert.equal(l.status, 201, JSON.stringify(l.data));
+  assert.equal((await anon.post(`/api/public/register/${l.data.token}`, form('Lider', 'Un Uso'))).data.is_leader, true);
+  assert.equal((await anon.post(`/api/public/register/${l.data.token}`, form('Lider', 'Reenviado'))).status, 400);
+  const other = await admin.post('/api/heads', { name: 'Otra Cabeza Enlaces' });
+  await admin.post('/api/users', { username: 'adm.otra', password: 'AdmOtra1234!', role: 'head_admin', head_ids: [other.data.id] });
+  const ha = await new Client(srv.base).login('adm.otra', 'AdmOtra1234!');
+  assert.equal((await ha.post('/api/links/one-time', { reg_type_id: ids.aspirante.id, head_id: ids.head })).status, 403);
+  assert.equal((await ha.post('/api/links/one-time', { reg_type_id: ids.concejal.id })).status, 403, 'cabezas: sólo el administrador general');
+  // Resumen y anulación de los no usados
+  const c = await gen({ reg_type_id: ids.concejal.id });
+  let st = (await admin.get(`/api/links/one-time/stats?reg_type_id=${ids.concejal.id}`)).data;
+  assert.deepEqual([st.sent, st.used, st.open], [3, 2, 1]);
+  assert.equal((await admin.post('/api/links/one-time/revoke-open', { reg_type_id: ids.concejal.id })).data.revoked, 1);
+  assert.equal((await anon.post(`/api/public/register/${c.data.token}`, form('Anulado', 'Concejal'))).data.error.code, 'LINK_INVALID');
+  st = (await admin.get(`/api/links/one-time/stats?reg_type_id=${ids.concejal.id}`)).data;
+  assert.equal(st.open, 0);
   assert.equal((await admin.get('/api/admin/integrity')).data.ok, true);
 });

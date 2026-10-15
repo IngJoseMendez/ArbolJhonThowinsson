@@ -165,6 +165,17 @@ nombre del tipo, así se sabe qué enlace es. Según el tipo:
 | Líder | Queda como **líder oficial automáticamente** (código `LID-…`, su enlace para invitar y su panel) | Cabeza; padrino opcional (sin padrino cuelga de la cabeza) |
 | Cabeza | Crea una **cabeza nueva** («Concejal Nombre Apellido», con el color del tipo) y queda como su primer líder | Sólo el administrador general; 1 registro por enlace por defecto |
 
+**Enlaces para compartir** (tarjetas de color al inicio de *Enlaces*, con botones de WhatsApp y Copiar):
+
+- **Cabezas y líderes: enlaces de un solo uso.** Cada toque en WhatsApp o Copiar genera un enlace personal y nuevo,
+  con un código aleatorio de 12 caracteres. Sirve para un único registro y caduca a los 7 días si no se usa
+  (`ONE_TIME_LINK_DAYS`). Si la persona lo reenvía, nadie más puede registrarse con él. El uso se controla en el
+  servidor, bloqueando el enlace en la base de datos, así que dos registros simultáneos no pueden pasar ambos.
+  Una vez usado, el enlace queda apagado aunque el registro se rechace, y no se puede reactivar ni ampliar. La
+  tarjeta muestra los enviados, los usados y los que siguen sin usar, y permite anular los que no se han usado.
+- **Personas: enlace general**, reutilizable (uno por cabeza y líder del que cuelgan), pensado para difundirse.
+- Los enlaces generales sin límite de cabezas y líderes de versiones anteriores se desactivaron en la migración v7.
+
 Cabeza, padrino y tipo se toman del enlace en el servidor, nunca del formulario. Los enlaces admiten límite de
 registros, caducidad y desactivación, como los demás.
 

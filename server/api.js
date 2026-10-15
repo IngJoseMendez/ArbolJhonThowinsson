@@ -10,7 +10,7 @@ import {
 import {
   createPerson, registerViaInvite, resolveInvite, promoteToLeader, demoteLeader, setResponsibleLeader, movePerson,
   setStatus, updatePersonData, regeneratePersonLink, integrityReport, recountCounters, getPerson, getHead, findDuplicate,
-  createRegisterLink, ensureGeneralLink, issuePanelToken, revokePanelToken, regTypeById,
+  createRegisterLink, ensureGeneralLink, createOneTimeLink, oneTimeStats, revokeOpenOneTime, issuePanelToken, revokePanelToken, regTypeById,
 } from './services/people.js';
 import { panelData } from './services/panel.js';
 import { treeChildren, treeSubtree, treeChildrenOf, pathToPerson, search, directory, dashboard, branchStats, NODE_SELECT } from './services/queries.js';
@@ -492,6 +492,30 @@ api.post('/links/general', requireRole('super_admin', 'head_admin'), async (req,
   res.json({ ...l, uses });
 });
 
+// Enlaces de un solo uso para cabezas y líderes: uno nuevo por cada envío.
+const oneTimeLimiter = rateLimit({ windowMs: 60e3, max: 60, key: (req) => `onetime:${req.user?.id}` });
+const oneTimeScope = async (req) => {
+  const type = await regTypeById(Number(req.body?.reg_type_id ?? req.query.reg_type_id));
+  if (!type || type.role === 'person') throw badRequest('VALIDATION', 'Tipo de registro no válido.', { field: 'reg_type_id' });
+  if (type.role === 'head' && req.user.role !== 'super_admin') throw forbidden('Sólo el administrador general registra cabezas.');
+  const headId = type.role === 'head' ? null : Number(req.body?.head_id ?? req.query.head_id) || null;
+  if (type.role === 'leader' && (!headId || !canManageHead(req.user, headId))) throw forbidden('No administra esta cabeza.');
+  return { type, headId };
+};
+api.post('/links/one-time', requireRole('super_admin', 'head_admin'), oneTimeLimiter, async (req, res) => {
+  const { type, headId } = await oneTimeScope(req);
+  const l = await createOneTimeLink({ reg_type_id: type.id, head_id: headId }, req.user, ip(req));
+  res.status(201).json({ ...l, stats: await oneTimeStats(type.id, headId) });
+});
+api.get('/links/one-time/stats', requireRole('super_admin', 'head_admin'), async (req, res) => {
+  const { type, headId } = await oneTimeScope(req);
+  res.json(await oneTimeStats(type.id, headId));
+});
+api.post('/links/one-time/revoke-open', requireRole('super_admin', 'head_admin'), async (req, res) => {
+  const { type, headId } = await oneTimeScope(req);
+  res.json(await revokeOpenOneTime(type.id, headId, req.user, ip(req)));
+});
+
 api.get('/links', requireAuth, async (req, res) => {
   // Los enlaces de registro pueden no tener dueño: su cabeza es k.head_id (o ninguna, si registran cabezas nuevas).
   const admin = isAdmin(req.user);
@@ -550,6 +574,7 @@ api.post('/links/:id/disable', requireAuth, async (req, res) => {
 
 api.post('/links/:id/enable', requireAuth, async (req, res) => {
   const l = await loadManagedLink(req);
+  if (l.one_time) throw badRequest('ONE_TIME', 'Un enlace de un solo uso no se puede reactivar: genere uno nuevo.');
   if (l.kind === 'register') {
     await q(`UPDATE invite_links SET status = 'active', disabled_at = NULL, disabled_by = NULL, disabled_reason = NULL WHERE id = ?`).run(l.id);
     await audit(req.user, 'link.enable', 'invite_link', l.id, { token: l.token }, ip(req));
@@ -567,6 +592,7 @@ api.post('/links/:id/enable', requireAuth, async (req, res) => {
 
 api.patch('/links/:id', requireAuth, async (req, res) => {
   const l = await loadManagedLink(req);
+  if (l.one_time) throw badRequest('ONE_TIME', 'Un enlace de un solo uso no admite cambiar sus límites.');
   const maxUses = req.body.max_uses === null || req.body.max_uses === '' ? null : intOrNull(req.body.max_uses, 'max_uses');
   let expires = req.body.expires_at || null;
   if (expires && Number.isNaN(Date.parse(expires))) throw badRequest('VALIDATION', 'Fecha de caducidad no válida.');

@@ -9,6 +9,7 @@ import { audit, history } from './audit.js';
 import { resolveLocation, geoIntegrity } from './geo.js';
 import { IS_PRODUCTION } from '../env.js';
 
+const ONE_TIME_DAYS = Number(process.env.ONE_TIME_LINK_DAYS) || 7;
 const EMAIL_DNS = process.env.EMAIL_DNS_CHECK ? process.env.EMAIL_DNS_CHECK === '1' : IS_PRODUCTION;
 
 // ---------------------------------------------------------------------------
@@ -235,8 +236,9 @@ export async function resolveInvite(rawToken) {
   const owner = link.owner_person_id ? await getPerson(link.owner_person_id) : null;
   const head = role === 'head' ? null : await getHead(link.head_id ?? owner.head_id);
   let reason = null;
-  if (link.status !== 'active') reason = 'Este enlace fue desactivado.';
-  else if (link.expires_at && link.expires_at < now()) reason = 'Este enlace ha caducado.';
+  if (link.status !== 'active') {
+    reason = link.disabled_reason === 'auto:usado' ? 'Este enlace ya fue usado: es personal y sirve para un solo registro.' : 'Este enlace fue desactivado.';
+  } else if (link.expires_at && link.expires_at < now()) reason = 'Este enlace ha caducado.';
   else if (owner && owner.status !== 'active') reason = 'Este enlace ya no está disponible.';
   else if (head && head.status !== 'active') reason = 'Este enlace ya no está disponible.';
   else if (owner && head && owner.head_id !== head.id) reason = 'Este enlace ya no está disponible.';
@@ -278,12 +280,17 @@ export async function createRegisterLink(body, user, ip) {
     let expires = body.expires_at || null;
     if (expires && Number.isNaN(Date.parse(expires))) throw badRequest('VALIDATION', 'Fecha de caducidad no válida.', { field: 'expires_at' });
     if (expires) expires = new Date(expires).toISOString();
+    if (body.oneTime) {
+      // Enlace personal: un solo registro, caduca a los 7 días si no se usa y su código es largo (no adivinable).
+      maxUses = 1;
+      expires = new Date(Date.now() + ONE_TIME_DAYS * 864e5).toISOString();
+    }
     const base = `REG-${slugUpper(type.name, 2)}`;
     let token;
-    do token = `${base}-${randomCode(6)}`; while (await tokenTaken(token));
-    const r = await q(`INSERT INTO invite_links (token, kind, owner_person_id, reg_type_id, head_id, label, max_uses, expires_at, created_by, is_general)
-                 VALUES (?, 'register', ?, ?, ?, ?, ?, ?, ?, ?)`).run(token, owner?.id ?? null, type.id, headId, label, maxUses, expires, user.id,
-      body.general ? 1 : 0);
+    do token = `${base}-${randomCode(body.oneTime ? 12 : 6)}`; while (await tokenTaken(token));
+    const r = await q(`INSERT INTO invite_links (token, kind, owner_person_id, reg_type_id, head_id, label, max_uses, expires_at, created_by, is_general, one_time)
+                 VALUES (?, 'register', ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(token, owner?.id ?? null, type.id, headId, label, maxUses, expires, user.id,
+      body.general ? 1 : 0, body.oneTime ? 1 : 0);
     const id = Number(r.lastInsertRowid);
     await audit(user, 'link.create_register', 'invite_link', id, { token, reg_type: type.name, role: type.role, head_id: headId, owner_person_id: owner?.id ?? null }, ip);
     return await q('SELECT * FROM invite_links WHERE id = ?').get(id);
@@ -298,14 +305,43 @@ export async function ensureGeneralLink(body, user, ip) {
   return await tx(async () => {
     const type = await regTypeById(Number(body.reg_type_id));
     if (!type || !type.active) throw badRequest('VALIDATION', 'Elija un tipo de registro activo.', { field: 'reg_type_id' });
-    const headId = type.role === 'head' ? null : Number(body.head_id) || null;
-    const ownerId = type.role === 'person' ? Number(body.owner_person_id) || null : null;
+    if (type.role !== 'person') {
+      throw badRequest('ONE_TIME_ONLY', 'Las cabezas y los líderes se registran con enlaces de un solo uso.', { field: 'reg_type_id' });
+    }
+    const headId = Number(body.head_id) || null;
+    const ownerId = Number(body.owner_person_id) || null;
     await q('SELECT pg_advisory_xact_lock(724100, ?::int)').get(type.id); // evita duplicados si dos administradores lo piden a la vez
     const found = await q(`SELECT * FROM invite_links WHERE kind = 'register' AND is_general = 1 AND status = 'active' AND reg_type_id = ?
         AND head_id IS NOT DISTINCT FROM ?::int AND owner_person_id IS NOT DISTINCT FROM ?::int ORDER BY id DESC LIMIT 1`).get(type.id, headId, ownerId);
     if (found) return found;
     return await createRegisterLink({ reg_type_id: type.id, head_id: headId, owner_person_id: ownerId, general: true }, user, ip);
   });
+}
+
+/** Nuevo enlace personal de un solo uso para registrar una cabeza o un líder. */
+export async function createOneTimeLink(body, user, ip) {
+  const type = await regTypeById(Number(body.reg_type_id));
+  if (!type || !type.active) throw badRequest('VALIDATION', 'Elija un tipo de registro activo.', { field: 'reg_type_id' });
+  if (type.role === 'person') throw badRequest('VALIDATION', 'Los tipos de persona usan el enlace general.', { field: 'reg_type_id' });
+  return await createRegisterLink({ reg_type_id: type.id, head_id: type.role === 'head' ? null : body.head_id, oneTime: true }, user, ip);
+}
+
+/** Resumen de los enlaces de un solo uso de un tipo (y cabeza): enviados, usados, sin usar y caducados. */
+export async function oneTimeStats(regTypeId, headId) {
+  return await q(`SELECT COUNT(*) AS sent,
+      SUM(CASE WHEN used_at IS NOT NULL THEN 1 ELSE 0 END) AS used,
+      SUM(CASE WHEN used_at IS NULL AND status = 'active' AND (expires_at IS NULL OR expires_at >= ?) THEN 1 ELSE 0 END) AS open,
+      SUM(CASE WHEN used_at IS NULL AND status = 'active' AND expires_at < ? THEN 1 ELSE 0 END) AS expired
+    FROM invite_links WHERE one_time = 1 AND reg_type_id = ? AND head_id IS NOT DISTINCT FROM ?::int`).get(now(), now(), regTypeId, headId);
+}
+
+/** Desactiva los enlaces de un solo uso que siguen sin usar (por ejemplo, si se enviaron a quien no debía). */
+export async function revokeOpenOneTime(regTypeId, headId, user, ip) {
+  const r = await q(`UPDATE invite_links SET status = 'disabled', disabled_at = ?, disabled_by = ?, disabled_reason = 'Anulado: enlaces sin usar'
+      WHERE one_time = 1 AND used_at IS NULL AND status = 'active' AND reg_type_id = ? AND head_id IS NOT DISTINCT FROM ?::int`)
+    .run(now(), user.id, regTypeId, headId);
+  await audit(user, 'link.revoke_one_time', 'reg_type', regTypeId, { head_id: headId, count: r.changes }, ip);
+  return { revoked: r.changes };
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +461,17 @@ export async function registerViaInvite(token, body, ip) {
   };
   const common = { data, method: 'invitation', linkId: link.id, consent: true, ip, regTypeId: type.id };
   return await tx(async () => {
+    // Se bloquea el enlace y se vuelve a comprobar dentro de la transacción: dos registros simultáneos con un enlace
+    // de un solo uso (o con su último cupo) no pueden pasar ambos.
+    const locked = await q('SELECT * FROM invite_links WHERE id = ? FOR UPDATE').get(link.id);
+    if (locked.status !== 'active') {
+      throw badRequest('LINK_INVALID', locked.disabled_reason === 'auto:usado' ? 'Este enlace ya fue usado: es personal y sirve para un solo registro.' : 'Este enlace fue desactivado.');
+    }
+    if (locked.expires_at && locked.expires_at < now()) throw badRequest('LINK_INVALID', 'Este enlace ha caducado.');
+    if (locked.max_uses != null) {
+      const used = (await q(`SELECT COUNT(*) n FROM people WHERE invite_link_id = ? AND status <> 'rejected'`).get(link.id)).n;
+      if (used >= locked.max_uses) throw badRequest('LINK_INVALID', 'Este enlace alcanzó su límite de registros.');
+    }
     let person;
     let targetHead = head;
     if (role === 'head') {
@@ -439,6 +486,11 @@ export async function registerViaInvite(token, body, ip) {
         ...common, headId: head.id, inviterId: owner?.id ?? null, isLeader: role === 'leader',
         status: head.requires_approval ? 'pending' : 'active',
       });
+    }
+    if (locked.one_time) {
+      // Usado: queda apagado para siempre, aunque después se rechace el registro.
+      await q(`UPDATE invite_links SET status = 'disabled', used_at = ?, disabled_at = ?, disabled_reason = 'auto:usado' WHERE id = ?`)
+        .run(now(), now(), link.id);
     }
     const panelToken = person.is_leader ? await issuePanelToken(person.id) : null;
     return { person, owner, head: targetHead, type, role, panelToken };

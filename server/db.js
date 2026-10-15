@@ -292,6 +292,17 @@ ALTER TABLE invite_links ADD COLUMN IF NOT EXISTS is_general SMALLINT NOT NULL D
 CREATE INDEX IF NOT EXISTS ix_links_general ON invite_links (reg_type_id, head_id, owner_person_id) WHERE is_general = 1 AND status = 'active';
 `;
 
+// v7: enlaces de un solo uso para registrar cabezas y líderes. Los enlaces generales (sin límite) de esos tipos
+// se desactivan: cualquiera que los recibiera reenviados podría registrarse.
+const MIGRATION_7 = `
+ALTER TABLE invite_links ADD COLUMN IF NOT EXISTS one_time SMALLINT NOT NULL DEFAULT 0;
+ALTER TABLE invite_links ADD COLUMN IF NOT EXISTS used_at TEXT;
+CREATE INDEX IF NOT EXISTS ix_links_one_time ON invite_links (reg_type_id, head_id) WHERE one_time = 1;
+UPDATE invite_links k SET status = 'disabled', disabled_at = ${TS}, disabled_reason = 'auto:reemplazado por enlaces de un solo uso'
+ WHERE k.is_general = 1 AND k.status = 'active'
+   AND (SELECT role FROM reg_types t WHERE t.id = k.reg_type_id) IN ('head','leader');
+`;
+
 const nameKey = (s) => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 /** Carga inicial del catálogo de Santa Marta (sólo si el catálogo está vacío). */
@@ -318,6 +329,7 @@ const MIGRATIONS = [
   { version: 4, sql: MIGRATION_4 },
   { version: 5, sql: MIGRATION_5 },
   { version: 6, sql: MIGRATION_6 },
+  { version: 7, sql: MIGRATION_7 },
 ];
 
 let pool = null;
