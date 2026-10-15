@@ -5,6 +5,7 @@ import { useAuth } from '../../auth.jsx';
 import { useCached, invalidate } from '../../lib/cache.js';
 import { useGo } from '../../lib/nav.js';
 import { useQueryState } from '../../lib/useParams.js';
+import { useRegTypes } from '../../lib/regTypes.js';
 import Screen from '../../components/m/Screen.jsx';
 import { ActionRow, EmptyState, Group, RowsSkeleton, Section } from '../../components/m/List.jsx';
 import { InviteHeadBlock, InviteLeaderBlock, PersonLinkBlock } from '../../components/invite/InviteBlocks.jsx';
@@ -16,9 +17,12 @@ function useInviteList(state, size = 5) {
   return useCached(`links:${state}:${size}`, () => api.get(`/links${qs({ one_time: 1, state, pageSize: size })}`), { ttl: 20000 });
 }
 
+const LEGACY_ID = { head: 'invitar-cabeza', leader: 'invitar-lider', person: 'invitar-personas' };
+
 /**
- * Invitar: la pantalla del centro de la barra. Cabeza (sólo el administrador general), líder y el enlace para
- * personas, cada uno con su botón de WhatsApp listo; luego lo que está sin usar y quiénes se registraron.
+ * Invitar: la pantalla del centro de la barra. Un bloque por cada tipo de registro (CAB, COV, LID…), uno debajo del
+ * otro y con su color, cada uno con su botón de WhatsApp listo; luego lo que está sin usar y quiénes se registraron.
+ * Las cabezas sólo las invita el administrador general.
  */
 export default function Invite() {
   const a = useAuth();
@@ -28,6 +32,17 @@ export default function Invite() {
   const open = useInviteList('open');
   const used = useInviteList('used');
   const pending = useCached('counts:pending', () => api.get('/pending?count=1'), { ttl: 60000 });
+  const types = useRegTypes();
+  const list = types.list.filter((t) => t.active && (t.role !== 'head' || a.isSuper));
+  // El primero de cada papel conserva el ancla de siempre (/invitar?que=cabeza|lider|personas).
+  const seen = new Set();
+  const blocks = list.map((t) => {
+    const id = seen.has(t.role) ? `invitar-tipo-${t.id}` : LEGACY_ID[t.role];
+    seen.add(t.role);
+    if (t.role === 'head') return <InviteHeadBlock key={t.id} type={t} id={id} hero={false} />;
+    if (t.role === 'leader') return <InviteLeaderBlock key={t.id} type={t} id={id} />;
+    return <PersonLinkBlock key={t.id} type={t} id={id} />;
+  });
 
   // /invitar?que=cabeza|lider|personas: lleva a ese bloque y lo resalta.
   useEffect(() => {
@@ -38,16 +53,14 @@ export default function Invite() {
     el.classList.add('is-target');
     const t = setTimeout(() => el.classList.remove('is-target'), 2000);
     return () => clearTimeout(t);
-  }, [params.que]);
+  }, [params.que, list.length]);
 
   const none = open.data && used.data && !open.data.total && !used.data.total;
   return (
     <Screen title="Invitar"
       actions={<button type="button" className="m-bar__text-btn" onClick={() => go('/enlaces')}>Enlaces</button>}
       hero={<p className="m-hero__sub">Cada invitación es personal: sirve a una sola persona y vence en 7 días.</p>}>
-      {a.isSuper && <InviteHeadBlock />}
-      <InviteLeaderBlock hero={!a.isSuper} />
-      <PersonLinkBlock />
+      {blocks.length ? blocks : <RowsSkeleton rows={3} />}
 
       <Section>
         <Group>

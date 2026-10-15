@@ -76,7 +76,7 @@ export function InviteCounts({ stats, to }) {
 }
 
 /** Durante un minuto tras enviar: «Lista en WhatsApp a las 3:42 p. m.» con la marca que sube. */
-export function SentLine({ role, headId }) {
+export function SentLine({ role, headId, typeId }) {
   const s = useSyncExternalStore(subscribeSent, getLastSent, getLastSent);
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -84,14 +84,29 @@ export function SentLine({ role, headId }) {
     const t = setTimeout(() => setTick((x) => x + 1), Math.max(0, 60e3 - (Date.now() - s.at)) + 50);
     return () => clearTimeout(t);
   }, [s]);
-  if (!s || s.role !== role || (role === 'leader' && String(s.headId ?? '') !== String(headId ?? '')) || Date.now() - s.at > 60e3) return null;
+  if (!s || s.role !== role || (typeId && s.typeId !== typeId) || (role === 'leader' && String(s.headId ?? '') !== String(headId ?? '')) || Date.now() - s.at > 60e3) return null;
   if (s.closed) return <p className="m-sent is-error" role="alert">La invitación de las {time.format(new Date(s.at))} ya no servía (se anuló). Envíe la nueva.</p>;
   return <p className="m-sent" role="status"><Mark size={20} />{s.via === 'copy' ? 'Copiada' : 'Lista en WhatsApp'} a las {time.format(new Date(s.at))}{s.label ? `, para ${s.label}` : ''}.</p>;
 }
 
-/** Bloque «Invitar una cabeza» (sólo el administrador general): nombre opcional y un toque a WhatsApp. */
-export function InviteHeadBlock({ hero = true, compact }) {
-  const { base } = useRoleTypes('head');
+/** Etiqueta del tipo con su color (CAB, COV, LID…): así se ve de un vistazo qué se está enviando. */
+function TypeTag({ type }) {
+  return type ? <span className="m-invite__tag">{type.name}</span> : null;
+}
+
+/** Título del bloque: «Invitar una cabeza» / «Invitar un líder» para los tipos base; «Invitar COV» para los demás. */
+const inviteTitle = (type, role) => {
+  if (!type || type.name === (role === 'head' ? 'Cabeza' : 'Líder')) return role === 'head' ? 'Invitar una cabeza' : 'Invitar un líder';
+  return `Invitar ${type.name}`;
+};
+
+/**
+ * Bloque «Invitar una cabeza» (sólo el administrador general): nombre opcional y un toque a WhatsApp.
+ * type: un tipo de cabeza concreto (en Invitar hay un bloque por tipo, con su color); sin él, el tipo base.
+ */
+export function InviteHeadBlock({ hero = true, compact, type: fixedType, id = 'invitar-cabeza' }) {
+  const { base: baseType } = useRoleTypes('head');
+  const base = fixedType || baseType;
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   // Android (Chrome): «Contacto» abre la agenda; con el celular elegido, WhatsApp abre directo su chat.
@@ -109,15 +124,17 @@ export function InviteHeadBlock({ hero = true, compact }) {
   const label = name.trim() || undefined;
   const sendLabel = label ? `Enviar a ${label.split(/\s+/)[0]} por WhatsApp` : 'Enviar por WhatsApp';
   return (
-    <section className={`m-invite ${hero ? 'm-invite--hero' : ''}`} id="invitar-cabeza" aria-labelledby="inv-head-title">
+    <section className={`m-invite ${hero ? 'm-invite--hero' : ''} ${fixedType ? 'm-invite--type' : ''}`} id={id} aria-labelledby={`${id}-title`}
+      style={fixedType ? typeVars(base.color) : undefined}>
       <Mark className="m-invite__mark" />
-      <h2 className="m-invite__title" id="inv-head-title">Invitar una cabeza</h2>
+      {fixedType && <TypeTag type={base} />}
+      <h2 className="m-invite__title" id={`${id}-title`}>{inviteTitle(base, 'head')}</h2>
       <p className="m-invite__desc">Tendrá su propio equipo de líderes y personas.</p>
       {!compact && (
         <div className="field">
-          <label htmlFor="inv-head-name">¿Para quién? <span style={{ fontWeight: 400, opacity: 0.8 }}>(opcional)</span></label>
+          <label htmlFor={`${id}-name`}>¿Para quién? <span style={{ fontWeight: 400, opacity: 0.8 }}>(opcional)</span></label>
           <div className="m-name-row">
-            <input id="inv-head-name" className="input" value={name} maxLength={60} enterKeyHint="send" autoComplete="off"
+            <input id={`${id}-name`} className="input" value={name} maxLength={60} enterKeyHint="send" autoComplete="off"
               placeholder="Nombre de la persona" onChange={(e) => { setName(e.target.value); setPhone(''); }} />
             {canPick && <button type="button" className="btn m-contact-btn" onClick={pickContact}><UserRound size={17} />Contacto</button>}
           </div>
@@ -125,7 +142,7 @@ export function InviteHeadBlock({ hero = true, compact }) {
       )}
       <InviteButton invite={invite} label={label} phone={phone || undefined}>{sendLabel}</InviteButton>
       <InviteAlt invite={invite} label={label} />
-      <SentLine role="head" />
+      <SentLine role="head" typeId={fixedType ? base.id : undefined} />
       <InviteCounts stats={invite.stats} to={`/enlaces?estado=sin-usar&tipo=${base?.id || ''}`} />
     </section>
   );
@@ -189,9 +206,11 @@ export function HeadPickerSheet({ heads, value, onPick, onClose, title = '¿Con 
  * Bloque «Invitar un líder». Con una sola cabeza posible no pregunta; con varias, fichas para elegir.
  * fixedHead: en la pantalla de una cabeza, la invitación ya es para ella.
  */
-export function InviteLeaderBlock({ fixedHead, hero = false }) {
+export function InviteLeaderBlock({ fixedHead, hero = false, type: fixedType, id = 'invitar-lider' }) {
   const teams = useTeams();
-  const { base, list: leaderTypes } = useRoleTypes('leader');
+  const roleTypes = useRoleTypes('leader');
+  const base = fixedType || roleTypes.base;
+  const leaderTypes = fixedType ? [fixedType] : roleTypes.list;
   const heads = teams.manageable;
   const remembered = (() => { try { return localStorage.getItem(`gl:${base?.id}:head`) || ''; } catch { return ''; } })();
   const [headId, setHeadId] = useState(fixedHead?.id || '');
@@ -205,8 +224,9 @@ export function InviteLeaderBlock({ fixedHead, hero = false }) {
   const invite = useOneTimeInvite({ typeId: type?.id, headId: head?.id, role: 'leader', cabeza, makeText, enabled: !!type && !!head });
   const pick = (id) => { setHeadId(id); try { localStorage.setItem(`gl:${base?.id}:head`, String(id)); } catch { /* */ } };
   return (
-    <section className={`m-invite ${hero ? 'm-invite--hero' : ''}`} id="invitar-lider" aria-labelledby="inv-leader-title" style={typeVars(type?.color)}>
-      <h2 className="m-invite__title" id="inv-leader-title">{fixedHead ? 'Invitar un líder' : 'Invitar un líder'}</h2>
+    <section className={`m-invite ${hero ? 'm-invite--hero' : ''} ${fixedType ? 'm-invite--type' : ''}`} id={id} aria-labelledby={`${id}-title`} style={typeVars(type?.color)}>
+      {fixedType && <TypeTag type={type} />}
+      <h2 className="m-invite__title" id={`${id}-title`}>{inviteTitle(type, 'leader')}</h2>
       <p className="m-invite__desc">{head ? (cabeza ? `Quedará en el equipo de ${cabeza}.` : `Quedará en ${head.name}.`) : 'Cada líder suma a su propia gente.'}</p>
       {!fixedHead && heads.length > 1 && (
         <div className="stack" style={{ gap: 8 }}>
@@ -223,7 +243,7 @@ export function InviteLeaderBlock({ fixedHead, hero = false }) {
         <>
           <InviteButton invite={invite}>Enviar por WhatsApp</InviteButton>
           <InviteAlt invite={invite} />
-          <SentLine role="leader" headId={head.id} />
+          <SentLine role="leader" headId={head.id} typeId={fixedType ? type.id : undefined} />
           <InviteCounts stats={invite.stats} to={`/enlaces?estado=sin-usar&tipo=${type?.id || ''}&cabeza=${head.id}`} />
         </>
       ) : <p className="m-note" style={{ margin: 0 }}>{heads.length ? 'Elija la cabeza con la que quedará.' : 'Aún no hay cabezas activas que usted administre.'}</p>}
@@ -235,10 +255,11 @@ export function InviteLeaderBlock({ fixedHead, hero = false }) {
  * Enlace para personas (reutilizable): uno solo para compartir con todos. Se recuerda la última elección
  * (cabeza y de quién cuelgan) en este dispositivo.
  */
-export function PersonLinkBlock() {
+export function PersonLinkBlock({ type: fixedType, id = 'invitar-personas' }) {
   const teams = useTeams();
   const toast = useToast();
-  const types = useRoleTypes('person');
+  const roleTypes = useRoleTypes('person');
+  const types = fixedType ? { list: [fixedType], base: fixedType } : roleTypes;
   const heads = teams.manageable;
   const base = types.base;
   const recall = (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
@@ -265,8 +286,9 @@ export function PersonLinkBlock() {
   };
   const ready = !!link.url;
   return (
-    <section className="m-invite" id="invitar-personas" aria-labelledby="inv-person-title" style={typeVars(type?.color)}>
-      <h2 className="m-invite__title" id="inv-person-title">Enlace para personas</h2>
+    <section className={`m-invite ${fixedType ? 'm-invite--type' : ''}`} id={id} aria-labelledby={`${id}-title`} style={typeVars(type?.color)}>
+      {fixedType && <TypeTag type={type} />}
+      <h2 className="m-invite__title" id={`${id}-title`}>{!fixedType || type.name === 'Persona' ? 'Enlace para personas' : `Enlace ${type.name}`}</h2>
       <p className="m-invite__desc">Uno solo para compartir con todos. Quienes se registren quedan con quien usted elija.</p>
       <div className="m-pick">
         <span className="m-pick__text">

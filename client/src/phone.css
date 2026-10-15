@@ -302,6 +302,19 @@ html.m-phone .m-sent .mark-b { animation: rise 0.8s cubic-bezier(0.2, 0.9, 0.3, 
 html.m-phone .m-sent .mark-a { animation: rise 0.8s cubic-bezier(0.2, 0.9, 0.3, 1.25) 0.18s both; transform-box: fill-box; }
 html.m-phone .m-invite + .m-invite, html.m-phone .m-invite + .m-section, html.m-phone .m-section + .m-invite { margin-top: 16px; }
 html.m-phone .m-invite.is-target { animation: m-highlight 1.6s ease 0.2s; }
+/* Un bloque por tipo de registro: franja superior y etiqueta con el color del tipo (CAB, COV, LID…). */
+html.m-phone .m-invite--type { border-top: 6px solid var(--type, var(--border-strong)); padding-top: 14px; }
+html.m-phone .m-invite__tag {
+  align-self: flex-start; display: inline-flex; align-items: center; height: 26px; padding: 0 11px; margin-bottom: -4px; border-radius: 999px;
+  background: var(--type, var(--surface-2)); color: var(--type-ink, var(--text)); font: 700 13px/1 var(--font-ui); letter-spacing: 0.03em;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+html.m-phone .m-invite--type .m-invite__desc { margin-top: -6px; }
+/* En oscuro, un color muy oscuro (el azul de la marca) se aclara un poco para que la franja se vea. */
+@media (prefers-color-scheme: dark) {
+  html.m-phone:not([data-theme="light"]) .m-invite--type { border-top-color: color-mix(in srgb, var(--type) 72%, #ffffff); }
+}
+html.m-phone[data-theme="dark"] .m-invite--type { border-top-color: color-mix(in srgb, var(--type) 72%, #ffffff); }
 @keyframes m-highlight { 30% { box-shadow: 0 0 0 4px var(--sky); } }
 html.m-phone .m-pick { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 14px; background: var(--surface-2); }
 html.m-phone .m-pick__text { min-width: 0; font-size: 14.5px; color: var(--text-2); }
