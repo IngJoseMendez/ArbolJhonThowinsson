@@ -42,6 +42,17 @@ export function createApp() {
   else if (ON_VERCEL || ON_RAILWAY) app.set('trust proxy', true); // detrás del proxy del proveedor
 
   app.use(securityHeaders);
+  // Dominio propio (PUBLIC_URL, por ejemplo https://thowinssonsm.com): quien entra por otra dirección (la de Railway,
+  // www.) pasa al dominio, así todos los links que se copian y se comparten salen con él. La API no se redirige
+  // (healthcheck del proveedor y peticiones en curso) ni el equipo local.
+  const canonical = process.env.PUBLIC_URL ? new URL(process.env.PUBLIC_URL) : null;
+  if (canonical) {
+    app.use((req, res, next) => {
+      const local = ['localhost', '127.0.0.1', '::1'].includes(req.hostname);
+      if (!['GET', 'HEAD'].includes(req.method) || req.path.startsWith('/api/') || local || req.hostname === canonical.hostname) return next();
+      res.redirect(301, canonical.origin + req.originalUrl);
+    });
+  }
   // Respuestas comprimidas (gzip/brotli). En Vercel lo hace su CDN.
   if (!ON_VERCEL) app.use(compression());
 

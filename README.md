@@ -40,8 +40,12 @@ seguridad programadas de Postgres.
    | `ADMIN_USER` | Usuario del administrador general |
    | `ADMIN_PASSWORD` | Contraseña robusta (obligatoria en producción; nunca se genera una aleatoria) |
    | `TOTP_KEY` | Recomendada: texto aleatorio largo para cifrar las claves de la verificación en dos pasos |
+   | `PUBLIC_URL` | El dominio propio, por ejemplo `https://thowinssonsm.com` (sin `/` al final) |
 
-4. *Settings → Networking → Generate Domain* para obtener la URL pública (o conecte su dominio).
+4. *Settings → Networking → Custom Domain*: agregue el dominio (`thowinssonsm.com` y `www.thowinssonsm.com`) y cree en
+   el proveedor del dominio los registros DNS que indica Railway. Con `PUBLIC_URL` definida, quien entre por la
+   dirección de Railway o por `www.` pasa al dominio propio, así todos los links de registro y de los paneles salen
+   con él (la API no se redirige).
 5. En el servicio **Postgres → Backups**, active copias **diarias y semanales**.
 6. Entre en `/login` y cambie la contraseña del administrador.
 

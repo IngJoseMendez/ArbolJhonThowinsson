@@ -258,3 +258,25 @@ test('Los topes de códigos errados se cumplen también con peticiones simultán
   // Bloqueada: ni el código correcto entra hasta que pasen los 15 minutos.
   assert.equal((await attacker.post('/api/auth/login/2fa', { challenge: await challenge(), code: codeFor(secret, 1) })).status, 429);
 });
+
+test('Con dominio propio (PUBLIC_URL), quien entra por otra dirección pasa al dominio; la API no se redirige', async () => {
+  const http = await import('node:http');
+  const { createApp } = await import('../server/app.js');
+  process.env.PUBLIC_URL = 'https://thowinssonsm.com';
+  const server = createApp().listen(0);
+  delete process.env.PUBLIC_URL;
+  // fetch no permite cambiar la cabecera Host: se pide con http.
+  const get = (path, host) => new Promise((resolve, reject) => {
+    http.get({ port: server.address().port, path, headers: { host } }, (res) => { res.resume(); resolve({ status: res.statusCode, location: res.headers.location }); })
+      .on('error', reject);
+  });
+  try {
+    await new Promise((r) => server.once('listening', r));
+    const page = await get('/registro/REG-ABC?x=1', 'arbol-production.up.railway.app');
+    assert.equal(page.status, 301);
+    assert.equal(page.location, 'https://thowinssonsm.com/registro/REG-ABC?x=1');
+    assert.equal((await get('/', 'www.thowinssonsm.com')).location, 'https://thowinssonsm.com/');
+    assert.equal((await get('/api/health', 'arbol-production.up.railway.app')).status, 200, 'la API no se redirige');
+    assert.notEqual((await get('/', 'thowinssonsm.com')).status, 301, 'en el dominio propio no hay redirección');
+  } finally { server.close(); }
+});
