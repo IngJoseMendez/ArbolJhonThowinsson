@@ -4,6 +4,7 @@ import { AlertCircle, LogIn } from 'lucide-react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { Logo, JohnPhoto, CAMPAIGN, SLOGAN } from '../brand/Brand.jsx';
+import { markAdminDevice } from '../lib/pwa.js';
 
 export default function Login() {
   const a = useAuth();
@@ -15,7 +16,7 @@ export default function Login() {
   if (a.me) return <Navigate to={loc.state?.from || '/'} replace />;
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr(null);
-    try { await api.post('/auth/login', f); await a.refresh(); nav(loc.state?.from || '/', { replace: true }); }
+    try { await api.post('/auth/login', f); markAdminDevice(); await a.refresh(); nav(loc.state?.from || '/', { replace: true }); }
     catch (ex) { setErr(ex.message); } finally { setBusy(false); }
   };
   return (

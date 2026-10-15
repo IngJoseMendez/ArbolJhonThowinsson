@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { AlertCircle, Copy, Crown, Eye, Lock, LogOut, Search, Users, X } from 'lucide-react';
 import { api } from '../api.js';
 import { copyText, inviteMessage, useToast, WhatsAppIcon } from '../components/ui.jsx';
-import InstallHint from '../components/InstallHint.jsx';
+import InstallPrompt, { InstallButton } from '../components/InstallPrompt.jsx';
 import { fmtDate, fmtNum, relTime, inviteUrl, initials } from '../lib/format.js';
 import { typeVars } from '../lib/regTypes.js';
 import { usePanelManifest } from '../lib/pwa.js';
@@ -298,7 +298,8 @@ export default function Panel() {
               ) : peopleList}
             </section>
 
-            <InstallHint what="tu panel" storageKey="panel" />
+            <InstallPrompt />
+            <InstallButton />
             <p className="secure-note" style={{ textAlign: 'center' }}>Panel privado y de solo lectura. Si alguien más tiene tu enlace, pide uno nuevo a tu coordinador.</p>
             <button className="btn btn-ghost" onClick={() => { savePin(token, ''); clearNewPanel(token); setPin(''); setData(null); setRows([]); }}><LogOut size={16} />Salir</button>
           </div>

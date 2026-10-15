@@ -829,14 +829,26 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .save-panel b { display: block; font-size: 15px; }
 .save-panel span { display: block; font-size: 13.5px; color: var(--text-2); margin: 2px 0 10px; }
 
-/* ---------- Instalar la app ---------- */
-.install-hint { display: flex; align-items: flex-start; gap: 12px; padding: 14px 8px 14px 14px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
-.install-hint b { display: block; font-size: 15px; }
-.install-text { min-width: 0; flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.install-text .btn { margin-top: 6px; }
-.install-icon { width: 46px; height: 46px; border-radius: 12px; background: var(--navy); display: grid; place-items: center; flex: none; padding: 8px; }
+/* ---------- Instalar la app: aviso abajo en el celular, arriba a la derecha en el computador ---------- */
+.install-pop {
+  position: fixed; z-index: 85; left: calc(12px + var(--safe-left)); right: calc(12px + var(--safe-right)); bottom: calc(12px + var(--safe-bottom));
+  display: flex; align-items: flex-start; gap: 12px; padding: 14px 8px 14px 14px; border-radius: 20px;
+  background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-lg);
+  transform: translateY(calc(100% + 40px)); opacity: 0; visibility: hidden; pointer-events: none;
+  transition: transform 0.38s var(--ease-out), opacity 0.25s ease, visibility 0s linear 0.38s;
+}
+.install-pop.open { transform: none; opacity: 1; visibility: visible; pointer-events: auto; transition: transform 0.38s var(--ease-out), opacity 0.25s ease; }
+@media (min-width: 960px) {
+  .install-pop { left: auto; bottom: auto; top: 20px; right: 20px; width: 390px; transform: translateY(-24px); }
+  .install-pop.open { transform: none; }
+}
+.install-pop-text { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.install-pop-text b { font-size: 15.5px; }
+.install-pop-text > span { font-size: 13.5px; color: var(--text-2); }
+.install-pop-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.install-icon { width: 48px; height: 48px; border-radius: 13px; background: var(--navy); display: grid; place-items: center; flex: none; padding: 8px; }
 .install-icon .monogram { width: 100%; height: auto; }
-.install-steps { margin: 4px 0 0; padding-left: 18px; font-size: 13.5px; color: var(--text-2); }
+.install-steps { margin: 6px 0 0; padding-left: 18px; font-size: 13.5px; color: var(--text-2); display: flex; flex-direction: column; gap: 4px; }
 .install-steps svg { vertical-align: -3px; color: var(--link); }
 .install-close { flex: none; }
 

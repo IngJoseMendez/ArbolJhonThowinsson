@@ -104,6 +104,14 @@ export function createApp() {
       let html = indexHtml.replaceAll('__PUBLIC_ORIGIN__', esc(origin));
       const m = /^\/registro\/([A-Za-z0-9-]{4,80})$/.exec(req.path);
       if (m) html = await withInviteMeta(html, m[1]).catch(() => html);
+      // Panel: el manifiesto de la app instalable apunta al propio panel desde el primer momento (al instalarlo, el ícono
+      // abre «Mi panel»). Los enlaces de registro y de panel son privados: no se indexan en buscadores.
+      const panel = /^\/panel\/([A-Za-z0-9_-]{20,60})$/.exec(req.path);
+      if (panel) {
+        html = html.replace('href="/manifest.webmanifest"', `href="/api/public/manifest?start=${encodeURIComponent(`/panel/${panel[1]}`)}"`)
+          .replace('name="apple-mobile-web-app-title" content="Thowinsson"', 'name="apple-mobile-web-app-title" content="Mi panel"');
+      }
+      if (m || panel) res.setHeader('X-Robots-Tag', 'noindex, nofollow');
       res.setHeader('Cache-Control', 'no-cache');
       res.type('html').send(html);
     });

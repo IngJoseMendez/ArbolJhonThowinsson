@@ -8,7 +8,7 @@ import '@fontsource/zilla-slab/latin-600.css';
 import '@fontsource/zilla-slab/latin-700.css';
 import App from './App.jsx';
 import { ToastProvider } from './components/ui.jsx';
-import { registerServiceWorker } from './lib/pwa.js';
+import { registerServiceWorker, launchToPanel } from './lib/pwa.js';
 import './styles.css';
 
 try {
@@ -17,6 +17,8 @@ try {
 } catch { /* sin almacenamiento */ }
 
 registerServiceWorker();
+// La app instalada en el celular de un líder o una cabeza abre directo su panel.
+launchToPanel();
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
