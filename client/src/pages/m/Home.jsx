@@ -163,9 +163,8 @@ export default function Home() {
     return out.slice(0, 3);
   }, [pendingN, open.data, teams, pace, a.isSuper]);
 
-  // Con su equipo directo (John es su cabeza), si ya tiene gente.
-  const topTeams = useMemo(() => [...teams.active, ...(teams.direct?.people ? [teams.direct] : [])]
-    .sort((x, y) => (pace.get(y.id)?.delta || 0) - (pace.get(x.id)?.delta || 0) || (y.people || 0) - (x.people || 0)).slice(0, 5), [teams.active, teams.direct, pace]);
+  const topTeams = useMemo(() => [...teams.active]
+    .sort((x, y) => (pace.get(y.id)?.delta || 0) - (pace.get(x.id)?.delta || 0) || (y.people || 0) - (x.people || 0)).slice(0, 5), [teams.active, pace]);
   const lastVisitAt = since?.at || 0;
   const points = useMemo(() => (trend.data?.growth.series || []).map((s) => ({ day: s.day, value: Object.values(s.values).reduce((n, v) => n + v, 0) })), [trend.data]);
 
@@ -239,7 +238,7 @@ export default function Home() {
               const leaders = Math.max(0, (h.leaders || 0) - (h.cabeza_name ? 1 : 0));
               return (
                 <Row key={h.id} lead={<TeamAvatar head={h} />} title={teamName(h)} to={`/cabezas/${h.id}`}
-                  meta={`${h.is_direct ? 'Su equipo directo' : h.cabeza_name ? `${leaders} ${leaders === 1 ? 'líder' : 'líderes'}` : 'Sin cabeza asignada'}, ${h.people || 0} ${h.people === 1 ? 'persona' : 'personas'}${teams.twin(h) ? `, ${teams.twin(h)}` : ''}`}
+                  meta={`${h.cabeza_name ? `${leaders} ${leaders === 1 ? 'líder' : 'líderes'}` : 'Sin cabeza asignada'}, ${h.people || 0} ${h.people === 1 ? 'persona' : 'personas'}${teams.twin(h) ? `, ${teams.twin(h)}` : ''}`}
                   trail={<span className="m-trail-spark"><span className={`m-delta ${p?.delta ? '' : 'is-zero'}`}>+{p?.delta || 0}</span><Sparkline values={p?.spark} color={h.color} /></span>} chevron={false} />
               );
             })}

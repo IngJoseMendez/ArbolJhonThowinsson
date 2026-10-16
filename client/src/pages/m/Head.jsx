@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Navigate, useParams } from 'react-router-dom';
 import { Crown, MoreHorizontal, MoreVertical, Pencil, UserCircle, UserPlus, Users } from 'lucide-react';
 import { api } from '../../api.js';
 import { useAuth } from '../../auth.jsx';
@@ -53,31 +53,32 @@ export default function Head() {
 
   const h = data?.head;
   const c = data?.cabeza;
-  const direct = !!h?.is_direct; // su equipo directo: John es su cabeza
   const canInvite = !!(data?.can_manage && h?.status === 'active' && leaderType);
   const cabezaName = c?.full_name || null;
-  const makeText = useCallback(({ url, name }) => inviteText({ role: 'leader', name, cabeza: cabezaName, direct, url }), [cabezaName, direct]);
-  const invite = useOneTimeInvite({ typeId: leaderType?.id, headId: h?.id, role: 'leader', cabeza: cabezaName, makeText, enabled: canInvite });
+  const makeText = useCallback(({ url, name }) => inviteText({ role: 'leader', name, cabeza: cabezaName, url }), [cabezaName]);
+  const invite = useOneTimeInvite({ typeId: leaderType?.id, headId: h?.id, role: 'leader', cabeza: cabezaName, makeText, enabled: canInvite && !h?.is_direct });
   const leaders = useMemo(() => (data?.leaders || []).filter((l) => !l.is_head), [data]);
   const t = data?.stats?.totals;
   const points = useMemo(() => (data?.stats?.growth.series || []).map((s) => ({ day: s.day, value: Object.values(s.values).reduce((n, v) => n + v, 0) })), [data]);
   const headRow = h ? { ...h, cabeza_name: cabezaName } : null;
-  const title = direct ? CAMPAIGN : cabezaName || h?.name || 'Cabeza';
+  const title = cabezaName || h?.name || 'Cabeza';
 
   const changed = () => { reload(); invalidate('heads'); invalidate('dash'); };
   if (error) return <Screen title="Cabeza" back="/cabezas" noHero><ErrorBox error={error} /></Screen>;
+  // Quienes John invita directamente no tienen página aparte: son ramas suyas en la red completa.
+  if (h?.is_direct) return <Navigate to="/arbol" replace />;
 
   const header = (ref) => (
     <div className="m-detail">
       <div className="m-detail__top">
         {c ? <PersonAvatar name={c.full_name} head size={56} photo={c.photo_url} /> : headRow ? <TeamAvatar head={headRow} size={56} /> : <span className="skeleton m-sk-avatar" />}
         <span className="m-detail__since">
-          {h ? (c ? `Cabeza de ${CAMPAIGN} desde el ${fmtDate(c.created_at)}` : direct ? 'Su equipo directo' : 'Sin cabeza asignada') : ''}{h?.status === 'archived' ? ', estructura archivada' : ''}
+          {h ? (c ? `Cabeza de ${CAMPAIGN} desde el ${fmtDate(c.created_at)}` : 'Sin cabeza asignada') : ''}{h?.status === 'archived' ? ', estructura archivada' : ''}
         </span>
       </div>
       <h1 ref={ref} className="m-detail__name">{loading && !data ? '…' : title}</h1>
       {c && <p className="m-detail__line">{c.panel_active ? (c.panel_viewed_at ? `Abrió su panel ${relTime(c.panel_viewed_at)}` : 'Aún no abre su panel') : 'Sin panel'}</p>}
-      {!c && h && <p className="m-detail__line">{direct ? 'Es la cabeza de las personas que invita directamente' : `${h.name}${h.region ? `, ${h.region}` : ''}`}</p>}
+      {!c && h && <p className="m-detail__line">{h.name}{h.region ? `, ${h.region}` : ''}</p>}
       {t && (
         <div className="m-strip">
           <div><b>{nf.format(leaders.length)}</b><span>{leaders.length === 1 ? 'líder' : 'líderes'}</span></div>
@@ -173,7 +174,7 @@ export default function Head() {
               <Group>
                 {data.stats.recent.slice(0, 5).map((r) => (
                   <Row key={r.id} lead={<PersonAvatar name={r.full_name} leader={r.is_leader} head={r.is_head} photo={r.photo_url} />} title={r.full_name} to={`/personas/${r.id}`}
-                    meta={r.inviter_name ? `con ${r.inviter_name}` : r.is_head ? `Cabeza, con ${CAMPAIGN}` : r.is_direct ? `Directo con ${CAMPAIGN}` : 'Líder'} trail={<small>{relTime(r.created_at)}</small>} chevron={false} />
+                    meta={r.inviter_name ? `con ${r.inviter_name}` : r.is_head ? `Cabeza, con ${CAMPAIGN}` : 'Líder'} trail={<small>{relTime(r.created_at)}</small>} chevron={false} />
                 ))}
               </Group>
             </Section>
@@ -192,7 +193,7 @@ export default function Head() {
           { label: 'Ver su ficha', icon: UserCircle, hidden: !c, onSelect: () => go(`/personas/${c.id}`) },
           { label: 'Registrar a alguien aquí', icon: UserPlus, hidden: !data?.can_manage || h?.status !== 'active', onSelect: () => setMenu('register') },
           { label: 'Editar estructura', icon: Pencil, hidden: !data?.can_manage, onSelect: () => setMenu('edit') },
-          { label: 'Elegir su cabeza', icon: Crown, hidden: !(a.isSuper && h && !c && !direct), onSelect: () => setMenu('choose') },
+          { label: 'Elegir su cabeza', icon: Crown, hidden: !(a.isSuper && h && !c), onSelect: () => setMenu('choose') },
         ]]} />
       )}
       {menu === 'register' && <RegisterPersonModal defaultHeadId={h.id} onClose={() => setMenu(null)} onCreated={(p) => { changed(); go(`/personas/${p.id}`); }} />}

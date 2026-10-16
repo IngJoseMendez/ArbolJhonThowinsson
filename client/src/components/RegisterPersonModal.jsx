@@ -75,7 +75,7 @@ export default function RegisterPersonModal({ onClose, onCreated, defaultHeadId,
     } catch (ex) { setErr(ex); setFieldErrors((x) => ({ ...x, ...serverFieldError(ex.body?.error) })); } finally { setBusy(false); }
   };
 
-  // Equipo directo de John: sin invitador, cuelga de él (sea persona o líder). Su cabeza es John: no admite otra.
+  // Directo con John: sin invitador, cuelga de él (sea persona o líder). Su cabeza es John: no admite otra.
   const direct = !!head?.is_direct;
   const canSubmit = headId && (isLeader || inviter || direct) && !(isHead && (head?.cabeza_name || direct)) && !busy;
 
@@ -94,7 +94,7 @@ export default function RegisterPersonModal({ onClose, onCreated, defaultHeadId,
               {heads.map((h) => <option key={h.id} value={h.id}>{h.is_direct ? `${CAMPAIGN} (cabeza)` : h.cabeza_name ? `${h.cabeza_name} (cabeza)` : h.name}</option>)}
             </select>
             {isHead && head?.cabeza_name && <span className="err">Esta estructura ya tiene cabeza: {head.cabeza_name}.</span>}
-            {direct && isHead && <span className="err">Su cabeza es {CAMPAIGN}: en su equipo directo no se registra otra cabeza.</span>}
+            {direct && isHead && <span className="err">Directo con {CAMPAIGN}, la cabeza es él: aquí no se registra otra.</span>}
           </div>
           <div className="field">
             <label>Tipo de registro</label>

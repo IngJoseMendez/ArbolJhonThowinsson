@@ -153,12 +153,12 @@ export function PersonLink({ id, name, isLeader, isHead }) {
 
 /**
  * John Thowinsson, de quien cuelgan todas las cabezas: su foto y su nombre. Lleva a la red completa (y, con
- * `locate`, ubica allí a esa persona); `to`, a otra página (su equipo directo); `plain`, sin enlace.
+ * `locate`, ubica allí a esa persona); `plain`, sin enlace.
  */
-export function JohnLink({ locate, plain, to }) {
+export function JohnLink({ locate, plain }) {
   const inner = <><span className="john-link__photo"><JohnPhoto sizes="22px" alt="" /></span>{CAMPAIGN}</>;
   if (plain) return <span className="john-link">{inner}</span>;
-  return <Link to={to || `/arbol${locate ? `?persona=${locate}` : ''}`} className="john-link" onClick={(e) => e.stopPropagation()}>{inner}</Link>;
+  return <Link to={`/arbol${locate ? `?persona=${locate}` : ''}`} className="john-link" onClick={(e) => e.stopPropagation()}>{inner}</Link>;
 }
 
 export function Spinner() { return <span className="spinner" aria-label="Cargando" />; }

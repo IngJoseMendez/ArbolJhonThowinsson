@@ -232,8 +232,12 @@ api.patch('/heads/:id', requireAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // La red completa de la coordinación: John Thowinsson arriba y de él todas sus cabezas (cada una con su árbol).
 api.get('/tree/network', requireRole('super_admin', 'head_admin'), async (req, res) => {
-  const r = await networkRoot(req.user);
-  res.json({ root: r.root, nodes: r.nodes.map((n) => ({ ...n, path: undefined })) });
+  // Las personas directas de John llegan por páginas (offset/limit); include: una de ellas, para localizarla.
+  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 2000);
+  const offset = Math.max(Number(req.query.offset) || 0, 0);
+  const include = intOrNull(req.query.include, 'include');
+  const r = await networkRoot(req.user, { offset, limit, include });
+  res.json({ root: r.root, nodes: r.nodes.map((n) => ({ ...n, path: undefined })), total: r.total, page: r.page });
 });
 
 api.get('/tree/:headId/children', requireAuth, async (req, res) => {
@@ -980,7 +984,7 @@ api.get('/public/invite/:token', lookupLimiter, async (req, res) => {
   const pub = await publicHead(head);
   res.json({
     token: link.token, valid, reason, role,
-    // Directo con John: quien se registra queda en su equipo directo, con él de cabeza.
+    // Directo con John: quien se registra cuelga de él, su cabeza.
     direct: role !== 'head' && !owner && !!head?.is_direct,
     type: { name: type.name, color: type.color, role: type.role },
     label: link.label || null,

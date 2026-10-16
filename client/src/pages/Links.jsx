@@ -205,7 +205,7 @@ const recall = (k) => { try { return localStorage.getItem(k) || ''; } catch { re
 
 /**
  * Tarjeta de un tipo: su enlace general con botones directos (WhatsApp, Copiar, Abrir). En la cuenta de John, las
- * personas pueden quedar «directo con él», en su equipo directo (él es su cabeza): es la opción de partida.
+ * personas pueden quedar «directo con él» (él es su cabeza): es la opción de partida.
  */
 function GeneralLinkCard({ type, heads: all }) {
   const toast = useToast();

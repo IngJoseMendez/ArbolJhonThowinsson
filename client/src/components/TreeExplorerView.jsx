@@ -31,6 +31,8 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
   const requested = Number(params.cabeza) || null;
   const picked = requested ? heads.find((h) => h.id === requested) : null;
   const network = canNetwork && !picked;
+  // Quienes John invita directamente cuelgan de él en la red: no son un árbol aparte para elegir.
+  const options = canNetwork ? heads.filter((h) => !h.is_direct) : heads;
   const head = network ? null : picked || heads[0] || null;
   const headId = head?.id ?? null;
   const focusId = Number(params.foco) || null;
@@ -313,7 +315,7 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
         {!lockHead && (
           <select className="select" style={{ width: 210 }} value={network ? '' : headId} aria-label="Árbol que se muestra" onChange={pickHead}>
             {canNetwork && <option value="">Red de {CAMPAIGN}</option>}
-            {heads.map((h) => <option key={h.id} value={h.id}>{h.cabeza_name || h.name}</option>)}
+            {options.map((h) => <option key={h.id} value={h.id}>{h.cabeza_name || h.name}</option>)}
           </select>
         )}
         <div style={{ width: 240, maxWidth: '100%' }}>
@@ -444,11 +446,11 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
             <button type="button" className="btn btn-primary" onClick={close}>Listo</button>
           </>}>
           <div className="stack">
-            {!lockHead && (heads.length > 1 || canNetwork) && (
+            {!lockHead && (options.length > 1 || canNetwork) && (
               <div className="field"><label htmlFor="tree-head-m">Árbol</label>
                 <select id="tree-head-m" className="select" value={network ? '' : headId} onChange={pickHead}>
                   {canNetwork && <option value="">Red de {CAMPAIGN}</option>}
-                  {heads.map((h) => <option key={h.id} value={h.id}>{h.cabeza_name || h.name}</option>)}
+                  {options.map((h) => <option key={h.id} value={h.id}>{h.cabeza_name || h.name}</option>)}
                 </select>
               </div>
             )}

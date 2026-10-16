@@ -110,7 +110,7 @@ export default function Person() {
       {/* Relaciones (no se confunden) */}
       <div className="grid g-4" style={{ marginBottom: 16 }}>
         <Rel icon={Network} color={head.color} label="Estructura" sub={p.is_head ? 'La encabeza' : head.is_direct || head.cabeza ? 'Su cabeza' : 'Sin cabeza asignada'}>
-          {p.is_head ? `Equipo de ${p.full_name}` : head.is_direct ? <JohnLink to={`/cabezas/${head.id}`} />
+          {p.is_head ? `Equipo de ${p.full_name}` : head.is_direct ? <JohnLink locate={p.id} />
             : !head.cabeza ? head.name : <PersonLink id={head.cabeza.id} name={head.cabeza.full_name} isHead />}
         </Rel>
         <Rel icon={Crown} color="var(--leader)" label="Responsabilidad · Líder"
@@ -329,7 +329,7 @@ export default function Person() {
       {modal === 'reactivate' && <ConfirmModal title="Reactivar persona" reason confirmLabel="Reactivar"
         onConfirm={act(`/people/${p.id}/status`, { status: 'active' }, 'Persona reactivada')} onClose={() => setModal(null)} />}
       {modal === 'approve' && <ConfirmModal title="Aprobar registro" reason confirmLabel="Aprobar"
-        message={`${p.full_name} quedará activa en ${head.is_direct ? `el equipo directo de ${CAMPAIGN}` : head.cabeza ? `el equipo de ${head.cabeza.full_name}` : head.name} y recibirá su invitación personal.`}
+        message={`${p.full_name} quedará activa ${head.is_direct ? `directo con ${CAMPAIGN}` : `en ${head.cabeza ? `el equipo de ${head.cabeza.full_name}` : head.name}`} y recibirá su invitación personal.`}
         onConfirm={act(`/people/${p.id}/status`, { status: 'active' }, 'Registro aprobado')} onClose={() => setModal(null)} />}
       {modal === 'reject' && <ConfirmModal title="Rechazar registro" reason reasonRequired danger confirmLabel="Rechazar"
         onConfirm={act(`/people/${p.id}/status`, { status: 'rejected' }, 'Registro rechazado')} onClose={() => setModal(null)} />}

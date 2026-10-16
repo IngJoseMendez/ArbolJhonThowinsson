@@ -97,19 +97,10 @@ export default function Heads() {
         <BarButton icon={More} label="Más opciones" onClick={() => setMenu('more')} />
       </>}>
       {a.isSuper && <InviteHeadRow />}
-      {/* Las cabezas son de John: él va arriba de todas. En su cuenta, su fila abre su equipo directo (él es la cabeza de
-          las personas que invita directamente); para los demás, la red completa. */}
+      {/* John es la primera cabeza: de él cuelgan sus cabezas y las personas que invita directamente. Abre la red completa. */}
       <Group className="m-group--spaced">
-        {teams.direct ? (() => {
-          const d = teams.direct;
-          const p = pace.get(d.id);
-          return (
-            <Row lead={<JohnAvatar size={44} />} title={CAMPAIGN} to={`/cabezas/${d.id}`}
-              meta={<>Su equipo directo, {d.people || 0} {d.people === 1 ? 'persona' : 'personas'}{d.pending > 0 && <> <span className="badge badge-warning">{d.pending} por aprobar</span></>}</>}
-              trail={<span className="m-trail-spark"><span className={`m-delta ${p?.delta ? '' : 'is-zero'}`}>+{p?.delta || 0}</span><Sparkline values={p?.spark} color={d.color} /></span>}
-              chevron={false} />
-          );
-        })() : <Row lead={<JohnAvatar size={44} />} title={CAMPAIGN} meta="Todas las cabezas cuelgan de él" to="/arbol" chevron />}
+        <Row lead={<JohnAvatar size={44} />} title={CAMPAIGN} to="/arbol" chevron
+          meta={a.isSuper && dash.data?.totals ? `De él cuelga toda la red, ${dash.data.totals.people} ${dash.data.totals.people === 1 ? 'persona' : 'personas'}` : 'De él cuelga toda la red'} />
       </Group>
       {teams.list.length > 8 && (
         <input className="input m-filter-input" type="search" placeholder="Buscar cabeza" aria-label="Buscar cabeza" value={q} onChange={(e) => setQ(e.target.value)} />

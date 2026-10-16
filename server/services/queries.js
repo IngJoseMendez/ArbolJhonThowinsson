@@ -41,37 +41,52 @@ export async function treeChildren(user, headId, parentId, { offset = 0, limit =
 }
 
 /**
- * La red completa: John Thowinsson es la raíz y de él cuelgan todas las cabezas, cada una con su propio árbol.
- * Por cada estructura activa visible devuelve a su cabeza (la persona) o, si aún no tiene cabeza (o algo cuelga
- * suelto de la estructura), la estructura misma. Primero las cabezas, en el orden en que llegaron.
+ * La red completa: John Thowinsson es la raíz y la primera cabeza. De él cuelgan sus cabezas, cada una con su propio
+ * árbol (o, si una estructura aún no tiene cabeza o algo cuelga suelto de ella, la estructura misma), y las personas que
+ * él invita directamente, cada una como una rama más. Primero las cabezas, en el orden en que llegaron; luego sus
+ * personas directas (líderes primero), de a `limit`: con `offset` sólo llegan más personas directas y `include` añade
+ * a una de ellas aunque quede fuera de la página (para localizarla). `page`: cuántos nodos son de la página.
  */
-export async function networkRoot(user) {
+export async function networkRoot(user, { offset = 0, limit = 50, include = null } = {}) {
   const ids = visibleHeadIds(user);
-  const empty = { root: { heads: 0, people: 0, leaders: 0, last7: 0 }, nodes: [] };
+  const empty = { root: { heads: 0, people: 0, leaders: 0, last7: 0 }, nodes: [], total: 0, page: 0 };
   if (ids !== null && !ids.length) return empty;
   const scope = ids === null ? '' : ` AND h.id IN (${ids.map(() => '?').join(',')})`;
   const sp = ids || [];
-  const heads = await q(`SELECT h.id, h.name, h.color, h.region, h.created_at, h.is_direct, c.id AS cabeza_id, c.full_name AS cabeza_name,
+  const heads = await q(`SELECT h.id, h.name, h.color, h.region, h.created_at, c.id AS cabeza_id, c.full_name AS cabeza_name,
         (SELECT COUNT(*) FROM people x WHERE x.head_id = h.id AND x.status <> 'rejected') AS people,
         (SELECT COUNT(*) FROM people r WHERE r.head_id = h.id AND r.inviter_id IS NULL AND r.status <> 'rejected') AS roots
       FROM heads h LEFT JOIN people c ON c.head_id = h.id AND c.is_head = 1 AND c.status <> 'rejected'
-      WHERE h.status = 'active'${scope}
-      ORDER BY h.is_direct DESC, (c.id IS NULL), COALESCE(c.created_at, h.created_at), h.id LIMIT 1000`).all(...sp)
-    .then((rows) => rows.filter((h) => !h.is_direct || h.people > 0));
+      WHERE h.status = 'active' AND h.is_direct = 0${scope}
+      ORDER BY (c.id IS NULL), COALESCE(c.created_at, h.created_at), h.id LIMIT 1000`).all(...sp);
   const cabezaIds = heads.filter((h) => h.cabeza_id).map((h) => h.cabeza_id);
-  const cabezas = cabezaIds.length
+  const cabezas = cabezaIds.length && !offset
     ? await q(`${NODE_SELECT} WHERE p.id IN (${cabezaIds.map(() => '?').join(',')})`).all(...cabezaIds) : [];
   const byId = new Map(cabezas.map((c) => [c.id, toNode(c)]));
-  const nodes = heads.map((h) => (byId.has(h.cabeza_id) && h.roots <= 1
+  const headNodes = offset ? [] : heads.map((h) => (byId.has(h.cabeza_id) && h.roots <= 1
     ? { kind: 'person', ...byId.get(h.cabeza_id), head_name: h.name, head_color: h.color }
-    : { kind: 'head', id: h.id, name: h.name, color: h.color, region: h.region, created_at: h.created_at, people: h.people, cabeza_name: h.cabeza_name,
-      is_direct: !!h.is_direct }));
+    : { kind: 'head', id: h.id, name: h.name, color: h.color, region: h.region, created_at: h.created_at, people: h.people, cabeza_name: h.cabeza_name }));
+  // Las personas que John invita directamente: ramas suyas, como sus cabezas.
+  const direct = await q(`SELECT h.id FROM heads h WHERE h.status = 'active' AND h.is_direct = 1${scope}`).get(...sp);
+  let directTotal = 0;
+  let directRows = [];
+  if (direct) {
+    directTotal = (await q(`SELECT COUNT(*) n FROM people WHERE head_id = ? AND inviter_id IS NULL AND status <> 'rejected'`).get(direct.id)).n;
+    directRows = await q(`${NODE_SELECT} WHERE p.head_id = ? AND p.inviter_id IS NULL AND p.status <> 'rejected'
+        ORDER BY p.is_leader DESC, p.created_at, p.id LIMIT ? OFFSET ?`).all(direct.id, limit, offset);
+  }
+  const page = headNodes.length + directRows.length;
+  if (direct && include && !directRows.some((r) => r.id === include)) {
+    const extra = await q(`${NODE_SELECT} WHERE p.id = ? AND p.head_id = ? AND p.inviter_id IS NULL AND p.status <> 'rejected'`).get(include, direct.id);
+    if (extra) directRows.push(extra);
+  }
+  const nodes = [...headNodes, ...directRows.map((r) => ({ kind: 'person', ...toNode(r) }))];
   const t = await q(`SELECT COUNT(*) AS people,
         SUM(CASE WHEN p.is_leader = 1 AND p.is_head = 0 THEN 1 ELSE 0 END) AS leaders,
         SUM(CASE WHEN p.created_at >= ? THEN 1 ELSE 0 END) AS last7
       FROM people p JOIN heads h ON h.id = p.head_id WHERE p.status <> 'rejected' AND h.status = 'active'${scope}`)
     .get(new Date(Date.now() - 7 * 864e5).toISOString(), ...sp);
-  return { root: { heads: heads.filter((h) => !h.is_direct).length, people: t.people || 0, leaders: t.leaders || 0, last7: t.last7 || 0 }, nodes };
+  return { root: { heads: heads.length, people: t.people || 0, leaders: t.leaders || 0, last7: t.last7 || 0 }, nodes, total: heads.length + directTotal, page };
 }
 
 /**
@@ -242,7 +257,7 @@ export async function dashboard(user, { headId = null, days = 90 } = {}) {
 
   const headsCount = (await q(`SELECT COUNT(*) n FROM heads h WHERE h.status = 'active' AND h.is_direct = 0 AND ${hf.sql}`).get(...hf.params)).n;
 
-  const perHead = await q(`SELECT h.id, h.name, h.color, h.is_direct = 1 AS is_direct,
+  const perHead = await q(`SELECT h.id, h.name, h.color,
         (SELECT c.full_name FROM people c WHERE c.head_id = h.id AND c.is_head = 1 AND c.status <> 'rejected') AS cabeza_name,
         COUNT(p.id) AS people,
         SUM(CASE WHEN p.is_leader = 1 THEN 1 ELSE 0 END) AS leaders,
@@ -270,8 +285,8 @@ export async function dashboard(user, { headId = null, days = 90 } = {}) {
                       GROUP BY p.head_id`).all(...wp, since);
   const daily = await q(`SELECT substr(p.created_at, 1, 10) AS day, p.head_id, COUNT(*) n FROM people p
                    WHERE ${w} AND p.status <> 'rejected' AND p.created_at >= ? GROUP BY day, p.head_id ORDER BY day`).all(...wp, since);
-  // En las gráficas, cada estructura se nombra por su cabeza (si la tiene); el equipo directo de John, por él.
-  const heads = perHead.map((h) => ({ id: h.id, name: h.is_direct ? 'John Thowinsson' : h.cabeza_name || h.name, color: h.color }));
+  // En las gráficas, cada estructura se nombra por su cabeza (si la tiene); quienes están directo con John, «Directo con John».
+  const heads = perHead.map((h) => ({ id: h.id, name: h.cabeza_name || h.name, color: h.color }));
   const running = new Map(heads.map((h) => [h.id, 0]));
   for (const b of baseRows) running.set(b.head_id, b.n);
   const byDay = new Map();

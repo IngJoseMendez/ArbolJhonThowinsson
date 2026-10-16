@@ -65,12 +65,12 @@ export async function getHead(id) {
 }
 
 /**
- * «Directo con John»: el equipo directo de John, con las personas que él invita directamente. Él es su cabeza (no es una
- * persona registrada: es la raíz de toda la red). Mismas reglas que cualquier equipo, salvo que no admite otra cabeza.
+ * «Directo con John»: las personas que John invita directamente cuelgan de él, que es su cabeza (no es una persona
+ * registrada: es la raíz de toda la red). Mismas reglas que cualquier equipo, salvo que no admite otra cabeza.
  */
 export const directHead = () => q('SELECT * FROM heads WHERE is_direct = 1').get();
 
-const directNoHead = () => badRequest('DIRECT_NO_HEAD', 'Su cabeza es John Thowinsson: en su equipo directo no se designa otra cabeza.', { field: 'head_id' });
+const directNoHead = () => badRequest('DIRECT_NO_HEAD', 'Directo con John Thowinsson, la cabeza es él: ahí no se designa otra.', { field: 'head_id' });
 
 /** La cabeza (persona) de una estructura: su líder raíz, de quien cuelgan sus líderes y personas. */
 export async function headPerson(headId) {

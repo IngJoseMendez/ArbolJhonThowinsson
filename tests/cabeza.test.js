@@ -261,12 +261,14 @@ test('Equipo directo de John: él es la cabeza de quienes invita directamente, c
   const h = await find('hijo de carmen');
   assert.equal(h.inviter_id, carmen.id);
   assert.equal(h.is_direct, false);
-  // En la red va primero, bajo John, y no cuenta como cabeza.
+  // En la red, Carmen cuelga de John como una rama más, después de sus cabezas (Hijo cuelga de ella); no es una cabeza.
   const net = (await admin.get('/api/tree/network')).data;
-  assert.equal(net.nodes[0].kind, 'head');
-  assert.equal(net.nodes[0].is_direct, true);
-  assert.equal(net.nodes[0].people, 2);
-  assert.equal(net.root.heads, net.nodes.filter((n) => !n.is_direct).length);
+  const firstDirect = net.nodes.findIndex((n) => n.is_direct);
+  assert.ok(firstDirect > 0, 'primero las cabezas');
+  assert.deepEqual(net.nodes.slice(firstDirect).map((n) => [n.kind, n.id]), [['person', carmen.id]]);
+  assert.equal(net.root.heads, firstDirect);
+  assert.equal(net.total, firstDirect + 1);
+  assert.equal(net.page, net.nodes.length);
   // Mismas reglas que en cualquier equipo: Carmen puede ser persona de confianza (líder) y su gente queda a su cargo.
   const prom = await admin.post(`/api/people/${carmen.id}/promote`, { reason: 'Suma mucha gente' });
   assert.equal(prom.status, 200, JSON.stringify(prom.data));
@@ -320,5 +322,22 @@ test('Equipo directo de John: él es la cabeza de quienes invita directamente, c
   assert.equal(again.person.is_direct, true);
   assert.equal(again.inviter, null);
   assert.equal(again.head.is_direct, true);
+  // Sus personas directas llegan por páginas (líderes primero), sin repetir las cabezas; «include» trae a una que
+  // quede fuera de la página, para localizarla en el árbol.
+  const all = (await admin.get('/api/tree/network')).data;
+  const heads = all.root.heads;
+  const directs = all.nodes.slice(heads);
+  assert.equal(directs.length, 4);
+  assert.ok(directs.every((n) => n.is_direct && n.inviter_id === null));
+  assert.deepEqual(directs.map((n) => n.is_leader), [true, true, false, false]);
+  assert.equal(all.total, heads + 4);
+  const p1 = (await admin.get('/api/tree/network?limit=1')).data;
+  assert.deepEqual(p1.nodes.slice(heads).map((n) => n.id), [directs[0].id]);
+  assert.equal(p1.page, heads + 1);
+  const p2 = (await admin.get('/api/tree/network?offset=1&limit=1')).data;
+  assert.deepEqual(p2.nodes.map((n) => n.id), [directs[1].id], 'las siguientes, sin repetir las cabezas');
+  const inc = (await admin.get(`/api/tree/network?limit=1&include=${directs[3].id}`)).data;
+  assert.equal(inc.page, heads + 1);
+  assert.deepEqual(inc.nodes.slice(heads).map((n) => n.id), [directs[0].id, directs[3].id]);
   assert.equal((await admin.get('/api/admin/integrity')).data.ok, true, JSON.stringify((await admin.get('/api/admin/integrity')).data.issues));
 });

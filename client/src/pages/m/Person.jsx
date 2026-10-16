@@ -136,7 +136,8 @@ export default function Person() {
 
       <Section title="En la red">
         <dl className="card list-card m-group" style={{ margin: 0 }}>
-          <Kv label="Cabeza" action={!p.is_head && (head.cabeza || head.is_direct) ? <button type="button" className="m-link-btn" onClick={() => go(`/cabezas/${head.id}`)}>Ver</button> : null}>
+          <Kv label="Cabeza" action={!p.is_head && (head.cabeza || head.is_direct)
+            ? <button type="button" className="m-link-btn" onClick={() => go(head.is_direct ? `/arbol?persona=${p.id}` : `/cabezas/${head.id}`)}>Ver</button> : null}>
             {p.is_head ? 'Encabeza su equipo' : head.is_direct ? <JohnLink plain /> : head.cabeza ? head.cabeza.full_name : `${head.name} (sin cabeza)`}
           </Kv>
           <Kv label="Llegó con" action={inviter

@@ -149,8 +149,8 @@ export function InviteHeadBlock({ hero = true, compact, type: fixedType, id = 'i
 }
 
 /**
- * Elegir con quién queda el líder invitado: fichas con las cabezas más usadas (en la cuenta de John, primero él: su
- * equipo directo) y «Ver todas» en una hoja con búsqueda.
+ * Elegir con quién queda el líder invitado: fichas con las cabezas más usadas (en la cuenta de John, primero él: queda
+ * directo con él) y «Ver todas» en una hoja con búsqueda.
  */
 function HeadChips({ heads, value, onChange }) {
   const teams = useTeams();
@@ -192,7 +192,7 @@ export function HeadPickerSheet({ heads, value, onPick, onClose, title = '¿Con 
                 <span className="m-row__lead"><TeamAvatar head={h} size={40} /></span>
                 <span className="m-row__main">
                   <span className="m-row__title">{teamName(h)}</span>
-                  <span className="m-row__meta">{h.is_direct ? 'Su equipo directo, ' : h.cabeza_name ? '' : 'Sin cabeza asignada, '}{h.people ?? 0} {h.people === 1 ? 'persona' : 'personas'}</span>
+                  <span className="m-row__meta">{h.is_direct ? 'Directo con él, ' : h.cabeza_name ? '' : 'Sin cabeza asignada, '}{h.people ?? 0} {h.people === 1 ? 'persona' : 'personas'}</span>
                 </span>
                 {String(h.id) === String(value) && <span className="m-row__trail" aria-hidden="true">✓</span>}
               </button>
@@ -207,8 +207,7 @@ export function HeadPickerSheet({ heads, value, onPick, onClose, title = '¿Con 
 
 /**
  * Bloque «Invitar un líder». Con una sola cabeza posible no pregunta; con varias, fichas para elegir. En la cuenta de
- * John también puede quedar directo con él, en su equipo directo (él es su cabeza), con las mismas reglas que en
- * cualquier equipo.
+ * John también puede quedar directo con él (él es su cabeza), con las mismas reglas que en cualquier equipo.
  * fixedHead: en la pantalla de una cabeza, la invitación ya es para ella.
  */
 export function InviteLeaderBlock({ fixedHead, hero = false, type: fixedType, id = 'invitar-lider' }) {
@@ -262,7 +261,7 @@ export function InviteLeaderBlock({ fixedHead, hero = false, type: fixedType, id
 /**
  * Enlace para personas (reutilizable): uno solo para compartir con todos. Se recuerda la última elección
  * (cabeza y de quién cuelgan) en este dispositivo. John (el administrador general) puede invitar «directo con él»:
- * quienes se registren quedan en su equipo directo, con él de cabeza; es la opción de partida en su cuenta.
+ * quienes se registren cuelgan de él, su cabeza; es la opción de partida en su cuenta.
  */
 export function PersonLinkBlock({ type: fixedType, id = 'invitar-personas' }) {
   const teams = useTeams();

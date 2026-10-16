@@ -59,28 +59,48 @@ export function HeadFormModal({ head, usedColors = [], onClose, onSaved }) {
   );
 }
 
-/**
- * La cabeza es una persona: la tarjeta la muestra a ella al frente de su estructura. El equipo directo de John
- * (is_direct) lo muestra a él, su cabeza.
- */
+/** John, la primera cabeza: de él cuelga toda la red (sus cabezas y las personas que invita). Abre el árbol completo. */
+function JohnCard({ heads, totals, onOpen }) {
+  const sum = (k) => heads.reduce((n, h) => n + (h[k] || 0), 0);
+  return (
+    <div className="card head-card" onClick={onOpen} style={{ '--hc': 'var(--sky)' }} role="link" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && onOpen()}>
+      <span className="stripe" style={{ background: 'var(--sky)' }} />
+      <div className="head-card-top">
+        <span className="head-avatar has-photo" aria-hidden="true"><JohnPhoto sizes="58px" alt="" /><Mark /></span>
+        <div style={{ minWidth: 0 }}>
+          <div className="head-name clamp-2">{CAMPAIGN}</div>
+          <div className="head-struct ellipsis">De él cuelga toda la red</div>
+        </div>
+      </div>
+      {totals && (
+        <div className="head-metrics">
+          <div><b className="tnum">{fmtNum(heads.filter((h) => !h.is_direct).length)}</b><span>cabezas</span></div>
+          <div><b className="tnum">{fmtNum(sum('people'))}</b><span>personas</span></div>
+          <div><b className="tnum">+{fmtNum(sum('last30'))}</b><span>en 30 días</span></div>
+          <div><b className="tnum">{fmtNum(sum('pending'))}</b><span>pendientes</span></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** La cabeza es una persona: la tarjeta la muestra a ella al frente de su estructura. */
 function HeadCard({ h, onOpen }) {
-  const direct = !!h.is_direct;
-  const name = direct ? CAMPAIGN : h.cabeza_name || h.name;
+  const name = h.cabeza_name || h.name;
   const structure = h.cabeza_name && h.name !== `Cabeza ${h.cabeza_name}` ? h.name : null;
   return (
     <div className="card head-card" onClick={onOpen} style={{ opacity: h.status === 'archived' ? 0.6 : 1, '--hc': h.color }}
       role="link" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && onOpen()}>
       <span className="stripe" style={{ background: h.color }} />
       <div className="head-card-top">
-        <span className={`head-avatar ${h.cabeza_name || direct ? '' : 'vacant'} ${h.cabeza_photo || direct ? 'has-photo' : ''}`} aria-hidden="true">
-          {direct ? <JohnPhoto sizes="58px" alt="" /> : h.cabeza_photo ? <img src={photoSrc(h.cabeza_photo, 58)} alt="" loading="lazy" />
-            : h.cabeza_name ? initials(h.cabeza_name) : <Network size={24} />}
-          {(h.cabeza_name || direct) && <Mark />}
+        <span className={`head-avatar ${h.cabeza_name ? '' : 'vacant'} ${h.cabeza_photo ? 'has-photo' : ''}`} aria-hidden="true">
+          {h.cabeza_photo ? <img src={photoSrc(h.cabeza_photo, 58)} alt="" loading="lazy" /> : h.cabeza_name ? initials(h.cabeza_name) : <Network size={24} />}
+          {h.cabeza_name && <Mark />}
         </span>
         <div style={{ minWidth: 0 }}>
           <div className="head-name clamp-2">{name}</div>
           <div className="head-struct ellipsis">
-            {direct ? 'Su equipo directo' : h.cabeza_name ? (structure || `Cabeza de ${CAMPAIGN}`) : 'Estructura sin cabeza asignada'}
+            {h.cabeza_name ? (structure || `Cabeza de ${CAMPAIGN}`) : 'Estructura sin cabeza asignada'}
             {h.region ? ` · ${h.region}` : ''}{h.status === 'archived' ? ' · Archivada' : ''}
           </div>
         </div>
@@ -109,12 +129,11 @@ export default function Heads() {
   const nav = useNavigate();
   const { data, loading, error, reload } = useAsync(() => api.get('/heads'), []);
   const [creating, setCreating] = useState(false);
-  const direct = data?.find((h) => h.is_direct && h.status === 'active'); // su equipo directo, primero
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>Cabezas</h1><p>Todas cuelgan de {CAMPAIGN}. Cada cabeza es una persona al frente de su estructura: de ella salen sus líderes y, de cada líder, sus personas.
-          Primero va el equipo directo de {CAMPAIGN}: él es la cabeza de las personas que invita directamente.</p></div>
+        <div><h1>Cabezas</h1><p>Todas cuelgan de {CAMPAIGN}, la primera cabeza; de él también cuelgan las personas que invita directamente. Cada
+          cabeza es una persona al frente de su estructura: de ella salen sus líderes y, de cada líder, sus personas.</p></div>
         <div className="row-wrap">
           <Link className="btn" to="/arbol"><GitBranch size={16} />Ver la red completa</Link>
           {a.isSuper && <Link className="btn btn-primary" to="/enlaces"><Send size={16} />Invitar una cabeza</Link>}
@@ -124,7 +143,7 @@ export default function Heads() {
       {loading && <Loading />}
       <ErrorBox error={error} />
       <div className="grid g-auto">
-        {direct && <HeadCard h={direct} onOpen={() => nav(`/cabezas/${direct.id}`)} />}
+        {data && <JohnCard heads={data.filter((h) => h.status === 'active')} totals={a.isSuper} onOpen={() => nav('/arbol')} />}
         {data?.filter((h) => !h.is_direct).map((h) => <HeadCard key={h.id} h={h} onOpen={() => nav(`/cabezas/${h.id}`)} />)}
       </div>
       {data && !data.some((h) => !h.is_direct) && <div className="card" style={{ marginTop: 16 }}><Empty icon={Network} title="Aún no hay cabezas">{a.isSuper && <Link className="btn btn-primary" to="/enlaces">Invitar la primera</Link>}</Empty></div>}

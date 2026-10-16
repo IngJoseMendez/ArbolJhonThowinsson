@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { Crown, Pencil, GitBranch, UserPlus, Network, BarChart3, UserCircle, ChevronLeft } from 'lucide-react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
@@ -13,8 +13,7 @@ import RegisterPersonModal from '../components/RegisterPersonModal.jsx';
 import { useQueryState } from '../lib/useParams.js';
 import { useRegTypes } from '../lib/regTypes.js';
 import { Avatar, ErrorBox, Loading, useAsync, Empty, RoleBadge } from '../components/ui.jsx';
-import { CAMPAIGN, JohnPhoto, Mark } from '../brand/Brand.jsx';
-import { teamName } from '../lib/teams.js';
+import { CAMPAIGN, Mark } from '../brand/Brand.jsx';
 
 export default function HeadDetail() {
   const { id } = useParams();
@@ -31,8 +30,10 @@ export default function HeadDetail() {
   if (loading && !data) return <Loading />;
   if (error) return <div className="page"><ErrorBox error={error} /></div>;
   const h = data.head;
+  // Quienes John invita directamente no tienen página aparte: son ramas suyas en la red completa.
+  if (h.is_direct) return <Navigate to="/arbol" replace />;
+  const others = (heads.data || []).filter((x) => !x.is_direct);
   const c = data.cabeza;
-  const direct = !!h.is_direct; // su equipo directo: John es su cabeza
   const treeParams = { ...params, cabeza: h.id };
   const leaderType = types.list.find((t) => t.builtin && t.role === 'leader');
 
@@ -40,26 +41,26 @@ export default function HeadDetail() {
     <div className={tab === 'arbol' ? 'page-full' : 'page'}>
       <div style={tab === 'arbol' ? { padding: '16px 16px 0', background: 'var(--surface)' } : undefined}>
         <div className="page-head" style={{ marginBottom: 12 }}>
-          {(c || direct) && tab !== 'arbol' ? (
+          {c && tab !== 'arbol' ? (
             <Link to="/cabezas" className="back-link"><ChevronLeft size={16} />Cabezas</Link>
           ) : (
             <div className="row" style={{ gap: 14, minWidth: 0 }}>
-              <span className={`head-avatar ${c || direct ? '' : 'vacant'} ${c?.photo_url || direct ? 'has-photo' : ''}`} style={{ '--hc': h.color, width: 52, height: 52, fontSize: 19 }} aria-hidden="true">
-                {direct ? <JohnPhoto sizes="52px" alt="" /> : c?.photo_url ? <img src={photoSrc(c.photo_url, 52)} alt="" /> : c ? initials(c.full_name) : <Network size={22} />}{(c || direct) && <Mark />}
+              <span className={`head-avatar ${c ? '' : 'vacant'} ${c?.photo_url ? 'has-photo' : ''}`} style={{ '--hc': h.color, width: 52, height: 52, fontSize: 19 }} aria-hidden="true">
+                {c?.photo_url ? <img src={photoSrc(c.photo_url, 52)} alt="" /> : c ? initials(c.full_name) : <Network size={22} />}{c && <Mark />}
               </span>
               <div style={{ minWidth: 0 }}>
                 <div className="row" style={{ gap: 8 }}>
-                  <h1 className="ellipsis">{direct ? CAMPAIGN : c ? c.full_name : h.name}</h1>
+                  <h1 className="ellipsis">{c ? c.full_name : h.name}</h1>
                   {h.status === 'archived' && <span className="badge">Archivada</span>}
                 </div>
-                <p>{direct ? 'Su equipo directo' : `${h.region || 'Sin región'} · creada el ${fmtDate(h.created_at)}`}</p>
+                <p>{h.region || 'Sin región'} · creada el {fmtDate(h.created_at)}</p>
               </div>
             </div>
           )}
           <div className="row-wrap">
-            {heads.data && heads.data.length > 1 && (
+            {others.length > 1 && (
               <select className="select" style={{ width: 210 }} value={h.id} aria-label="Cambiar de cabeza" onChange={(e) => nav(`/cabezas/${e.target.value}?tab=${tab}`)}>
-                {heads.data.map((x) => <option key={x.id} value={x.id}>{teamName(x)}</option>)}
+                {others.map((x) => <option key={x.id} value={x.id}>{x.cabeza_name || x.name}</option>)}
               </select>
             )}
             {data.can_manage && <button className="btn" onClick={() => setEditing(true)}><Pencil size={15} />Editar</button>}
@@ -82,23 +83,6 @@ export default function HeadDetail() {
               <div className="row-wrap">
                 <Link className="btn btn-sm" to={`/personas/${c.id}`}><UserCircle size={15} />Ficha</Link>
                 <Link className="btn btn-sm btn-sky" to={`/cabezas/${h.id}?tab=arbol&foco=${c.id}`}><GitBranch size={15} />Su árbol</Link>
-              </div>
-            </div>
-          ) : direct ? (
-            // Su equipo directo: John es la cabeza de las personas que él invita directamente.
-            <div className="cabeza-banner">
-              <Mark className="watermark" />
-              <div className="avatar head lg has-photo" aria-hidden="true"><JohnPhoto sizes="64px" alt="" /></div>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="row-wrap" style={{ gap: 8 }}><RoleBadge isHead /><span className="muted small">de su equipo directo{h.status === 'archived' ? ' · estructura archivada' : ''}</span></div>
-                <h1 className="cabeza-banner-name">{CAMPAIGN}</h1>
-                <div className="small muted">
-                  {fmtNum(data.stats?.totals?.people ?? 0)} personas en su equipo directo: las que él invita y las que ellas suman. Mismas reglas que en
-                  cualquier equipo.
-                </div>
-              </div>
-              <div className="row-wrap">
-                <Link className="btn btn-sm btn-sky" to={`/cabezas/${h.id}?tab=arbol`}><GitBranch size={15} />Su árbol</Link>
               </div>
             </div>
           ) : (
@@ -136,7 +120,7 @@ export default function HeadDetail() {
                     {data.leaders.filter((l) => !l.is_head).map((l) => (
                       <tr key={l.id} className="clickable" onClick={() => nav(`/personas/${l.id}`)}>
                         <td><div className="row"><Avatar name={l.full_name} leader photo={l.photo_url} /><div><b>{l.full_name}</b><div className="small muted mono">{l.leader_code}</div></div></div></td>
-                        <td>{l.inviter_name || (h.is_direct ? CAMPAIGN : <span className="muted">La estructura</span>)}</td>
+                        <td>{l.inviter_name || <span className="muted">La estructura</span>}</td>
                         <td className="tnum">{fmtNum(l.assigned)}</td>
                         <td className="tnum">{fmtNum(l.branch)}</td>
                         <td className="small muted">{fmtDate(l.created_at)}</td>

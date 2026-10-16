@@ -44,7 +44,7 @@ export function DashboardBody({ headId, days, compact }) {
               ]} />
             ) : data.perHead.length ? (
               <BarList onClick={(it) => nav(`/cabezas/${it.key}`)} items={data.perHead.map((h) => ({
-                key: h.id, label: h.is_direct ? CAMPAIGN : h.cabeza_name || h.name, value: h.people, color: h.color, dot: h.color,
+                key: h.id, label: h.cabeza_name || h.name, value: h.people, color: h.color, dot: h.color,
                 tip: [['Líderes', fmtNum(h.leaders)], ['Pendientes', fmtNum(h.pending)]],
               }))} />
             ) : <Empty title="Aún no hay cabezas" />}
