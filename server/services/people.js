@@ -409,35 +409,92 @@ export async function markOneTimeSent(id, { label } = {}, user, ip) {
   });
 }
 
+/** La estructura de la cabeza, si puede invitar líderes desde su panel. */
+async function headForLeaderInvites(cabeza) {
+  // Los mensajes los lee la persona en su panel: se le habla de tú y sin nombres internos («cabeza», «líder»).
+  if (!cabeza.is_head) throw forbidden('Desde tu panel puedes compartir tu link; las invitaciones personales las envía quien encabeza tu equipo.');
+  if (cabeza.status !== 'active') throw badRequest('NOT_ACTIVE', 'Tu registro aún no está activo.');
+  const head = await getHead(cabeza.head_id);
+  if (head.status !== 'active') throw badRequest('HEAD_ARCHIVED', 'Tu equipo ya no está activo.');
+  return head;
+}
+
+/** Nuevo enlace de un solo uso de la cabeza para un líder; con `device`, preparado en ese dispositivo (aún sin enviar). */
+async function insertHeadLeaderInvite(cabeza, head, device, ip) {
+  const type = await builtinType('leader');
+  let token;
+  do token = `REG-${randomCode(12)}`; while (await tokenTaken(token));
+  const expires = new Date(Date.now() + ONE_TIME_DAYS * 864e5).toISOString();
+  const r = await q(`INSERT INTO invite_links (token, kind, owner_person_id, reg_type_id, head_id, label, max_uses, expires_at, created_by, is_general, one_time,
+                 prepared, prepared_key) VALUES (?, 'register', ?, ?, ?, ?, 1, ?, NULL, 0, 1, ?, ?)`)
+    .run(token, cabeza.id, type.id, head.id, `Invitación de ${cabeza.full_name}`, expires, device ? 1 : 0, device || null);
+  const id = Number(r.lastInsertRowid);
+  await audit(null, 'link.create_by_head', 'invite_link', id, { token, person_id: cabeza.id, head_id: head.id, ...(device ? { prepared: true } : {}) }, ip);
+  return id;
+}
+
+const inviteOut = async (id, cabeza) => ({
+  ...(await q('SELECT token, expires_at FROM invite_links WHERE id = ?').get(id)), stats: await headInviteStats(cabeza.id),
+});
+
+// Preparar y marcar enviada se hacen de a una por cabeza (mismo candado): una recién entregada nunca vuelve a salir.
+const cabezaLock = (personId) => q('SELECT pg_advisory_xact_lock(724103, ?::int)').get(personId);
+
 /**
  * Enlace de un solo uso con el que la cabeza de una estructura invita a un líder (desde su panel, sin cuenta).
  * El líder que se registre colgará de ella. Caduca a los 7 días si no se usa.
  */
 export async function createHeadLeaderInvite(cabeza, ip) {
   return await tx(async () => {
-    // Los mensajes los lee la persona en su panel: se le habla de tú y sin nombres internos («cabeza», «líder»).
-    if (!cabeza.is_head) throw forbidden('Desde tu panel puedes compartir tu link; las invitaciones personales las envía quien encabeza tu equipo.');
-    if (cabeza.status !== 'active') throw badRequest('NOT_ACTIVE', 'Tu registro aún no está activo.');
-    const head = await getHead(cabeza.head_id);
-    if (head.status !== 'active') throw badRequest('HEAD_ARCHIVED', 'Tu equipo ya no está activo.');
-    const type = await builtinType('leader');
-    let token;
-    do token = `REG-${randomCode(12)}`; while (await tokenTaken(token));
-    const expires = new Date(Date.now() + ONE_TIME_DAYS * 864e5).toISOString();
-    const r = await q(`INSERT INTO invite_links (token, kind, owner_person_id, reg_type_id, head_id, label, max_uses, expires_at, created_by, is_general, one_time)
-                 VALUES (?, 'register', ?, ?, ?, ?, 1, ?, NULL, 0, 1)`).run(token, cabeza.id, type.id, head.id, `Invitación de ${cabeza.full_name}`, expires);
-    const id = Number(r.lastInsertRowid);
-    await audit(null, 'link.create_by_head', 'invite_link', id, { token, person_id: cabeza.id, head_id: head.id }, ip);
-    return { ...(await q('SELECT token, expires_at FROM invite_links WHERE id = ?').get(id)), stats: await headInviteStats(cabeza.id) };
+    const head = await headForLeaderInvites(cabeza);
+    return await inviteOut(await insertHeadLeaderInvite(cabeza, head, null, ip), cabeza);
   });
 }
 
-/** Invitaciones de líder enviadas por una cabeza desde su panel: enviadas, usadas y abiertas. */
+/**
+ * Invitación para un líder preparada en el dispositivo de la cabeza: existe antes del toque, así el botón de WhatsApp
+ * del panel es un enlace real (abre la app directo). No cuenta como enviada hasta que se entrega
+ * (markHeadLeaderInviteSent) o alguien se registra con ella. Se reutiliza mientras siga sin entregar, activa y con más
+ * de un día de vigencia. `delivered`: las que el dispositivo entregó sin que su aviso llegara; se marcan enviadas aquí
+ * mismo y nunca vuelven como la siguiente.
+ */
+export async function prepareHeadLeaderInvite(cabeza, { device, delivered = [] }, ip) {
+  return await tx(async () => {
+    const head = await headForLeaderInvites(cabeza);
+    await cabezaLock(cabeza.id);
+    const tokens = delivered.filter((t) => typeof t === 'string' && /^REG-[A-Za-z0-9]{6,24}$/.test(t)).slice(0, 20);
+    for (const t of tokens) {
+      const l = await q('SELECT * FROM invite_links WHERE token = ? AND one_time = 1 AND owner_person_id = ? FOR UPDATE').get(t, cabeza.id);
+      if (l && l.status === 'active' && !l.used_at) await markSentLocked(l, null, null, ip);
+    }
+    const found = await q(`SELECT id FROM invite_links WHERE one_time = 1 AND prepared = 1 AND status = 'active' AND used_at IS NULL
+        AND owner_person_id = ? AND prepared_key = ? AND expires_at > ? AND NOT (token = ANY(?::text[])) ORDER BY id DESC LIMIT 1`)
+      .get(cabeza.id, device, new Date(Date.now() + 864e5).toISOString(), tokens);
+    return await inviteOut(found ? found.id : await insertHeadLeaderInvite(cabeza, head, device, ip), cabeza);
+  });
+}
+
+/**
+ * La cabeza entregó su invitación preparada (WhatsApp o copiar): desde ahora cuenta como enviada y vence en 7 días.
+ * `already_sent`: ya se había entregado. Si se anuló o ya se usó responde LINK_CLOSED: quien la reciba no podrá usarla.
+ */
+export async function markHeadLeaderInviteSent(cabeza, token, ip) {
+  return await tx(async () => {
+    await cabezaLock(cabeza.id);
+    const l = await q('SELECT * FROM invite_links WHERE token = ? AND one_time = 1 AND owner_person_id = ? FOR UPDATE').get(String(token || ''), cabeza.id);
+    if (!l) throw notFound('Invitación no encontrada.');
+    if (l.status !== 'active' || l.used_at) throw conflict('LINK_CLOSED', 'Esa invitación ya no sirve: se anuló o ya se usó.');
+    const already = await markSentLocked(l, null, null, ip);
+    return { ok: true, already_sent: already, stats: await headInviteStats(cabeza.id) };
+  });
+}
+
+/** Invitaciones de líder enviadas por una cabeza desde su panel: enviadas, usadas y abiertas (sin las preparadas). */
 export async function headInviteStats(personId) {
   const s = await q(`SELECT COUNT(*) AS sent,
       SUM(CASE WHEN used_at IS NOT NULL THEN 1 ELSE 0 END) AS used,
       SUM(CASE WHEN used_at IS NULL AND status = 'active' AND (expires_at IS NULL OR expires_at >= ?) THEN 1 ELSE 0 END) AS open
-    FROM invite_links WHERE one_time = 1 AND owner_person_id = ?`).get(now(), personId);
+    FROM invite_links WHERE one_time = 1 AND prepared = 0 AND owner_person_id = ?`).get(now(), personId);
   return { sent: s.sent || 0, used: s.used || 0, open: s.open || 0 };
 }
 
@@ -519,6 +576,22 @@ export async function recoverPanel(rawToken, body, ip) {
   await history(person.id, 'panel_recovered', { link_id: link.id });
   await audit(null, 'panel.recover', 'person', person.id, { link_id: link.id }, ip);
   return { panel_token: panelToken, is_head: !!person.is_head };
+}
+
+/**
+ * Quien se registró y perdió su link (cerró la página sin guardarlo) lo recupera con la cédula y el celular del
+ * registro, los dos. Si no coinciden con la misma persona no se dice si alguien está registrado; el límite de intentos
+ * lo pone la ruta. No abre el panel: los líderes vuelven a él con el link personal con el que se registraron.
+ */
+export async function recoverOwnLink(body, linkId, ip) {
+  const doc = String(body?.document_id ?? '').replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+  const phone = normalizePhone(body?.phone);
+  const p = doc && phone
+    ? await q(`SELECT * FROM people WHERE document_id = ? AND phone = ? AND status <> 'rejected'`).get(doc, phone)
+    : null;
+  if (!p) throw new AppError(401, 'RECOVER_MISMATCH', 'La cédula o el celular no coinciden con ningún registro. Revisa que sean los mismos con los que te registraste.');
+  await audit(null, 'link.recover', 'person', p.id, { link_id: linkId }, ip);
+  return p;
 }
 
 export async function revokePanelToken(personId) {

@@ -8,6 +8,7 @@ import { teamName, useTeams } from '../lib/teams.js';
 import { api, qs } from '../api.js';
 import { fmtDate, fmtNum, phoneDisplay } from '../lib/format.js';
 import { useQueryState } from '../lib/useParams.js';
+import { useAuth } from '../auth.jsx';
 import { Avatar, ErrorBox, Loading, PersonLink, RoleIcon, StatusBadge, useAsync, Empty, JohnLink } from '../components/ui.jsx';
 
 const COLS = [
@@ -23,6 +24,7 @@ const COLS = [
 
 export default function People() {
   const nav = useNavigate();
+  const a = useAuth();
   const [params, setParams] = useQueryState();
   const [term, setTerm] = useState(params.q || '');
   const heads = useAsync(() => api.get('/heads'), []);
@@ -47,10 +49,14 @@ export default function People() {
     return () => clearTimeout(t);
   }, [term]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const setFilter = (k) => (e) => setParams({ [k]: e.target.value, page: null });
+  // Una cabeza, un líder o «sólo líderes / cabezas» no caben con «Solo las mías»: lo quitan.
+  const clash = (k, v) => v && (k === 'head_id' || k === 'leader_id' || (k === 'type' && v !== 'person'));
+  const setFilter = (k) => (e) => setParams({ [k]: e.target.value, page: null, ...(clash(k, e.target.value) ? { mine: null } : {}) });
   const sortBy = (k) => setParams({ sort: k, dir: query.sort === k && query.dir === 'desc' ? 'asc' : 'desc', page: null });
   const pages = data ? Math.max(1, Math.ceil(data.total / query.pageSize)) : 1;
-  const filtersOn = ['head_id', 'leader_id', 'inviter_id', 'status', 'type', 'method', 'from', 'to', 'q', 'localidad_id', 'geo_status', 'supports', 'secure_vote', 'reg_type_id'].some((k) => params[k]);
+  const filtersOn = ['head_id', 'leader_id', 'inviter_id', 'status', 'type', 'method', 'from', 'to', 'q', 'localidad_id', 'geo_status', 'supports', 'secure_vote', 'reg_type_id', 'mine'].some((k) => params[k]);
+  // «Solo las mías» (cuenta de John): sus personas directas, que no son líderes ni de ninguna cabeza.
+  const onlyMine = params.mine === '1';
 
   return (
     <div className="page">
@@ -63,13 +69,19 @@ export default function People() {
             <Search size={16} />
             <input className="input" placeholder="Nombre, cédula, celular, dirección o barrio" value={term} onChange={(e) => setTerm(e.target.value)} />
           </div>
+          {a.isSuper && (
+            <button type="button" className={`btn ${onlyMine ? 'btn-primary' : ''}`} aria-pressed={onlyMine}
+              onClick={() => setParams(onlyMine ? { mine: null, page: null } : { mine: '1', type: null, head_id: null, leader_id: null, inviter_id: null, page: null })}>
+              Solo las mías
+            </button>
+          )}
           <select className="select" style={{ width: 170 }} value={params.head_id || ''} onChange={setFilter('head_id')} aria-label="Cabeza">
             <option value="">Todas las cabezas</option>
             {heads.data?.map((h) => <option key={h.id} value={h.id}>{teamName(h)}</option>)}
           </select>
           <div style={{ width: 230, maxWidth: '100%' }}>
             <LeaderPicker id="df-leader" leaders={leaders.data} loading={leaders.loading} compact placeholder="Cualquier líder"
-              showHead={!params.head_id} value={params.leader_id || ''} onChange={(id) => setParams({ leader_id: id || null, page: null })} />
+              showHead={!params.head_id} value={params.leader_id || ''} onChange={(id) => setParams({ leader_id: id || null, page: null, ...(id ? { mine: null } : {}) })} />
           </div>
           <select className="select" style={{ width: 140 }} value={params.type || ''} onChange={setFilter('type')} aria-label="Tipo">
             <option value="">Todos</option><option value="head">Sólo cabezas</option><option value="leader">Sólo líderes</option><option value="person">Sólo personas</option>

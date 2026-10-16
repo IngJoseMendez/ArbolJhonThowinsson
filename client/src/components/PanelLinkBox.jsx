@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Check, Copy, ExternalLink, KeyRound, ShieldAlert } from 'lucide-react';
 import { copyText, useToast, WhatsAppIcon } from './ui.jsx';
+import { extLinkProps, waUrl } from '../lib/whatsapp.js';
 
 export const panelUrl = (token) => `${window.location.origin}/panel/${token}`;
 
@@ -15,7 +16,7 @@ export default function PanelLinkBox({ token, firstTime, head }) {
   const copy = async () => {
     if (await copyText(url)) { setCopied(true); toast('Enlace del panel copiado'); setTimeout(() => setCopied(false), 1500); }
   };
-  const wa = `https://wa.me/?text=${encodeURIComponent(`Mi panel del equipo Thowinsson (privado, no reenviar): ${url}`)}`;
+  const wa = waUrl(`Mi panel del equipo Thowinsson (privado, no reenviar): ${url}`);
   return (
     <div className="panel-link stack" style={{ gap: 12 }}>
       <h3 className="row" style={{ gap: 8, fontFamily: 'var(--font-display)', fontSize: 19 }}><KeyRound size={19} />{firstTime ? (head ? 'Tu panel de cabeza' : 'Tu panel') : 'Nuevo enlace del panel'}</h3>
@@ -27,7 +28,7 @@ export default function PanelLinkBox({ token, firstTime, head }) {
       </p>
       <div className="share-actions">
         <a className="btn btn-lg btn-primary" style={{ gridColumn: '1 / -1' }} href={`/panel/${token}`} target="_blank" rel="noopener noreferrer"><ExternalLink size={18} />Abrir mi panel</a>
-        <a className="btn btn-wa" style={{ gridColumn: 'auto' }} href={wa} target="_blank" rel="noopener noreferrer"><WhatsAppIcon size={16} />Guardar en mi chat</a>
+        <a className="btn btn-wa" style={{ gridColumn: 'auto' }} href={wa} {...extLinkProps()}><WhatsAppIcon size={16} />Guardar en mi chat</a>
         <button type="button" className="btn" onClick={copy} aria-label="Copiar enlace del panel">{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? 'Copiado' : 'Copiar'}</button>
       </div>
       <div className="alert alert-warn"><ShieldAlert size={16} />

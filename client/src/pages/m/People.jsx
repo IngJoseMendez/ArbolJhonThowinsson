@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Search, SlidersHorizontal, UserPlus, Users } from 'lucide-react';
 import { api, qs } from '../../api.js';
+import { useAuth } from '../../auth.jsx';
 import { useCached, invalidate, onClear } from '../../lib/cache.js';
 import { relTime, STATUS } from '../../lib/format.js';
 import { useGo } from '../../lib/nav.js';
@@ -34,6 +35,7 @@ onClear(() => lists.clear());
 
 /** Personas: búsqueda, fichas de filtro y la lista completa que se carga a medida que se baja. */
 export default function People() {
+  const a = useAuth();
   const go = useGo();
   const teams = useTeams();
   const types = useRegTypes();
@@ -101,6 +103,8 @@ export default function People() {
   const filterCount = FILTER_KEYS.filter((k) => params[k] && !['comuna_id', 'barrio_id'].includes(k)).length;
   const thisWeek = params.from === weekStart() && !params.to;
   const onlyLeaders = params.type === 'leader';
+  // «Solo las mías» (cuenta de John): sus personas directas, que no son líderes; por eso excluye a «Líderes».
+  const onlyMine = params.mine === '1';
   const pendingN = pending.data?.count || 0;
   const headFilter = params.head_id ? teams.byId.get(Number(params.head_id)) : null;
   const remove = (patch) => setParams(patch, true);
@@ -140,8 +144,13 @@ export default function People() {
       </div>
       <Chips label="Filtros rápidos" className="m-quick-filters">
         {pendingN > 0 && <Chip warn onClick={() => go('/pendientes')}>Por aprobar <span className="m-chip__count">{pendingN}</span></Chip>}
+        {a.isSuper && (
+          <Chip active={onlyMine} onClick={() => remove(onlyMine ? { mine: null } : { mine: '1', type: null, head_id: null, leader_id: null, inviter_id: null })}>
+            Solo las mías
+          </Chip>
+        )}
         <Chip active={thisWeek} onClick={() => remove({ from: thisWeek ? null : weekStart(), to: null })}>Esta semana</Chip>
-        <Chip active={onlyLeaders} onClick={() => remove({ type: onlyLeaders ? null : 'leader' })}>Líderes</Chip>
+        <Chip active={onlyLeaders} onClick={() => remove({ type: onlyLeaders ? null : 'leader', ...(onlyLeaders ? {} : { mine: null }) })}>Líderes</Chip>
         <Chip icon={SlidersHorizontal} active={filterCount > 0} onClick={() => setSheet('filters')}>Filtros{filterCount ? ` ${filterCount}` : ''}</Chip>
       </Chips>
       {active.length > 0 && (

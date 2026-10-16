@@ -121,6 +121,54 @@ test('Panel de la cabeza: ve a sus líderes e invita líderes con enlaces de un 
   assert.equal((await anon.post(`/api/public/panel/${lp.data.token}/leader-invite`, { pin: luciaPin })).status, 403);
 });
 
+test('Panel de la cabeza: la invitación está lista antes del toque y cuenta al entregarla; nunca vuelve la misma', async () => {
+  const pin = await pinOf(ids.cabeza.id);
+  const stats = async () => (await anon.post(`/api/public/panel/${ids.cabezaPanel}`, { pin })).data.leader_invites;
+  const prepare = (body = {}) => anon.post(`/api/public/panel/${ids.cabezaPanel}/leader-invite`, { pin, device: 'celular-de-juan', ...body });
+  const sent = (invite) => anon.post(`/api/public/panel/${ids.cabezaPanel}/leader-invite/sent`, { pin, invite });
+  const before = await stats();
+
+  const a = await prepare();
+  assert.equal(a.status, 201, JSON.stringify(a.data));
+  assert.match(a.data.token, /^REG-[A-Z2-9]{12}$/);
+  assert.deepEqual(a.data.stats, before, 'preparada: aún no cuenta como enviada');
+  assert.equal((await prepare()).data.token, a.data.token, 'el mismo dispositivo la reutiliza mientras no la entregue');
+  const other = await prepare({ device: 'computador-de-juan' });
+  assert.notEqual(other.data.token, a.data.token, 'cada dispositivo tiene la suya');
+  // Mientras está preparada no aparece en Enlaces; en la ficha de la cabeza sólo están sus enlaces propios
+  const listed = (await admin.get('/api/links?one_time=1&pageSize=200')).data.rows.map((l) => l.token);
+  assert.ok(!listed.includes(a.data.token));
+  const ficha = (await admin.get(`/api/people/${ids.cabeza.id}`)).data;
+  assert.ok(ficha.links.every((l) => !l.one_time), 'sus invitaciones a líderes no son su enlace');
+  assert.ok(ficha.links.some((l) => l.status === 'active'), 'su enlace propio sigue ahí');
+
+  const s = await sent(a.data.token);
+  assert.equal(s.status, 200, JSON.stringify(s.data));
+  assert.equal(s.data.already_sent, false);
+  assert.deepEqual(s.data.stats, { ...before, sent: before.sent + 1, open: before.open + 1 });
+  assert.equal((await sent(a.data.token)).data.already_sent, true, 'marcarla dos veces no la cuenta dos veces');
+  const b = await prepare();
+  assert.notEqual(b.data.token, a.data.token, 'la entregada nunca vuelve como la siguiente');
+  // Entregada sin que su aviso llegara (sin conexión): viaja con la siguiente preparación y queda enviada
+  const c = await prepare({ delivered: [b.data.token] });
+  assert.notEqual(c.data.token, b.data.token);
+  assert.equal(c.data.stats.sent, before.sent + 2);
+  // Quien se registra con una preparada queda como líder de la cabeza, y cuenta como enviada y usada
+  const r = await anon.post(`/api/public/register/${c.data.token}`, form('Tomás', 'Preparado'));
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.is_leader, true);
+  assert.equal((await find('tomas preparado')).inviter_id, ids.cabeza.id);
+  assert.deepEqual(await stats(), { sent: before.sent + 3, used: before.used + 1, open: before.open + 2 });
+  assert.equal((await sent(c.data.token)).data.error.code, 'LINK_CLOSED', 'ya usada');
+  // Anulada por la coordinación mientras estaba preparada: al entregarla se avisa que ya no sirve
+  const d = await prepare();
+  await admin.post('/api/links/one-time/revoke-open', { reg_type_id: ids.types.leader.id, head_id: ids.head });
+  assert.equal((await sent(d.data.token)).data.error.code, 'LINK_CLOSED');
+  assert.notEqual((await prepare()).data.token, d.data.token, 'la anulada no vuelve');
+  assert.equal((await sent('REG-NOEXISTE2345')).status, 404);
+  assert.equal((await sent(other.data.token)).status, 409, 'la del otro dispositivo también quedó anulada');
+});
+
 test('La cabeza no se mueve ni se degrada; se puede retirar y designar (adopta a los líderes raíz)', async () => {
   const c = ids.cabeza.id;
   assert.equal((await admin.post(`/api/people/${c}/move`, { inviter_id: ids.lucia.id, reason: 'Prueba de movimiento' })).data.error.code, 'HEAD_PERSON');
@@ -340,4 +388,24 @@ test('Equipo directo de John: él es la cabeza de quienes invita directamente, c
   assert.equal(inc.page, heads + 1);
   assert.deepEqual(inc.nodes.slice(heads).map((n) => n.id), [directs[0].id, directs[3].id]);
   assert.equal((await admin.get('/api/admin/integrity')).data.ok, true, JSON.stringify((await admin.get('/api/admin/integrity')).data.issues));
+});
+
+test('«Solo las mías»: en la cuenta de John, sus personas directas (sin líderes ni cabezas) y su ritmo en el Inicio', async () => {
+  // Directo con John quedaron Carmen y Manual (personas), y Lucía y Líder Manual (líderes); Hijo es de Carmen.
+  const mine = (await admin.get('/api/people?mine=1&pageSize=50')).data;
+  assert.deepEqual(mine.rows.map((r) => r.full_name).sort(), ['Carmen Directa John', 'Manual Directo John']);
+  assert.equal(mine.total, 2);
+  assert.ok(mine.rows.every((r) => r.is_direct && !r.is_leader && r.inviter_id === null));
+  // Se combina con los demás filtros.
+  assert.equal((await admin.get('/api/people?mine=1&q=carmen')).data.total, 1);
+  assert.equal((await admin.get('/api/people?mine=1&type=leader')).data.total, 0);
+  // En el Inicio, su acumulado diario va aparte: no se suma a los equipos.
+  const series = (await admin.get('/api/stats/dashboard?days=30')).data.growth.series;
+  assert.equal(series.at(-1).mine, 2);
+  assert.equal(series.at(-8).mine, 0, 'las dos llegaron esta semana');
+  assert.ok(series.every((s) => !('mine' in s.values)));
+  // Un coordinador de cabeza no las ve: ni en Personas ni en su Inicio.
+  const headAdmin = await new Client(srv.base).login('adm.cab', 'AdmCab1234!');
+  assert.equal((await headAdmin.get('/api/people?mine=1')).data.total, 0);
+  assert.equal((await headAdmin.get('/api/stats/dashboard?days=30')).data.growth.series.at(-1).mine, undefined);
 });

@@ -1,5 +1,6 @@
 import { CAMPAIGN } from '../brand/Brand.jsx';
-import { isIOSStandalone, isPhoneNow } from './device.js';
+import { isIOSStandalone, isPhoneNow, osName } from './device.js';
+import { isAndroidInApp } from './pwa.js';
 
 // Enlaces a WhatsApp y mensajes para las personas invitadas (se les habla de tú). De cara a ellas no hay «cabezas»,
 // «líderes» ni «convenios»: quien recibe una invitación personal es una persona de confianza.
@@ -10,18 +11,29 @@ export function normalizePhone57(p) {
   return d.length === 10 ? `57${d}` : '';
 }
 
+// Android (Chrome, Samsung Internet, la app instalada…): wa.me muchas veces se queda en la página de WhatsApp en el
+// navegador. El enlace «intent» abre la app directo (WhatsApp o WhatsApp Business) y, si no hay ninguna, esa página.
+// Dentro de otras apps (Facebook, Instagram…) se deja wa.me: no todas abren ese enlace.
+const androidDirect = () => osName() === 'android' && !isAndroidInApp();
+
 /**
- * Enlace que abre WhatsApp con el mensaje escrito (y el chat de esa persona si se da su celular).
- * En la app instalada del iPhone, wa.me se queda en la página de WhatsApp dentro de Safari: allí se abre la app directo.
+ * Enlace que abre la app de WhatsApp con el mensaje escrito (y el chat de esa persona si se da su celular).
+ * En Safari del iPhone wa.me abre la app; en la app instalada se quedaría en la página de WhatsApp: allí va directo.
  */
 export function waUrl(text, phone) {
   const ph = phone ? normalizePhone57(phone) : '';
-  if (isIOSStandalone()) return `whatsapp://send?text=${encodeURIComponent(text)}${ph ? `&phone=${ph}` : ''}`;
-  return `https://wa.me/${ph}?text=${encodeURIComponent(text)}`;
+  const web = `https://wa.me/${ph}?text=${encodeURIComponent(text)}`;
+  const app = `send?${ph ? `phone=${ph}&` : ''}text=${encodeURIComponent(text)}`;
+  if (androidDirect()) return `intent://${app}#Intent;scheme=whatsapp;S.browser_fallback_url=${encodeURIComponent(web)};end`;
+  if (isIOSStandalone()) return `whatsapp://${app}`;
+  return web;
 }
 
-/** En el celular WhatsApp se abre en la misma ventana (la app queda donde estaba); en el computador, en otra pestaña. */
-export const extLinkProps = () => (isPhoneNow() ? {} : { target: '_blank', rel: 'noopener noreferrer' });
+/**
+ * En el celular WhatsApp se abre desde la misma ventana (la app queda donde estaba), y en Android siempre (en otra
+ * pestaña quedaría una en blanco). En el computador, en otra pestaña.
+ */
+export const extLinkProps = () => (isPhoneNow() || androidDirect() ? {} : { target: '_blank', rel: 'noopener noreferrer' });
 
 const hello = (name) => `Hola${name ? `, ${String(name).trim().split(/\s+/)[0]}` : ''}.`;
 

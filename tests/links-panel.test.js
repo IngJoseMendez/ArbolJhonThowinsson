@@ -262,3 +262,65 @@ test('Enlaces de un solo uso para cabezas y líderes: uno por envío, atómicos,
   assert.equal(st.open, 0);
   assert.equal((await admin.get('/api/admin/integrity')).data.ok, true);
 });
+
+test('Recuperar el propio link: con la cédula y el celular del registro (los dos), sin revelar quién está registrado', async () => {
+  // Rosa se registra con el link del líder y cierra la página sin guardar el suyo.
+  const leaderLink = (await admin.get(`/api/people/${ids.leader.id}`)).data.links.find((l) => l.status === 'active').token;
+  const recover = (body, token = leaderLink) => anon.post(`/api/public/recover-link/${token}`, body);
+  const rosa = form('Rosa', 'Sin Link');
+  const r = await anon.post(`/api/public/register/${leaderLink}`, rosa);
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.ok(r.data.invite_token);
+
+  const ok = await recover({ document_id: rosa.document_id, phone: `+57 ${rosa.phone}` });
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+  assert.equal(ok.data.recovered, true);
+  assert.equal(ok.data.invite_token, r.data.invite_token, 'su mismo link');
+  assert.equal(ok.data.full_name, 'Rosa Sin Link');
+  assert.equal(ok.data.role, 'person');
+  assert.equal(ok.data.inviter, 'Líder Base');
+  assert.equal(ok.data.panel_token, null, 'no abre ningún panel');
+  // Desde cualquier link de la campaña, no sólo con el que se registró.
+  assert.equal((await recover({ document_id: rosa.document_id, phone: rosa.phone }, r.data.invite_token)).data.invite_token, r.data.invite_token);
+
+  // Con un solo dato bien, o con los de nadie, la misma respuesta: no se sabe si alguien está registrado.
+  const nobody = await recover({ document_id: nextDoc(), phone: nextPhone() });
+  for (const x of [nobody, await recover({ document_id: rosa.document_id, phone: nextPhone() }), await recover({ document_id: nextDoc(), phone: rosa.phone }), await recover({})]) {
+    assert.equal(x.status, 401);
+    assert.equal(x.data.error.code, 'RECOVER_MISMATCH');
+    assert.equal(x.data.error.message, nobody.data.error.message);
+  }
+  assert.equal((await recover({ document_id: rosa.document_id, phone: rosa.phone }, 'REG-NOEXISTE')).status, 404);
+
+  // Un líder recupera su link para sumar personas, no su panel.
+  const lider = await admin.get(`/api/people/${ids.leader.id}`);
+  const lr = await recover({ document_id: lider.data.person.document_id, phone: lider.data.person.phone });
+  assert.equal(lr.data.role, 'leader');
+  assert.equal(lr.data.invite_token, leaderLink);
+  assert.equal(lr.data.panel_token, null);
+
+  // Pendiente de aprobación: se le dice, todavía sin link; cuando la aprueban, ya lo recupera.
+  await admin.patch(`/api/heads/${ids.head}`, { requires_approval: true });
+  const pablo = form('Pablo', 'Pendiente');
+  const raul = form('Raúl', 'Rechazado');
+  assert.equal((await anon.post(`/api/public/register/${leaderLink}`, pablo)).data.status, 'pending');
+  assert.equal((await anon.post(`/api/public/register/${leaderLink}`, raul)).data.status, 'pending');
+  await admin.patch(`/api/heads/${ids.head}`, { requires_approval: false });
+  const pend = await recover({ document_id: pablo.document_id, phone: pablo.phone });
+  assert.equal(pend.data.status, 'pending');
+  assert.equal(pend.data.invite_token, null);
+  const pid = (await admin.get('/api/people?q=pablo pendiente')).data.rows[0].id;
+  assert.equal((await admin.post(`/api/people/${pid}/status`, { status: 'active' })).status, 200);
+  const approved = await recover({ document_id: pablo.document_id, phone: pablo.phone });
+  assert.equal(approved.data.status, 'active');
+  assert.ok(approved.data.invite_token);
+
+  // Rechazado: como si no estuviera registrado. Inactivo: se le dice, sin link.
+  const rid = (await admin.get('/api/people?q=raul rechazado')).data.rows[0].id;
+  assert.equal((await admin.post(`/api/people/${rid}/status`, { status: 'rejected', reason: 'Prueba de rechazo' })).status, 200);
+  assert.equal((await recover({ document_id: raul.document_id, phone: raul.phone })).data.error.code, 'RECOVER_MISMATCH');
+  assert.equal((await admin.post(`/api/people/${pid}/status`, { status: 'inactive', reason: 'Prueba de inactivo' })).status, 200);
+  const inactive = await recover({ document_id: pablo.document_id, phone: pablo.phone });
+  assert.equal(inactive.data.status, 'inactive');
+  assert.equal(inactive.data.invite_token, null);
+});

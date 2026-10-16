@@ -15,6 +15,12 @@ export const NODE_SELECT = `
 
 const toNode = (r) => ({ ...r, is_leader: !!r.is_leader, is_head: !!r.is_head, is_direct: !!r.is_direct });
 
+/**
+ * Las personas de John («Solo las mías»): cuelgan directo de él, sin nadie en medio, y no son líderes ni cabezas;
+ * el último eslabón que él mismo invitó. Las que invitan sus líderes directos son de ellos.
+ */
+const johnsOwn = (a) => `${a}.is_direct = 1 AND ${a}.inviter_id IS NULL AND ${a}.is_leader = 0`;
+
 /** Hijos directos (árbol de invitación) con paginación. parentId = null => raíz de la cabeza. */
 export async function treeChildren(user, headId, parentId, { offset = 0, limit = 100, include = null } = {}) {
   let rows;
@@ -195,6 +201,7 @@ export async function directory(user, f) {
   if (f.type === 'head') where.push('p.is_head = 1');
   if (f.type === 'leader') where.push('p.is_leader = 1');
   if (f.type === 'person') where.push('p.is_leader = 0');
+  if (f.mine === '1') where.push(johnsOwn('p'));
   if (f.from) { where.push('p.created_at >= ?'); params.push(String(f.from)); }
   if (f.to) { where.push('p.created_at < ?'); params.push(String(f.to) + 'T23:59:59.999Z'); }
   const sortCol = SORTS[f.sort] || 'p.created_at';
@@ -285,6 +292,13 @@ export async function dashboard(user, { headId = null, days = 90 } = {}) {
                       GROUP BY p.head_id`).all(...wp, since);
   const daily = await q(`SELECT substr(p.created_at, 1, 10) AS day, p.head_id, COUNT(*) n FROM people p
                    WHERE ${w} AND p.status <> 'rejected' AND p.created_at >= ? GROUP BY day, p.head_id ORDER BY day`).all(...wp, since);
+  // En la cuenta de John, el acumulado de sus personas (las que él invitó directo, sin líderes ni cabezas) va aparte, en
+  // `mine`: no es un equipo y no se suma a los de las cabezas.
+  const mineSql = `${johnsOwn('p')} AND p.status <> 'rejected'`;
+  const withMine = user.role === 'super_admin' && !headId;
+  let mine = withMine ? (await q(`SELECT COUNT(*) n FROM people p WHERE ${mineSql} AND p.created_at < ?`).get(since)).n : 0;
+  const mineByDay = withMine ? new Map((await q(`SELECT substr(p.created_at, 1, 10) AS day, COUNT(*) n FROM people p
+                   WHERE ${mineSql} AND p.created_at >= ? GROUP BY day`).all(since)).map((d) => [d.day, d.n])) : null;
   // En las gráficas, cada estructura se nombra por su cabeza (si la tiene); quienes están directo con John, «Directo con John».
   const heads = perHead.map((h) => ({ id: h.id, name: h.cabeza_name || h.name, color: h.color }));
   const running = new Map(heads.map((h) => [h.id, 0]));
@@ -303,7 +317,8 @@ export async function dashboard(user, { headId = null, days = 90 } = {}) {
     for (const d of byDay.get(day) || []) { running.set(d.head_id, (running.get(d.head_id) || 0) + d.n); newCount += d.n; }
     const values = {};
     for (const h of heads) values[h.id] = running.get(h.id) || 0;
-    series.push({ day, values, new: newCount });
+    if (mineByDay) mine += mineByDay.get(day) || 0;
+    series.push({ day, values, new: newCount, ...(mineByDay ? { mine } : {}) });
   }
 
   return { totals: { ...totals, heads: headsCount }, perHead, perLeader, recent, growth: { heads, series } };

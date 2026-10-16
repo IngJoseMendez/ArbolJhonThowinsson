@@ -11,7 +11,7 @@ import { useOneTimeInvite } from '../../lib/invites.js';
 import { inviteText } from '../../lib/whatsapp.js';
 import Screen, { BarButton } from '../../components/m/Screen.jsx';
 import { Chip, Chips, EmptyState, Group, Row, RowsSkeleton, Section } from '../../components/m/List.jsx';
-import { DayBars, PersonAvatar, Sparkline, TeamAvatar, TrendChart } from '../../components/m/Spark.jsx';
+import { DayBars, JohnAvatar, PersonAvatar, Sparkline, TeamAvatar, TrendChart } from '../../components/m/Spark.jsx';
 import { openSearch } from '../../components/m/SearchOverlay.jsx';
 import { InviteButton, useRoleTypes } from '../../components/invite/InviteBlocks.jsx';
 import { RoleIcon } from '../../components/ui.jsx';
@@ -165,6 +165,13 @@ export default function Home() {
 
   const topTeams = useMemo(() => [...teams.active]
     .sort((x, y) => (pace.get(y.id)?.delta || 0) - (pace.get(x.id)?.delta || 0) || (y.people || 0) - (x.people || 0)).slice(0, 5), [teams.active, pace]);
+  // John, la primera cabeza (sólo en su cuenta): sus personas, las que él invitó directo, sin líderes ni cabezas.
+  const mine = useMemo(() => {
+    const s = dash.data?.growth.series || [];
+    if (!s.length || s[0].mine === undefined) return null;
+    const last = s[s.length - 1];
+    return { total: last.mine, delta: last.mine - s[Math.max(0, s.length - 8)].mine, spark: s.slice(-14).map((d) => d.mine) };
+  }, [dash.data]);
   const lastVisitAt = since?.at || 0;
   const points = useMemo(() => (trend.data?.growth.series || []).map((s) => ({ day: s.day, value: Object.values(s.values).reduce((n, v) => n + v, 0) })), [trend.data]);
 
@@ -231,8 +238,13 @@ export default function Home() {
       </Section>
 
       <Section title="Cabezas esta semana" action={<button type="button" className="m-link-btn" onClick={() => switchTab('cabezas')}>Ver todas</button>}>
-        {teams.loading ? <RowsSkeleton rows={3} /> : topTeams.length ? (
-          <Group>
+        {teams.loading || (a.isSuper && dash.loading) ? <RowsSkeleton rows={3} /> : <>
+          {(topTeams.length > 0 || mine) && <Group>
+            {mine && (
+              <Row lead={<JohnAvatar size={44} />} title={CAMPAIGN} to="/personas?mine=1"
+                meta={`${nf.format(mine.total)} ${mine.total === 1 ? 'persona que invitó directo' : 'personas que invitó directo'}`}
+                trail={<span className="m-trail-spark"><span className={`m-delta ${mine.delta ? '' : 'is-zero'}`}>+{mine.delta}</span><Sparkline values={mine.spark} color="#60b6e8" /></span>} chevron={false} />
+            )}
             {topTeams.map((h) => {
               const p = pace.get(h.id);
               const leaders = Math.max(0, (h.leaders || 0) - (h.cabeza_name ? 1 : 0));
@@ -242,8 +254,9 @@ export default function Home() {
                   trail={<span className="m-trail-spark"><span className={`m-delta ${p?.delta ? '' : 'is-zero'}`}>+{p?.delta || 0}</span><Sparkline values={p?.spark} color={h.color} /></span>} chevron={false} />
               );
             })}
-          </Group>
-        ) : <EmptyState icon={Network} title="Aún no hay cabezas">{a.isSuper ? 'Invite la primera: ella arma su equipo.' : 'Pida al administrador general que le asigne una.'}</EmptyState>}
+          </Group>}
+          {!topTeams.length && <EmptyState icon={Network} title="Aún no hay cabezas">{a.isSuper ? 'Invite la primera: ella arma su equipo.' : 'Pida al administrador general que le asigne una.'}</EmptyState>}
+        </>}
       </Section>
 
       <Section title="Recién registrados" action={<button type="button" className="m-link-btn" onClick={() => switchTab('personas')}>Ver todos</button>}>

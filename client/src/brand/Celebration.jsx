@@ -111,14 +111,16 @@ export function Credential({ role, name, team, code, since, photo, onPhoto, onPh
  * Bienvenida tras registrarse. Las personas de confianza (cabezas y líderes) reciben su credencial con una lluvia
  * de papelitos y el doble ángulo que sube; las personas, un agradecimiento con un corazón que late.
  */
-export default function Celebration({ role, firstName, name, team, code, since, pending, photo, onPhoto, onPhotoError, children }) {
+/** `again`: vuelve a verla (la recuerda su celular o recuperó su link): un saludo, sin la fiesta del primer día. */
+export default function Celebration({ role, firstName, name, team, code, since, pending, again, photo, onPhoto, onPhotoError, children }) {
   const big = role === 'head' || role === 'leader';
-  const title = pending ? `¡Gracias, ${firstName}!`
-    : big ? `¡Ya eres persona de confianza, ${firstName}!`
-      : `¡Gracias por sumarte, ${firstName}!`;
+  const title = again ? `¡Hola de nuevo, ${firstName}!`
+    : pending ? `¡Gracias, ${firstName}!`
+      : big ? `¡Ya eres persona de confianza, ${firstName}!`
+        : `¡Gracias por sumarte, ${firstName}!`;
   return (
     <section className={`celebrate ${big ? 'celebrate-big' : ''}`} aria-live="polite">
-      {!pending && <Confetti amount={big ? 170 : 80} />}
+      {!pending && !again && <Confetti amount={big ? 170 : 80} />}
       <div className="celebrate-rise" aria-hidden="true"><Mark duo size={56} /></div>
       {big && !pending ? (
         <Credential role={role} name={name} team={team} code={code} since={since} photo={photo} onPhoto={onPhoto} onPhotoError={onPhotoError} />

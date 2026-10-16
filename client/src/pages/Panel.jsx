@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { AlertCircle, Copy, Crown, Eye, Lock, LogOut, Search, Users, X } from 'lucide-react';
+import { AlertCircle, Copy, Crown, Eye, Lock, LogOut, RotateCw, Search, Users, X } from 'lucide-react';
 import { api } from '../api.js';
 import { Avatar, copyText, inviteMessage, useToast, WhatsAppIcon } from '../components/ui.jsx';
 import PhotoCircle from '../components/PhotoCircle.jsx';
@@ -8,7 +8,9 @@ import InstallPrompt, { InstallButton } from '../components/InstallPrompt.jsx';
 import { fmtDate, fmtNum, relTime, inviteUrl } from '../lib/format.js';
 import { typeVars } from '../lib/regTypes.js';
 import { usePanelManifest } from '../lib/pwa.js';
-import { readPin, savePin, isNewPanel, clearNewPanel } from '../lib/panelSession.js';
+import { readPin, savePin, isNewPanel, clearNewPanel, confirmDelivered, rememberDelivered, unconfirmedInvites } from '../lib/panelSession.js';
+import { deviceKey, haptic } from '../lib/device.js';
+import { extLinkProps, waUrl } from '../lib/whatsapp.js';
 import { Logo, Mark, JohnPhoto, CAMPAIGN } from '../brand/Brand.jsx';
 
 const first = (s) => String(s || '').trim().split(/\s+/)[0] || '';
@@ -28,42 +30,65 @@ function Foot() {
 }
 
 /**
- * Botones para invitar a una persona de confianza (un líder del equipo): cada envío genera un enlace personal de un
- * solo uso (caduca a los 7 días). Si alguien lo reenvía, nadie más puede registrarse con él.
+ * Botones para invitar a una persona de confianza (un líder del equipo): cada envío lleva un enlace personal de un
+ * solo uso (caduca a los 7 días). Si alguien lo reenvía, nadie más puede registrarse con él. La invitación está lista
+ * antes del toque, así «Invitar por WhatsApp» es un enlace real que abre la app directo; cuenta como enviada al
+ * tocarlo y enseguida se prepara la siguiente.
  */
 function LeaderInviteActions({ token, pin, name, stats, onStats }) {
   const toast = useToast();
+  const [invite, setInvite] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
-  const generate = async () => {
-    const r = await api.post(`/public/panel/${encodeURIComponent(token)}/leader-invite`, { pin });
-    onStats(r.stats); setErr(null);
-    return r;
-  };
+  const base = `/public/panel/${encodeURIComponent(token)}/leader-invite`;
   const message = (url) => `Hola, soy ${first(name)}. Te invito a ser una de mis personas de confianza en el equipo de ${CAMPAIGN}. `
     + `Este link es solo para ti, no lo reenvíes: ${url}`;
-  const sendWhatsApp = async () => {
-    // La ventana se abre en el mismo toque (si no, el navegador la bloquea) y luego va a WhatsApp con el enlace nuevo.
-    const w = window.open('about:blank', '_blank');
+  const prepare = useCallback(async () => {
+    const delivered = unconfirmedInvites(token);
     setBusy(true);
     try {
-      const l = await generate();
-      const wa = `https://wa.me/?text=${encodeURIComponent(message(inviteUrl(l.token)))}`;
-      if (w) { w.opener = null; w.location.href = wa; } else window.location.href = wa;
-    } catch (e) { w?.close(); setErr(e); } finally { setBusy(false); }
+      const r = await api.post(base, { pin, device: deviceKey(), ...(delivered.length ? { delivered } : {}) });
+      confirmDelivered(token, delivered);
+      setInvite(r); onStats(r.stats); setErr(null);
+    } catch (e) { setInvite(null); setErr(e); } finally { setBusy(false); }
+  }, [base, token, pin, onStats]);
+  useEffect(() => { prepare(); }, [prepare]);
+  // Entregada: el aviso sale con keepalive en el mismo toque (sigue aunque se abra WhatsApp) y la pantalla cambia un
+  // instante después, para que el enlace tocado conserve su dirección.
+  const delivered = () => {
+    const l = invite;
+    if (!l) return;
+    rememberDelivered(token, l.token);
+    haptic('success');
+    setTimeout(() => setInvite(null), 60);
+    fetch(`/api${base}/sent`, {
+      method: 'POST', keepalive: true, credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin, invite: l.token }),
+    }).then(async (r) => {
+      const d = await r.json().catch(() => null);
+      if (r.ok || r.status === 404 || r.status === 409) confirmDelivered(token, [l.token]);
+      if (d?.stats) onStats(d.stats);
+      if (r.status === 409) toast('Esa invitación ya no servía: se anuló. Envía la nueva a la misma persona.', 'error');
+    }, () => {}).finally(prepare);
   };
-  const copyNew = async () => {
-    setBusy(true);
-    try {
-      const l = await generate();
-      if (await copyText(message(inviteUrl(l.token)))) toast('Invitación copiada: pégala en el chat de esa persona');
-    } catch (e) { setErr(e); } finally { setBusy(false); }
+  const copy = async () => {
+    if (!invite) return;
+    if (await copyText(message(inviteUrl(invite.token)))) { delivered(); toast('Invitación copiada: pégala en el chat de esa persona'); }
+    else toast('No se pudo copiar. Inténtalo de nuevo.', 'error');
   };
+  // Sin conexión o con el servidor caído se puede reintentar; si el equipo o el registro no están activos, no.
+  const retry = err && (!err.status || err.status >= 500);
   return (
     <>
       <div className="grow-actions">
-        <button type="button" className="btn btn-wa" disabled={busy} onClick={sendWhatsApp}>{busy ? <span className="spinner" /> : <WhatsAppIcon size={17} />}Invitar por WhatsApp</button>
-        <button type="button" className="btn" disabled={busy} onClick={copyNew}><Copy size={16} />Copiar</button>
+        {invite ? (
+          <a className="btn btn-wa" href={waUrl(message(inviteUrl(invite.token)))} {...extLinkProps()} onClick={delivered}><WhatsAppIcon size={17} />Invitar por WhatsApp</a>
+        ) : retry ? (
+          <button type="button" className="btn btn-wa" disabled={busy} onClick={prepare}>{busy ? <span className="spinner" /> : <RotateCw size={16} />}Reintentar</button>
+        ) : (
+          <button type="button" className="btn btn-wa" disabled>{busy ? <span className="spinner" /> : <WhatsAppIcon size={17} />}Invitar por WhatsApp</button>
+        )}
+        <button type="button" className="btn" disabled={!invite} onClick={copy}><Copy size={16} />Copiar</button>
       </div>
       {stats?.sent > 0 && <span className="grow-meta">{fmtNum(stats.sent)} enviadas · {fmtNum(stats.used)} usadas · {fmtNum(stats.open)} sin usar</span>}
       {err && <div className="alert alert-error" role="alert" style={{ marginTop: 8 }}><AlertCircle size={16} />{err.message}</div>}
@@ -79,7 +104,7 @@ function MyLinkActions({ token, name }) {
   const copy = async () => { if (await copyText(message)) toast('Invitación copiada: pégala donde quieras'); };
   return (
     <div className="grow-actions">
-      <a className="btn btn-wa" href={`https://wa.me/?text=${encodeURIComponent(message)}`} target="_blank" rel="noopener noreferrer"><WhatsAppIcon size={17} />Enviar mi link</a>
+      <a className="btn btn-wa" href={waUrl(message)} {...extLinkProps()}><WhatsAppIcon size={17} />Enviar mi link</a>
       <button type="button" className="btn" onClick={copy}><Copy size={16} />Copiar</button>
       <span className="grow-note">Este link no es personal: puedes reenviarlo a todos tus contactos y grupos, todas las veces que quieras.</span>
     </div>
@@ -243,8 +268,8 @@ export default function Panel() {
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <b>Esta página es tu panel</b>
                   <span>Para volver, abre el mismo link con el que te registraste, o guárdalo aquí.</span>
-                  <a className="btn btn-sm btn-wa" href={`https://wa.me/?text=${encodeURIComponent(`Mi panel del equipo ${CAMPAIGN} (privado, no reenviar): ${window.location.origin}/panel/${token}`)}`}
-                    target="_blank" rel="noopener noreferrer" onClick={() => { clearNewPanel(token); setFresh(false); }}><WhatsAppIcon size={15} />Guardar en mi WhatsApp</a>
+                  <a className="btn btn-sm btn-wa" href={waUrl(`Mi panel del equipo ${CAMPAIGN} (privado, no reenviar): ${window.location.origin}/panel/${token}`)}
+                    {...extLinkProps()} onClick={() => { clearNewPanel(token); setTimeout(() => setFresh(false), 60); }}><WhatsAppIcon size={15} />Guardar en mi WhatsApp</a>
                 </div>
                 <button type="button" className="btn btn-ghost btn-sm btn-icon" aria-label="Cerrar" onClick={() => { clearNewPanel(token); setFresh(false); }}><X size={16} /></button>
               </div>

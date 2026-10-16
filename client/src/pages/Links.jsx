@@ -265,7 +265,7 @@ function GeneralLinkCard({ type, heads: all }) {
         {link ? (
           <>
             <div className="row-wrap" style={{ gap: 6 }}>
-              <a className="btn btn-sm btn-wa" href={`https://wa.me/?text=${encodeURIComponent(message)}`} target="_blank" rel="noopener noreferrer"><WhatsAppIcon size={14} />WhatsApp</a>
+              <a className="btn btn-sm btn-wa" href={waUrl(message)} {...extLinkProps()}><WhatsAppIcon size={14} />WhatsApp</a>
               <button type="button" className="btn btn-sm" onClick={copy}><Copy size={14} />Copiar</button>
               <a className="btn btn-sm btn-ghost btn-icon" href={`/registro/${link.token}`} target="_blank" rel="noopener noreferrer" title="Abrir formulario" aria-label="Abrir formulario"><ExternalLink size={14} /></a>
             </div>
@@ -436,7 +436,7 @@ function LinksTab() {
                     <td>
                       <div className="row nowrap" style={{ gap: 4 }}>
                         {l.status === 'active' && <button className="btn btn-sm btn-icon" title="Copiar" aria-label="Copiar" onClick={() => copy(l.token)}><Copy size={14} /></button>}
-                        {l.status === 'active' && <a className="btn btn-sm btn-wa" href={`https://wa.me/?text=${encodeURIComponent(`Hola, te invito a sumarte al equipo de ${CAMPAIGN}${l.owner_name ? ` con ${l.owner_name}` : ''}. Regístrate aquí: ${inviteUrl(l.token)}`)}`} target="_blank" rel="noopener noreferrer"><WhatsAppIcon size={14} />WhatsApp</a>}
+                        {l.status === 'active' && <a className="btn btn-sm btn-wa" href={waUrl(`Hola, te invito a sumarte al equipo de ${CAMPAIGN}${l.owner_name ? ` con ${l.owner_name}` : ''}. Regístrate aquí: ${inviteUrl(l.token)}`)} {...extLinkProps()}><WhatsAppIcon size={14} />WhatsApp</a>}
                         {l.can_manage && l.status === 'active' && !l.one_time && <button className="btn btn-sm btn-icon" title="Límites" aria-label="Límites" onClick={() => setModal({ type: 'limits', link: l })}><Settings2 size={14} /></button>}
                         {l.can_manage && l.status === 'active' && <button className="btn btn-sm btn-danger" onClick={() => setModal({ type: 'disable', link: l })}><Power size={14} />Desactivar</button>}
                         {l.can_manage && l.status !== 'active' && !l.one_time && (l.kind === 'register' || l.owner_status === 'active') && <button className="btn btn-sm" onClick={() => setModal({ type: 'enable', link: l })}>Reactivar</button>}

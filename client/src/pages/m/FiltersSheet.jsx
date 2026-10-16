@@ -9,7 +9,7 @@ import LeaderPicker from '../../components/LeaderPicker.jsx';
 
 /** Los filtros de Personas: los mismos parámetros que la lista de escritorio. */
 export const FILTER_KEYS = ['head_id', 'leader_id', 'inviter_id', 'type', 'status', 'method', 'from', 'to', 'localidad_id', 'comuna_id', 'barrio_id',
-  'geo_status', 'secure_vote', 'supports', 'reg_type_id'];
+  'geo_status', 'secure_vote', 'supports', 'reg_type_id', 'mine'];
 
 function Choice({ label, value, onChange, options }) {
   return (

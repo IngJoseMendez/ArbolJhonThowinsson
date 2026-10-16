@@ -3,7 +3,7 @@
 // La cabeza ve toda su estructura y, además, invita líderes con enlaces de un solo uso.
 import { q, now, pathUpper } from '../db.js';
 import { AppError, notFound, sha256, normalizeText, maskPhone } from '../util.js';
-import { createHeadLeaderInvite, headInviteStats, headPerson } from './people.js';
+import { createHeadLeaderInvite, headInviteStats, headPerson, markHeadLeaderInviteSent, prepareHeadLeaderInvite } from './people.js';
 import { photosEnabled, setPersonPhoto } from './photos.js';
 
 const MAX_FAILS = 8;
@@ -112,10 +112,20 @@ export async function panelData(token, pin, { q: term = '', page = 1 } = {}) {
   };
 }
 
-/** La cabeza genera, desde su panel, un enlace de un solo uso para invitar a un líder. */
-export async function panelLeaderInvite(token, pin, ip) {
+/**
+ * La cabeza, desde su panel, invita a un líder con un enlace de un solo uso. Con `device` queda preparado en ese
+ * dispositivo y cuenta como enviado al entregarlo (panelLeaderInviteSent); sin él, cuenta como enviado al crearlo.
+ */
+export async function panelLeaderInvite(token, pin, ip, { device = null, delivered = [] } = {}) {
   const p = await openPanel(token, pin);
+  if (device) return await prepareHeadLeaderInvite(p, { device, delivered }, ip);
   return await createHeadLeaderInvite(p, ip);
+}
+
+/** La cabeza entregó la invitación preparada en su panel (por WhatsApp o copiándola). */
+export async function panelLeaderInviteSent(token, pin, invite, ip) {
+  const p = await openPanel(token, pin);
+  return await markHeadLeaderInviteSent(p, invite, ip);
 }
 
 /** La persona de confianza pone (o cambia) su foto desde su panel. */

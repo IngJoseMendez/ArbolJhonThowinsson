@@ -11,10 +11,10 @@ import {
   createPerson, registerViaInvite, resolveInvite, promoteToLeader, demoteLeader, setResponsibleLeader, movePerson,
   setStatus, updatePersonData, regeneratePersonLink, integrityReport, recountCounters, getPerson, getHead, findDuplicate,
   createRegisterLink, ensureGeneralLink, createOneTimeLink, prepareOneTimeLink, markOneTimeSent, oneTimeStats, revokeOpenOneTime, issuePanelToken,
-  revokePanelToken, regTypeById,
-  headPerson, setHeadRole, recoverableLeader, recoverPanel,
+  revokePanelToken, regTypeById, builtinType,
+  headPerson, setHeadRole, recoverableLeader, recoverPanel, recoverOwnLink,
 } from './services/people.js';
-import { panelData, panelLeaderInvite, panelManifest, panelPhoto } from './services/panel.js';
+import { panelData, panelLeaderInvite, panelLeaderInviteSent, panelManifest, panelPhoto } from './services/panel.js';
 import { photosEnabled, setPersonPhoto, removePersonPhoto } from './services/photos.js';
 import {
   treeChildren, treeSubtree, treeChildrenOf, pathToPerson, search, directory, dashboard, branchStats, networkRoot, NODE_SELECT,
@@ -365,8 +365,9 @@ api.get('/people/:id', requireAuth, async (req, res) => {
   const invitees = (await q(`${NODE_SELECT} WHERE p.inviter_id = ? AND p.status <> 'rejected' ORDER BY p.created_at LIMIT 200`).all(p.id))
     .map((n) => ({ ...n, is_leader: !!n.is_leader, path: undefined }));
   const isSelf = u.person?.id === p.id;
+  // Sus propios enlaces: las invitaciones de un solo uso que una cabeza manda a sus líderes desde su panel no son suyas.
   const links = (manage || isSelf || (u.role === 'leader' && canViewPerson(u, p)))
-    ? await mapSeq(await q('SELECT * FROM invite_links WHERE owner_person_id = ? ORDER BY status, id DESC').all(p.id), linkWithUses) : [];
+    ? await mapSeq(await q('SELECT * FROM invite_links WHERE owner_person_id = ? AND one_time = 0 ORDER BY status, id DESC').all(p.id), linkWithUses) : [];
   const SAFE = new Set(['registered', 'promoted_leader', 'demoted_leader', 'moved', 'moved_head', 'approved', 'leader_changed']);
   const history = (await q(`SELECT h.*, u.display_name AS changed_by_name FROM person_history h LEFT JOIN users u ON u.id = h.changed_by
                      WHERE h.person_id = ? ORDER BY h.id DESC LIMIT 200`).all(p.id))
@@ -942,10 +943,18 @@ api.post('/public/panel/:token', panelLimiter, async (req, res) => {
   res.json(await panelData(req.params.token, req.body?.pin, { q: String(req.body?.q || '').slice(0, 60), page: req.body?.page }));
 });
 
-// La cabeza invita a un líder desde su panel: un enlace nuevo de un solo uso por envío.
+// La cabeza invita a un líder desde su panel: un enlace de un solo uso por envío. Con `device`, la invitación queda
+// preparada en ese dispositivo antes del toque (el botón de WhatsApp es un enlace real) y cuenta al entregarla.
 const headInviteLimiter = rateLimit({ name: 'head-invite', windowMs: 10 * 60e3, max: 30 });
 api.post('/public/panel/:token/leader-invite', headInviteLimiter, async (req, res) => {
-  res.status(201).json(await panelLeaderInvite(req.params.token, req.body?.pin, ip(req)));
+  const b = req.body || {};
+  const device = /^[A-Za-z0-9_-]{8,40}$/.test(String(b.device || '')) ? String(b.device) : null;
+  const delivered = Array.isArray(b.delivered) ? b.delivered.slice(0, 20) : [];
+  res.status(201).json(await panelLeaderInvite(req.params.token, b.pin, ip(req), { device, delivered }));
+});
+const headInviteSentLimiter = rateLimit({ name: 'head-invite-sent', windowMs: 10 * 60e3, max: 60 });
+api.post('/public/panel/:token/leader-invite/sent', headInviteSentLimiter, async (req, res) => {
+  res.json(await panelLeaderInviteSent(req.params.token, req.body?.pin, req.body?.invite, ip(req)));
 });
 
 // La persona de confianza pone su foto desde su panel (la foto llega ya reducida, como «data:image/…;base64»).
@@ -1020,21 +1029,39 @@ api.post('/public/register/:token', publicLimiter, async (req, res) => {
     }
     throw e;
   }
-  const { person, owner, head, type, role, panelToken } = result;
+  res.status(201).json(await registrationOut(result));
+});
+
+/** Lo que ve quien se registró (o recuperó su link): su credencial, de quién es y su link para invitar a más. */
+async function registrationOut({ person, owner, head, type, role, panelToken = null }) {
   const pub = await publicHead(head);
-  res.status(201).json({
+  return {
     ok: true, status: person.status, code: person.code, role, is_leader: !!person.is_leader, is_head: !!person.is_head,
     leader_code: person.leader_code, first_name: firstName(person), full_name: person.full_name, created_at: person.created_at,
     type: { name: type.name, color: type.color },
     inviter: owner?.full_name ?? null, head: head.name, head_display: pub.head.display_name,
     cabeza: person.is_head ? null : pub.cabeza?.name ?? null, direct: !!person.is_direct,
+    // Su propio link (no las invitaciones de un solo uso que una cabeza manda a sus líderes).
     invite_token: person.status === 'active'
-      ? (await q(`SELECT token FROM invite_links WHERE owner_person_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1`).get(person.id))?.token ?? null
+      ? (await q(`SELECT token FROM invite_links WHERE owner_person_id = ? AND one_time = 0 AND status = 'active' ORDER BY id DESC LIMIT 1`)
+        .get(person.id))?.token ?? null
       : null,
     // Enlace secreto del panel de gestión (sólo líderes). Se muestra una única vez.
     panel_token: panelToken,
     // Las personas de confianza pueden poner su foto en su credencial desde esta misma pantalla.
     photo_url: person.photo_url ?? null,
     photos_enabled: !!panelToken && photosEnabled(),
-  });
+  };
+}
+
+// Recuperar el propio link (quien se registró y cerró la página sin guardarlo): desde el formulario de un link de la
+// campaña, con la cédula y el celular del registro. Pocos intentos por conexión: sin los dos datos no se adivina nada.
+const recoverLinkLimiter = rateLimit({ name: 'recover-link', windowMs: 10 * 60e3, max: 10 });
+api.post('/public/recover-link/:token', recoverLinkLimiter, async (req, res) => {
+  const { link } = await resolveInvite(req.params.token);
+  const person = await recoverOwnLink(req.body || {}, link.id, ip(req));
+  const role = person.is_head ? 'head' : person.is_leader ? 'leader' : 'person';
+  const type = (person.reg_type_id && await regTypeById(person.reg_type_id)) || await builtinType(role);
+  const owner = person.inviter_id ? await getPerson(person.inviter_id) : null;
+  res.json({ ...(await registrationOut({ person, owner, head: await getHead(person.head_id), type, role })), recovered: true });
 });

@@ -28,6 +28,10 @@ export const isStandalone = () => typeof window !== 'undefined'
 export const isIOS = () => typeof navigator !== 'undefined'
   && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
 
+/** Navegador dentro de otra app en Android (Facebook, Instagram, TikTok…): no es Chrome ni la app instalada. */
+export const isAndroidInApp = () => typeof navigator !== 'undefined'
+  && /Android/.test(navigator.userAgent) && /; wv\)|FBAN|FBAV|Instagram|Line\/|Snapchat|TikTok/.test(navigator.userAgent);
+
 /**
  * Cómo se instala en este navegador:
  * 'prompt' (botón Instalar), 'ios' (Safari o Chrome de iPhone), 'ios-inapp' (navegador dentro de otra app en iPhone),
@@ -38,7 +42,7 @@ export function installMode() {
   if (deferred) return 'prompt';
   const ua = navigator.userAgent;
   if (isIOS()) return /Safari\//.test(ua) || /CriOS|EdgiOS/.test(ua) ? 'ios' : 'ios-inapp';
-  if (/Android/.test(ua) && /; wv\)|FBAN|FBAV|Instagram|Line\/|Snapchat|TikTok/.test(ua)) return 'android-inapp';
+  if (isAndroidInApp()) return 'android-inapp';
   if (/Macintosh/.test(ua) && /Version\/[\d.]+.*Safari\//.test(ua) && !/Chrome|Chromium|Edg\//.test(ua)) return 'mac';
   return null;
 }

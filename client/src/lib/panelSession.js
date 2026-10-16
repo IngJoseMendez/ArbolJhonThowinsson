@@ -10,6 +10,24 @@ export const savePin = (token, pin) => set(key('pin', token), pin);
 /** Últimos 4 dígitos de la cédula (el PIN del panel). */
 export const pinFromCedula = (doc) => String(doc || '').replace(/\D/g, '').slice(-4);
 
+// Invitaciones entregadas desde este dispositivo cuyo aviso aún no llegó al servidor (sin conexión, por ejemplo):
+// viajan con la siguiente preparación, así la misma nunca vuelve a salir. Quedan aunque se cierre la pestaña.
+const readSent = (token) => {
+  try {
+    const v = JSON.parse(localStorage.getItem(key('sent', token)) || '[]');
+    return Array.isArray(v) ? v.filter((t) => typeof t === 'string').slice(-20) : [];
+  } catch { return []; }
+};
+const writeSent = (token, list) => {
+  try {
+    if (list.length) localStorage.setItem(key('sent', token), JSON.stringify(list.slice(-20)));
+    else localStorage.removeItem(key('sent', token));
+  } catch { /* sin almacenamiento */ }
+};
+export const unconfirmedInvites = (token) => readSent(token);
+export const rememberDelivered = (token, invite) => writeSent(token, [...readSent(token).filter((t) => t !== invite), invite]);
+export const confirmDelivered = (token, invites) => writeSent(token, readSent(token).filter((t) => !invites.includes(t)));
+
 /** Panel recién estrenado en este dispositivo: se muestra una vez la invitación a guardarlo. */
 export const markNewPanel = (token) => set(key('new', token), '1');
 export const isNewPanel = (token) => get(key('new', token)) === '1';
