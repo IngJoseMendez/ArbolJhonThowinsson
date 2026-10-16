@@ -775,6 +775,9 @@ button.photo-circle:disabled { cursor: progress; }
 .head-avatar.has-photo { overflow: visible; }
 .head-avatar.has-photo > img { z-index: 0; }
 .head-avatar .mark { z-index: 1; }
+/* La foto de John (JohnPhoto: <picture>) en los mismos círculos. */
+.avatar > picture, .head-avatar > picture { position: absolute; inset: 0; border-radius: 50%; overflow: hidden; }
+.avatar > picture img, .head-avatar > picture img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .cabeza-banner .avatar.has-photo { box-shadow: 0 0 0 2px var(--navy), 0 0 0 3.5px var(--gold); }
 /* Quien invita, con su foto, sobre el escenario del formulario. */
 .stage-byline { display: flex; align-items: center; gap: 14px; margin-top: 14px; }

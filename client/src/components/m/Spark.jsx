@@ -42,7 +42,7 @@ export function DayBars({ days }) {
  * las iniciales de la estructura.
  */
 export function TeamAvatar({ head, size = 44 }) {
-  if (head?.is_direct) return <JohnAvatar size={size} />; // «Directo con John»: lo encabeza él
+  if (head?.is_direct) return <JohnAvatar size={size} />; // su equipo directo: John es su cabeza
   const person = !!head?.cabeza_name;
   const photo = person && head.cabeza_photo;
   return (

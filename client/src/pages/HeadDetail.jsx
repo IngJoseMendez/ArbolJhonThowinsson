@@ -13,7 +13,8 @@ import RegisterPersonModal from '../components/RegisterPersonModal.jsx';
 import { useQueryState } from '../lib/useParams.js';
 import { useRegTypes } from '../lib/regTypes.js';
 import { Avatar, ErrorBox, Loading, useAsync, Empty, RoleBadge } from '../components/ui.jsx';
-import { CAMPAIGN, Mark } from '../brand/Brand.jsx';
+import { CAMPAIGN, JohnPhoto, Mark } from '../brand/Brand.jsx';
+import { teamName } from '../lib/teams.js';
 
 export default function HeadDetail() {
   const { id } = useParams();
@@ -31,6 +32,7 @@ export default function HeadDetail() {
   if (error) return <div className="page"><ErrorBox error={error} /></div>;
   const h = data.head;
   const c = data.cabeza;
+  const direct = !!h.is_direct; // su equipo directo: John es su cabeza
   const treeParams = { ...params, cabeza: h.id };
   const leaderType = types.list.find((t) => t.builtin && t.role === 'leader');
 
@@ -38,26 +40,26 @@ export default function HeadDetail() {
     <div className={tab === 'arbol' ? 'page-full' : 'page'}>
       <div style={tab === 'arbol' ? { padding: '16px 16px 0', background: 'var(--surface)' } : undefined}>
         <div className="page-head" style={{ marginBottom: 12 }}>
-          {c && tab !== 'arbol' ? (
+          {(c || direct) && tab !== 'arbol' ? (
             <Link to="/cabezas" className="back-link"><ChevronLeft size={16} />Cabezas</Link>
           ) : (
             <div className="row" style={{ gap: 14, minWidth: 0 }}>
-              <span className={`head-avatar ${c ? '' : 'vacant'} ${c?.photo_url ? 'has-photo' : ''}`} style={{ '--hc': h.color, width: 52, height: 52, fontSize: 19 }} aria-hidden="true">
-                {c?.photo_url ? <img src={photoSrc(c.photo_url, 52)} alt="" /> : c ? initials(c.full_name) : <Network size={22} />}{c && <Mark />}
+              <span className={`head-avatar ${c || direct ? '' : 'vacant'} ${c?.photo_url || direct ? 'has-photo' : ''}`} style={{ '--hc': h.color, width: 52, height: 52, fontSize: 19 }} aria-hidden="true">
+                {direct ? <JohnPhoto sizes="52px" alt="" /> : c?.photo_url ? <img src={photoSrc(c.photo_url, 52)} alt="" /> : c ? initials(c.full_name) : <Network size={22} />}{(c || direct) && <Mark />}
               </span>
               <div style={{ minWidth: 0 }}>
                 <div className="row" style={{ gap: 8 }}>
-                  <h1 className="ellipsis">{c ? c.full_name : h.name}</h1>
+                  <h1 className="ellipsis">{direct ? CAMPAIGN : c ? c.full_name : h.name}</h1>
                   {h.status === 'archived' && <span className="badge">Archivada</span>}
                 </div>
-                <p>{h.region || 'Sin región'} · creada el {fmtDate(h.created_at)}</p>
+                <p>{direct ? 'Su equipo directo' : `${h.region || 'Sin región'} · creada el ${fmtDate(h.created_at)}`}</p>
               </div>
             </div>
           )}
           <div className="row-wrap">
             {heads.data && heads.data.length > 1 && (
               <select className="select" style={{ width: 210 }} value={h.id} aria-label="Cambiar de cabeza" onChange={(e) => nav(`/cabezas/${e.target.value}?tab=${tab}`)}>
-                {heads.data.map((x) => <option key={x.id} value={x.id}>{x.cabeza_name || x.name}</option>)}
+                {heads.data.map((x) => <option key={x.id} value={x.id}>{teamName(x)}</option>)}
               </select>
             )}
             {data.can_manage && <button className="btn" onClick={() => setEditing(true)}><Pencil size={15} />Editar</button>}
@@ -82,11 +84,22 @@ export default function HeadDetail() {
                 <Link className="btn btn-sm btn-sky" to={`/cabezas/${h.id}?tab=arbol&foco=${c.id}`}><GitBranch size={15} />Su árbol</Link>
               </div>
             </div>
-          ) : h.is_direct ? (
-            <div className="alert alert-info" style={{ marginBottom: 16 }}>
-              <Mark size={16} />
-              <span>Aquí quedan las personas que llegan directo con {CAMPAIGN}, sin pasar por una cabeza. Mismas reglas que en cualquier
-                equipo: suman a su gente y pueden ser líderes.</span>
+          ) : direct ? (
+            // Su equipo directo: John es la cabeza de las personas que él invita directamente.
+            <div className="cabeza-banner">
+              <Mark className="watermark" />
+              <div className="avatar head lg has-photo" aria-hidden="true"><JohnPhoto sizes="64px" alt="" /></div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div className="row-wrap" style={{ gap: 8 }}><RoleBadge isHead /><span className="muted small">de su equipo directo{h.status === 'archived' ? ' · estructura archivada' : ''}</span></div>
+                <h1 className="cabeza-banner-name">{CAMPAIGN}</h1>
+                <div className="small muted">
+                  {fmtNum(data.stats?.totals?.people ?? 0)} personas en su equipo directo: las que él invita y las que ellas suman. Mismas reglas que en
+                  cualquier equipo.
+                </div>
+              </div>
+              <div className="row-wrap">
+                <Link className="btn btn-sm btn-sky" to={`/cabezas/${h.id}?tab=arbol`}><GitBranch size={15} />Su árbol</Link>
+              </div>
             </div>
           ) : (
             <div className="alert alert-info" style={{ marginBottom: 16 }}>

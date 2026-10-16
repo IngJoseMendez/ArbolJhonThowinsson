@@ -149,8 +149,8 @@ export function InviteHeadBlock({ hero = true, compact, type: fixedType, id = 'i
 }
 
 /**
- * Elegir con quién queda el líder invitado: fichas con las cabezas más usadas (y «Directo con John», primero, en su
- * cuenta) y «Ver todas» en una hoja con búsqueda.
+ * Elegir con quién queda el líder invitado: fichas con las cabezas más usadas (en la cuenta de John, primero él: su
+ * equipo directo) y «Ver todas» en una hoja con búsqueda.
  */
 function HeadChips({ heads, value, onChange }) {
   const teams = useTeams();
@@ -192,7 +192,7 @@ export function HeadPickerSheet({ heads, value, onPick, onClose, title = '¿Con 
                 <span className="m-row__lead"><TeamAvatar head={h} size={40} /></span>
                 <span className="m-row__main">
                   <span className="m-row__title">{teamName(h)}</span>
-                  <span className="m-row__meta">{h.is_direct ? 'Sin pasar por una cabeza, ' : h.cabeza_name ? '' : 'Sin cabeza asignada, '}{h.people ?? 0} {h.people === 1 ? 'persona' : 'personas'}</span>
+                  <span className="m-row__meta">{h.is_direct ? 'Su equipo directo, ' : h.cabeza_name ? '' : 'Sin cabeza asignada, '}{h.people ?? 0} {h.people === 1 ? 'persona' : 'personas'}</span>
                 </span>
                 {String(h.id) === String(value) && <span className="m-row__trail" aria-hidden="true">✓</span>}
               </button>
@@ -207,7 +207,8 @@ export function HeadPickerSheet({ heads, value, onPick, onClose, title = '¿Con 
 
 /**
  * Bloque «Invitar un líder». Con una sola cabeza posible no pregunta; con varias, fichas para elegir. En la cuenta de
- * John también puede quedar directo con él (sin pasar por una cabeza), con las mismas reglas que en cualquier equipo.
+ * John también puede quedar directo con él, en su equipo directo (él es su cabeza), con las mismas reglas que en
+ * cualquier equipo.
  * fixedHead: en la pantalla de una cabeza, la invitación ya es para ella.
  */
 export function InviteLeaderBlock({ fixedHead, hero = false, type: fixedType, id = 'invitar-lider' }) {
@@ -261,7 +262,7 @@ export function InviteLeaderBlock({ fixedHead, hero = false, type: fixedType, id
 /**
  * Enlace para personas (reutilizable): uno solo para compartir con todos. Se recuerda la última elección
  * (cabeza y de quién cuelgan) en este dispositivo. John (el administrador general) puede invitar «directo con él»:
- * quienes se registren quedan con él, sin cabeza ni líder; es la opción de partida en su cuenta.
+ * quienes se registren quedan en su equipo directo, con él de cabeza; es la opción de partida en su cuenta.
  */
 export function PersonLinkBlock({ type: fixedType, id = 'invitar-personas' }) {
   const teams = useTeams();
@@ -330,8 +331,8 @@ export function PersonLinkBlock({ type: fixedType, id = 'invitar-personas' }) {
 }
 
 /**
- * Pasos del enlace de personas: directo con John (si es su cuenta) o un equipo y de quién cuelgan (la cabeza primero),
- * y el tipo si hay varios.
+ * Pasos del enlace de personas: directo con John, su cabeza (si es su cuenta), o el equipo de otra cabeza y de quién
+ * cuelgan (la cabeza primero), y el tipo si hay varios.
  */
 function PersonLinkSheet({ heads, direct, isDirect, types, type, head, ownerId, onType, onDone, onClose }) {
   const teams = useTeams();
@@ -362,12 +363,12 @@ function PersonLinkSheet({ heads, direct, isDirect, types, type, head, ownerId, 
                   <span className="m-row__lead"><JohnAvatar /></span>
                   <span className="m-row__main">
                     <span className="m-row__title">Directo con {CAMPAIGN}</span>
-                    <span className="m-row__meta">Sin pasar por una cabeza ni por un líder</span>
+                    <span className="m-row__meta">Él es su cabeza</span>
                   </span>
                   {isDirect && <span className="m-row__trail" aria-hidden="true">✓</span>}
                 </button>
               </div>
-              {heads.length > 0 && <p className="m-hint" style={{ margin: '2px 0 -6px' }}>O con el equipo de una cabeza:</p>}
+              {heads.length > 0 && <p className="m-hint" style={{ margin: '2px 0 -6px' }}>O con el equipo de una de sus cabezas:</p>}
             </>
           )}
           {(heads.length > 1 || (direct && heads.length > 0)) && (

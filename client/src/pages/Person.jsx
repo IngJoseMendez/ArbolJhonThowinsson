@@ -72,7 +72,7 @@ export default function Person() {
                 && <span className="type-chip" style={{ '--chip': types.byId[p.reg_type_id].color }} title="Tipo de registro">{types.byId[p.reg_type_id].name}</span>}
               {!p.is_leader && invitees.length > 0 && <span className="badge" title="Ha invitado a otras personas sin ser líder oficial"><Send size={12} />Invita a otras personas · no es líder</span>}
               <StatusBadge status={p.status} />
-              {!p.is_head && <HeadPill name={head.cabeza ? `Equipo de ${head.cabeza.full_name}` : head.name} color={head.color} />}
+              {!p.is_head && <HeadPill name={head.is_direct ? `Directo con ${CAMPAIGN}` : head.cabeza ? `Equipo de ${head.cabeza.full_name}` : head.name} color={head.color} />}
               <span className="badge badge-outline mono">{p.code}</span>
             </div>
           </div>
@@ -109,8 +109,9 @@ export default function Person() {
 
       {/* Relaciones (no se confunden) */}
       <div className="grid g-4" style={{ marginBottom: 16 }}>
-        <Rel icon={Network} color={head.color} label="Estructura" sub={p.is_head ? 'La encabeza' : head.is_direct ? 'Sin cabeza: la encabeza John' : head.cabeza ? 'Su cabeza' : 'Sin cabeza asignada'}>
-          {p.is_head ? `Equipo de ${p.full_name}` : !head.cabeza ? head.name : <PersonLink id={head.cabeza.id} name={head.cabeza.full_name} isHead />}
+        <Rel icon={Network} color={head.color} label="Estructura" sub={p.is_head ? 'La encabeza' : head.is_direct || head.cabeza ? 'Su cabeza' : 'Sin cabeza asignada'}>
+          {p.is_head ? `Equipo de ${p.full_name}` : head.is_direct ? <JohnLink to={`/cabezas/${head.id}`} />
+            : !head.cabeza ? head.name : <PersonLink id={head.cabeza.id} name={head.cabeza.full_name} isHead />}
         </Rel>
         <Rel icon={Crown} color="var(--leader)" label="Responsabilidad · Líder"
           sub={leader ? (p.leader_mode === 'manual' ? 'Asignado manualmente' : 'Líder más cercano en su cadena') : 'Sin líder por encima'}>
@@ -328,7 +329,7 @@ export default function Person() {
       {modal === 'reactivate' && <ConfirmModal title="Reactivar persona" reason confirmLabel="Reactivar"
         onConfirm={act(`/people/${p.id}/status`, { status: 'active' }, 'Persona reactivada')} onClose={() => setModal(null)} />}
       {modal === 'approve' && <ConfirmModal title="Aprobar registro" reason confirmLabel="Aprobar"
-        message={`${p.full_name} quedará activa en ${head.cabeza ? `el equipo de ${head.cabeza.full_name}` : head.name} y recibirá su invitación personal.`}
+        message={`${p.full_name} quedará activa en ${head.is_direct ? `el equipo directo de ${CAMPAIGN}` : head.cabeza ? `el equipo de ${head.cabeza.full_name}` : head.name} y recibirá su invitación personal.`}
         onConfirm={act(`/people/${p.id}/status`, { status: 'active' }, 'Registro aprobado')} onClose={() => setModal(null)} />}
       {modal === 'reject' && <ConfirmModal title="Rechazar registro" reason reasonRequired danger confirmLabel="Rechazar"
         onConfirm={act(`/people/${p.id}/status`, { status: 'rejected' }, 'Registro rechazado')} onClose={() => setModal(null)} />}

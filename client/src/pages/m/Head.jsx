@@ -53,7 +53,7 @@ export default function Head() {
 
   const h = data?.head;
   const c = data?.cabeza;
-  const direct = !!h?.is_direct; // «Directo con John»: lo encabeza él
+  const direct = !!h?.is_direct; // su equipo directo: John es su cabeza
   const canInvite = !!(data?.can_manage && h?.status === 'active' && leaderType);
   const cabezaName = c?.full_name || null;
   const makeText = useCallback(({ url, name }) => inviteText({ role: 'leader', name, cabeza: cabezaName, direct, url }), [cabezaName, direct]);
@@ -62,7 +62,7 @@ export default function Head() {
   const t = data?.stats?.totals;
   const points = useMemo(() => (data?.stats?.growth.series || []).map((s) => ({ day: s.day, value: Object.values(s.values).reduce((n, v) => n + v, 0) })), [data]);
   const headRow = h ? { ...h, cabeza_name: cabezaName } : null;
-  const title = cabezaName || h?.name || 'Cabeza';
+  const title = direct ? CAMPAIGN : cabezaName || h?.name || 'Cabeza';
 
   const changed = () => { reload(); invalidate('heads'); invalidate('dash'); };
   if (error) return <Screen title="Cabeza" back="/cabezas" noHero><ErrorBox error={error} /></Screen>;
@@ -72,12 +72,12 @@ export default function Head() {
       <div className="m-detail__top">
         {c ? <PersonAvatar name={c.full_name} head size={56} photo={c.photo_url} /> : headRow ? <TeamAvatar head={headRow} size={56} /> : <span className="skeleton m-sk-avatar" />}
         <span className="m-detail__since">
-          {h ? (c ? `Cabeza de ${CAMPAIGN} desde el ${fmtDate(c.created_at)}` : direct ? `Lo encabeza ${CAMPAIGN}` : 'Sin cabeza asignada') : ''}{h?.status === 'archived' ? ', estructura archivada' : ''}
+          {h ? (c ? `Cabeza de ${CAMPAIGN} desde el ${fmtDate(c.created_at)}` : direct ? 'Su equipo directo' : 'Sin cabeza asignada') : ''}{h?.status === 'archived' ? ', estructura archivada' : ''}
         </span>
       </div>
       <h1 ref={ref} className="m-detail__name">{loading && !data ? '…' : title}</h1>
       {c && <p className="m-detail__line">{c.panel_active ? (c.panel_viewed_at ? `Abrió su panel ${relTime(c.panel_viewed_at)}` : 'Aún no abre su panel') : 'Sin panel'}</p>}
-      {!c && h && <p className="m-detail__line">{direct ? 'Personas que llegan directo con él' : `${h.name}${h.region ? `, ${h.region}` : ''}`}</p>}
+      {!c && h && <p className="m-detail__line">{direct ? 'Es la cabeza de las personas que invita directamente' : `${h.name}${h.region ? `, ${h.region}` : ''}`}</p>}
       {t && (
         <div className="m-strip">
           <div><b>{nf.format(leaders.length)}</b><span>{leaders.length === 1 ? 'líder' : 'líderes'}</span></div>

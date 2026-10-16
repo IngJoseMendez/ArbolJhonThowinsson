@@ -369,10 +369,10 @@ ALTER TABLE people ADD COLUMN IF NOT EXISTS photo_public_id VARCHAR(200);
 ALTER TABLE people ADD COLUMN IF NOT EXISTS photo_updated_at TEXT;
 `;
 
-// v13: \u00abDirecto con John\u00bb. Las personas que John invita sin pasar por una cabeza ni por un l\u00edder cuelgan de \u00e9l: van en
-// una estructura propia (heads.is_direct, una sola) y no tienen invitador (people.is_direct). Por lo demás, las mismas
-// reglas que en cualquier equipo: quienes ellas inviten cuelgan de ellas y pueden ser personas de confianza (líderes).
-// La estructura no tiene cabeza: la encabeza John.
+// v13: \u00abDirecto con John\u00bb, el equipo directo de John: las personas que \u00e9l invita directamente cuelgan de \u00e9l, que es
+// su cabeza (no es una persona registrada: es la ra\u00edz de toda la red). Van en una estructura propia (heads.is_direct,
+// una sola) y no tienen invitador (people.is_direct). Por lo dem\u00e1s, las mismas reglas que en cualquier equipo: quienes
+// ellas inviten cuelgan de ellas y pueden ser personas de confianza (l\u00edderes). No admite otra cabeza.
 const MIGRATION_13 = `
 ALTER TABLE heads ADD COLUMN IF NOT EXISTS is_direct SMALLINT NOT NULL DEFAULT 0;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_heads_direct ON heads (is_direct) WHERE is_direct = 1;
@@ -391,6 +391,12 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 INSERT INTO heads (name, slug, description, color, is_direct)
 VALUES ('Directo con John', 'directo-con-john', 'Personas que llegan directo con John Thowinsson, sin pasar por una cabeza ni por un l\u00edder.', '#1c6fae', 1)
 ON CONFLICT DO NOTHING;
+`;
+
+// v14: la descripci\u00f3n del equipo directo de John dice lo que es: \u00e9l es su cabeza (si nadie la cambi\u00f3).
+const MIGRATION_14 = `
+UPDATE heads SET description = 'El equipo directo de John Thowinsson: las personas que \u00e9l invita directamente. \u00c9l es su cabeza.'
+ WHERE is_direct = 1 AND description = 'Personas que llegan directo con John Thowinsson, sin pasar por una cabeza ni por un l\u00edder.';
 `;
 
 /**
@@ -455,6 +461,7 @@ const MIGRATIONS = [
   { version: 11, sql: MIGRATION_11 },
   { version: 12, sql: MIGRATION_12 },
   { version: 13, sql: MIGRATION_13 },
+  { version: 14, sql: MIGRATION_14 },
 ];
 
 let pool = null;

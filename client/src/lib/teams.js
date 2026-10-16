@@ -1,21 +1,24 @@
 import { useMemo } from 'react';
 import { api } from '../api.js';
+import { CAMPAIGN } from '../brand/Brand.jsx';
 import { useCached } from './cache.js';
 
 // Cómo se nombra cada equipo: por la persona que es su cabeza; si la estructura aún no tiene cabeza, por su nombre.
-// Nunca «Cabeza Juan Pérez» cuando hay una persona al frente.
+// Nunca «Cabeza Juan Pérez» cuando hay una persona al frente. El equipo directo de John (is_direct) es suyo: él es su
+// cabeza, aunque no sea una persona registrada.
 
 const words = (s) => String(s || '').trim().split(/\s+/).filter(Boolean);
 
-/** Nombre del equipo: la cabeza (persona) o, sin cabeza, el nombre de la estructura. */
-export const teamName = (h) => (h ? h.cabeza_name || h.name || '' : '');
+/** Nombre del equipo: la cabeza (persona, o John en su equipo directo) o, sin cabeza, el nombre de la estructura. */
+export const teamName = (h) => (h ? (h.is_direct ? CAMPAIGN : h.cabeza_name || h.name || '') : '');
 
-/** «Equipo de Juan Carlos Restrepo Díaz», o el nombre de la estructura si no tiene cabeza. */
-export const teamLabel = (h) => (h?.cabeza_name ? `Equipo de ${h.cabeza_name}` : h?.name || '');
+/** «Equipo de Juan Carlos Restrepo Díaz», «Directo con John Thowinsson», o el nombre de la estructura si no tiene cabeza. */
+export const teamLabel = (h) => (h?.is_direct ? `Directo con ${CAMPAIGN}` : h?.cabeza_name ? `Equipo de ${h.cabeza_name}` : h?.name || '');
 
 /** Nombre corto para fichas: «Juan Carlos» (cuatro palabras o más), «Rafael», o «Centro» para «Cabeza Centro». */
 export function shortTeam(h) {
   if (!h) return '';
+  if (h.is_direct) return firstName(CAMPAIGN);
   if (h.cabeza_name) {
     const w = words(h.cabeza_name);
     return w.length >= 4 ? `${w[0]} ${w[1]}` : w[0];
@@ -74,8 +77,8 @@ export function distinctTeamLabels(list) {
 }
 
 /**
- * Las cabezas visibles (en caché): lista, búsqueda por id y nombres de equipo. «Directo con John» (las personas que
- * llegan directo con él) no es una cabeza: no va en las listas de cabezas, pero sí en `byId` y en `direct`.
+ * Las cabezas visibles (en caché): lista, búsqueda por id y nombres de equipo. El equipo directo de John (las personas
+ * que él invita directamente; él es su cabeza) no es una de sus cabezas: no va en `list`, sino en `direct` y `byId`.
  */
 export function useTeams() {
   const heads = useCached('heads', () => api.get('/heads'), { ttl: 60000 });
@@ -86,7 +89,7 @@ export function useTeams() {
     const byId = new Map(all.map((h) => [h.id, h]));
     const counts = new Map();
     for (const h of list) counts.set(teamName(h), (counts.get(teamName(h)) || 0) + 1);
-    const shorts = distinctTeamLabels(list);
+    const shorts = distinctTeamLabels(all);
     return {
       ...heads,
       list,

@@ -980,7 +980,7 @@ api.get('/public/invite/:token', lookupLimiter, async (req, res) => {
   const pub = await publicHead(head);
   res.json({
     token: link.token, valid, reason, role,
-    // Directo con John: quien se registra queda con él (sin pasar por una cabeza ni por un líder).
+    // Directo con John: quien se registra queda en su equipo directo, con él de cabeza.
     direct: role !== 'head' && !owner && !!head?.is_direct,
     type: { name: type.name, color: type.color, role: type.role },
     label: link.label || null,

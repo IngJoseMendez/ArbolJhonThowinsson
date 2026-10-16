@@ -239,9 +239,10 @@ test('Manifiesto instalable del panel: abre directo el panel', async () => {
   assert.equal((await anon.get('/api/public/manifest?start=https://otro.sitio/x')).data.start_url, '/');
 });
 
-test('Directo con John: quien John invita sin pasar por una cabeza cuelga de él, con las mismas reglas que en cualquier equipo', async () => {
+test('Equipo directo de John: él es la cabeza de quienes invita directamente, con las mismas reglas que en cualquier equipo', async () => {
   const direct = (await admin.get('/api/heads')).data.find((h) => h.is_direct);
   assert.ok(direct, 'existe «Directo con John»');
+  assert.equal(direct.description, 'El equipo directo de John Thowinsson: las personas que él invita directamente. Él es su cabeza.');
   const link = await admin.post('/api/links/general', { reg_type_id: ids.types.person.id, head_id: direct.id, owner_person_id: null });
   assert.equal(link.status, 200, JSON.stringify(link.data));
   assert.equal(link.data.owner_person_id, null);
@@ -298,7 +299,7 @@ test('Directo con John: quien John invita sin pasar por una cabeza cuelga de él
   const lucia = await find('lucia confianza');
   assert.equal(lucia.is_direct, true);
   assert.equal(lucia.inviter_id, null);
-  // No tiene cabeza: lo encabeza John.
+  // Su cabeza es John: no admite otra.
   assert.equal((await admin.post(`/api/people/${lucia.id}/head-role`, { is_head: true, reason: 'Prueba' })).data.error.code, 'DIRECT_NO_HEAD');
   assert.equal((await admin.post('/api/people', { ...form('Cabeza', 'Directa John'), head_id: direct.id, is_head: true })).data.error.code, 'DIRECT_NO_HEAD');
   // Un líder registrado a mano también puede quedar directo con John.

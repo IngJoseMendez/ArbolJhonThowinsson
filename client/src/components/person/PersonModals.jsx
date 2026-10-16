@@ -172,7 +172,7 @@ export function MoveModal({ p, head, onClose, onDone }) {
   const [err, setErr] = useState(null);
   const heads = useAsync(() => api.get('/heads'), []);
   const options = heads.data?.filter((h) => h.can_manage && h.status === 'active') || [];
-  // Sin invitador: un líder cuelga de la cabeza de la estructura; cualquiera puede quedar directo con John.
+  // Sin invitador: un líder cuelga de la cabeza de la estructura; cualquiera puede quedar directo con John, su cabeza.
   const direct = options.find((h) => h.is_direct) || null;
   const dest = toHead ? (p.is_leader ? Number(headId) : direct?.id) : null;
   const destHead = options.find((h) => h.id === dest);
@@ -196,17 +196,18 @@ export function MoveModal({ p, head, onClose, onDone }) {
         {toHead && p.is_leader ? (
           <div className="field"><label>Estructura destino</label>
             <select className="select" value={headId} onChange={(e) => setHeadId(e.target.value)}>
-              {options.map((h) => <option key={h.id} value={h.id}>{h.is_direct ? `Directo con ${CAMPAIGN}` : h.cabeza_name ? `${h.cabeza_name} (cabeza)` : h.name}</option>)}
+              {options.map((h) => <option key={h.id} value={h.id}>{h.is_direct ? `${CAMPAIGN} (cabeza)` : h.cabeza_name ? `${h.cabeza_name} (cabeza)` : h.name}</option>)}
             </select>
-            <span className="hint">{destHead?.is_direct ? `Quedará directo con ${CAMPAIGN}, con toda su rama.` : 'Si la estructura tiene cabeza, el líder quedará colgando de ella.'}</span></div>
+            <span className="hint">{destHead?.is_direct ? `Quedará en el equipo directo de ${CAMPAIGN}, con él de cabeza y toda su rama.` : 'Si la estructura tiene cabeza, el líder quedará colgando de ella.'}</span></div>
         ) : toHead ? (
-          <p className="hint" style={{ margin: 0 }}>Quedará directo con {CAMPAIGN}, sin pasar por una cabeza, con toda su rama.</p>
+          <p className="hint" style={{ margin: 0 }}>Quedará en el equipo directo de {CAMPAIGN}, con él de cabeza y toda su rama.</p>
         ) : (
           <div className="field"><label>Nuevo invitador</label>
             <PersonPicker headId={a.isSuper ? undefined : p.head_id} value={target} onChange={setTarget} filter={(x) => x.id !== p.id && x.status === 'active'} />
             <span className="hint">No se permite elegir a alguien de su propia rama (relación circular).</span></div>
         )}
-        {cross && <div className="alert alert-warn"><Info size={16} /><span>La persona y toda su rama dejarán de pertenecer a <b>{head.name}</b>. Una persona nunca pertenece a dos cabezas a la vez.</span></div>}
+        {cross && <div className="alert alert-warn"><Info size={16} /><span>La persona y toda su rama dejarán de pertenecer {head.is_direct ? <>al equipo directo de <b>{CAMPAIGN}</b></>
+          : head.cabeza ? <>al equipo de <b>{head.cabeza.full_name}</b></> : <>a <b>{head.name}</b></>}. Una persona nunca pertenece a dos cabezas a la vez.</span></div>}
         <div className="field"><label>Motivo (obligatorio)</label><textarea className="textarea" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} /></div>
         <ErrorBox error={err} />
       </div>

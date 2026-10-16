@@ -73,7 +73,7 @@ export default function Person() {
   const act = (url, body, msg) => async (reason) => { await api.post(url, { ...body, reason }); haptic('success'); done(msg); };
   const activeLink = links.find((l) => l.status === 'active');
   const canCall = perm.contact && p.phone && !p.phone.includes('*') && normalizePhone57(p.phone);
-  const team = head.cabeza ? `Equipo de ${head.cabeza.full_name}` : head.name;
+  const team = head.is_direct ? `Directo con ${CAMPAIGN}` : head.cabeza ? `Equipo de ${head.cabeza.full_name}` : head.name;
   const type = types.byId[p.reg_type_id];
   const first = p.full_name.split(' ')[0];
   const canRegen = (perm.manage || perm.self) && p.status === 'active' && (p.is_leader || head.person_invites_enabled);
@@ -136,8 +136,8 @@ export default function Person() {
 
       <Section title="En la red">
         <dl className="card list-card m-group" style={{ margin: 0 }}>
-          <Kv label="Cabeza" action={!p.is_head && head.cabeza ? <button type="button" className="m-link-btn" onClick={() => go(`/cabezas/${head.id}`)}>Ver</button> : null}>
-            {p.is_head ? 'Encabeza su equipo' : head.is_direct ? 'Ninguna: directo con John' : head.cabeza ? head.cabeza.full_name : `${head.name} (sin cabeza)`}
+          <Kv label="Cabeza" action={!p.is_head && (head.cabeza || head.is_direct) ? <button type="button" className="m-link-btn" onClick={() => go(`/cabezas/${head.id}`)}>Ver</button> : null}>
+            {p.is_head ? 'Encabeza su equipo' : head.is_direct ? <JohnLink plain /> : head.cabeza ? head.cabeza.full_name : `${head.name} (sin cabeza)`}
           </Kv>
           <Kv label="Llegó con" action={inviter
             ? <button type="button" className="m-link-btn" onClick={() => go(`/personas/${inviter.id}`)}>Ver</button>

@@ -242,7 +242,7 @@ export async function dashboard(user, { headId = null, days = 90 } = {}) {
 
   const headsCount = (await q(`SELECT COUNT(*) n FROM heads h WHERE h.status = 'active' AND h.is_direct = 0 AND ${hf.sql}`).get(...hf.params)).n;
 
-  const perHead = await q(`SELECT h.id, h.name, h.color,
+  const perHead = await q(`SELECT h.id, h.name, h.color, h.is_direct = 1 AS is_direct,
         (SELECT c.full_name FROM people c WHERE c.head_id = h.id AND c.is_head = 1 AND c.status <> 'rejected') AS cabeza_name,
         COUNT(p.id) AS people,
         SUM(CASE WHEN p.is_leader = 1 THEN 1 ELSE 0 END) AS leaders,
@@ -270,8 +270,8 @@ export async function dashboard(user, { headId = null, days = 90 } = {}) {
                       GROUP BY p.head_id`).all(...wp, since);
   const daily = await q(`SELECT substr(p.created_at, 1, 10) AS day, p.head_id, COUNT(*) n FROM people p
                    WHERE ${w} AND p.status <> 'rejected' AND p.created_at >= ? GROUP BY day, p.head_id ORDER BY day`).all(...wp, since);
-  // En las gráficas, cada estructura se nombra por su cabeza (si la tiene).
-  const heads = perHead.map((h) => ({ id: h.id, name: h.cabeza_name || h.name, color: h.color }));
+  // En las gráficas, cada estructura se nombra por su cabeza (si la tiene); el equipo directo de John, por él.
+  const heads = perHead.map((h) => ({ id: h.id, name: h.is_direct ? 'John Thowinsson' : h.cabeza_name || h.name, color: h.color }));
   const running = new Map(heads.map((h) => [h.id, 0]));
   for (const b of baseRows) running.set(b.head_id, b.n);
   const byDay = new Map();
