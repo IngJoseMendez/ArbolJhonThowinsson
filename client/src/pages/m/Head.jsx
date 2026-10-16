@@ -53,9 +53,10 @@ export default function Head() {
 
   const h = data?.head;
   const c = data?.cabeza;
+  const direct = !!h?.is_direct; // «Directo con John»: lo encabeza él
   const canInvite = !!(data?.can_manage && h?.status === 'active' && leaderType);
   const cabezaName = c?.full_name || null;
-  const makeText = useCallback(({ url, name }) => inviteText({ role: 'leader', name, cabeza: cabezaName, url }), [cabezaName]);
+  const makeText = useCallback(({ url, name }) => inviteText({ role: 'leader', name, cabeza: cabezaName, direct, url }), [cabezaName, direct]);
   const invite = useOneTimeInvite({ typeId: leaderType?.id, headId: h?.id, role: 'leader', cabeza: cabezaName, makeText, enabled: canInvite });
   const leaders = useMemo(() => (data?.leaders || []).filter((l) => !l.is_head), [data]);
   const t = data?.stats?.totals;
@@ -71,12 +72,12 @@ export default function Head() {
       <div className="m-detail__top">
         {c ? <PersonAvatar name={c.full_name} head size={56} photo={c.photo_url} /> : headRow ? <TeamAvatar head={headRow} size={56} /> : <span className="skeleton m-sk-avatar" />}
         <span className="m-detail__since">
-          {h ? (c ? `Cabeza de ${CAMPAIGN} desde el ${fmtDate(c.created_at)}` : 'Sin cabeza asignada') : ''}{h?.status === 'archived' ? ', estructura archivada' : ''}
+          {h ? (c ? `Cabeza de ${CAMPAIGN} desde el ${fmtDate(c.created_at)}` : direct ? `Lo encabeza ${CAMPAIGN}` : 'Sin cabeza asignada') : ''}{h?.status === 'archived' ? ', estructura archivada' : ''}
         </span>
       </div>
       <h1 ref={ref} className="m-detail__name">{loading && !data ? '…' : title}</h1>
       {c && <p className="m-detail__line">{c.panel_active ? (c.panel_viewed_at ? `Abrió su panel ${relTime(c.panel_viewed_at)}` : 'Aún no abre su panel') : 'Sin panel'}</p>}
-      {!c && h && <p className="m-detail__line">{h.name}{h.region ? `, ${h.region}` : ''}</p>}
+      {!c && h && <p className="m-detail__line">{direct ? 'Personas que llegan directo con él' : `${h.name}${h.region ? `, ${h.region}` : ''}`}</p>}
       {t && (
         <div className="m-strip">
           <div><b>{nf.format(leaders.length)}</b><span>{leaders.length === 1 ? 'líder' : 'líderes'}</span></div>
@@ -172,7 +173,7 @@ export default function Head() {
               <Group>
                 {data.stats.recent.slice(0, 5).map((r) => (
                   <Row key={r.id} lead={<PersonAvatar name={r.full_name} leader={r.is_leader} head={r.is_head} photo={r.photo_url} />} title={r.full_name} to={`/personas/${r.id}`}
-                    meta={r.inviter_name ? `con ${r.inviter_name}` : r.is_head ? `Cabeza, con ${CAMPAIGN}` : 'Líder'} trail={<small>{relTime(r.created_at)}</small>} chevron={false} />
+                    meta={r.inviter_name ? `con ${r.inviter_name}` : r.is_head ? `Cabeza, con ${CAMPAIGN}` : r.is_direct ? `Directo con ${CAMPAIGN}` : 'Líder'} trail={<small>{relTime(r.created_at)}</small>} chevron={false} />
                 ))}
               </Group>
             </Section>
@@ -191,7 +192,7 @@ export default function Head() {
           { label: 'Ver su ficha', icon: UserCircle, hidden: !c, onSelect: () => go(`/personas/${c.id}`) },
           { label: 'Registrar a alguien aquí', icon: UserPlus, hidden: !data?.can_manage || h?.status !== 'active', onSelect: () => setMenu('register') },
           { label: 'Editar estructura', icon: Pencil, hidden: !data?.can_manage, onSelect: () => setMenu('edit') },
-          { label: 'Elegir su cabeza', icon: Crown, hidden: !(a.isSuper && h && !c), onSelect: () => setMenu('choose') },
+          { label: 'Elegir su cabeza', icon: Crown, hidden: !(a.isSuper && h && !c && !direct), onSelect: () => setMenu('choose') },
         ]]} />
       )}
       {menu === 'register' && <RegisterPersonModal defaultHeadId={h.id} onClose={() => setMenu(null)} onCreated={(p) => { changed(); go(`/personas/${p.id}`); }} />}

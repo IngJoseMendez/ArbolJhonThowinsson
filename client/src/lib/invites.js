@@ -214,17 +214,21 @@ export function useOneTimeInvite({ typeId, headId, role, cabeza, enabled = true,
   };
 }
 
-/** Enlace general (reutilizable) para personas: uno por tipo, cabeza y de quién cuelgan. */
-export function useGeneralLink({ typeId, headId, ownerId }) {
+/**
+ * Enlace general (reutilizable) para personas: uno por tipo, cabeza y de quién cuelgan. `direct`: «Directo con John»
+ * (headId es esa estructura y nadie más en medio: quienes se registren quedan con él).
+ */
+export function useGeneralLink({ typeId, headId, ownerId, direct = false }) {
   const [state, setState] = useState({ link: null, error: null, loading: false });
   useEffect(() => {
-    setState({ link: null, error: null, loading: !!(typeId && headId && ownerId) });
-    if (!typeId || !headId || !ownerId) return undefined;
+    const ready = !!(typeId && headId && (ownerId || direct));
+    setState({ link: null, error: null, loading: ready });
+    if (!ready) return undefined;
     let alive = true;
-    api.post('/links/general', { reg_type_id: typeId, head_id: Number(headId), owner_person_id: Number(ownerId) })
+    api.post('/links/general', { reg_type_id: typeId, head_id: Number(headId), owner_person_id: direct ? null : Number(ownerId) })
       .then((link) => alive && setState({ link, error: null, loading: false }))
       .catch((error) => alive && setState({ link: null, error, loading: false }));
     return () => { alive = false; };
-  }, [typeId, headId, ownerId]);
+  }, [typeId, headId, ownerId, direct]);
   return { ...state, url: state.link ? inviteUrl(state.link.token) : null };
 }

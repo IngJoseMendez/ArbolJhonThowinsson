@@ -144,7 +144,9 @@ api.get('/heads', requireAuth, async (req, res) => {
   else rows = await q(`SELECT h.*, ${cabezaCols}, ${headCounts} FROM heads h ${headCabeza} WHERE h.id IN (${ids.map(() => '?').join(',')}) ORDER BY h.status, h.name`).all(since, ...ids);
   // Líderes y personas sólo ven totales de su alcance, no de toda la cabeza.
   if (!isAdmin(req.user)) rows = rows.map((r) => ({ ...r, people: null, leaders: null, pending: null, last30: null }));
-  res.json(rows.map((r) => ({ ...r, requires_approval: !!r.requires_approval, person_invites_enabled: !!r.person_invites_enabled, can_manage: canManageHead(req.user, r.id) })));
+  res.json(rows.map((r) => ({
+    ...r, requires_approval: !!r.requires_approval, person_invites_enabled: !!r.person_invites_enabled, is_direct: !!r.is_direct, can_manage: canManageHead(req.user, r.id),
+  })));
 });
 
 async function headInput(body, partial = false) {
@@ -203,7 +205,7 @@ api.get('/heads/:id', requireAuth, async (req, res) => {
           panel_token_hash IS NOT NULL AS panel_active FROM people WHERE id = ?`).get(c.id)) }
     : null;
   res.json({
-    head: { ...h, requires_approval: !!h.requires_approval, person_invites_enabled: !!h.person_invites_enabled },
+    head: { ...h, requires_approval: !!h.requires_approval, person_invites_enabled: !!h.person_invites_enabled, is_direct: !!h.is_direct },
     can_manage: canManageHead(req.user, id),
     cabeza, stats, leaders,
   });
@@ -384,14 +386,14 @@ api.get('/people/:id', requireAuth, async (req, res) => {
   for (const hid of hids) { const r = await getHead(hid); if (r) names.heads[hid] = r.name; }
   res.json({
     person: {
-      ...p, is_leader: !!p.is_leader, is_head: !!p.is_head, path: undefined, registration_ip: undefined,
+      ...p, is_leader: !!p.is_leader, is_head: !!p.is_head, is_direct: !!p.is_direct, path: undefined, registration_ip: undefined,
       phone: contact ? p.phone : maskPhone(p.phone), email: contact ? p.email : null,
       document_id: contact ? p.document_id : null, notes: manage ? p.notes : '',
       address: contact ? p.address : null,
     },
     location: await locationOf(p),
     head: {
-      id: head.id, name: head.name, color: head.color, person_invites_enabled: !!head.person_invites_enabled,
+      id: head.id, name: head.name, color: head.color, person_invites_enabled: !!head.person_invites_enabled, is_direct: !!head.is_direct,
       cabeza: cabeza ? { id: cabeza.id, full_name: cabeza.full_name, status: cabeza.status, photo_url: cabeza.photo_url } : null,
     },
     leader: leader ? { ...leader, is_head: !!leader.is_head } : null,
@@ -978,6 +980,8 @@ api.get('/public/invite/:token', lookupLimiter, async (req, res) => {
   const pub = await publicHead(head);
   res.json({
     token: link.token, valid, reason, role,
+    // Directo con John: quien se registra queda con él (sin pasar por una cabeza ni por un líder).
+    direct: role !== 'head' && !owner && !!head?.is_direct,
     type: { name: type.name, color: type.color, role: type.role },
     label: link.label || null,
     inviter: owner ? {
@@ -1019,7 +1023,7 @@ api.post('/public/register/:token', publicLimiter, async (req, res) => {
     leader_code: person.leader_code, first_name: firstName(person), full_name: person.full_name, created_at: person.created_at,
     type: { name: type.name, color: type.color },
     inviter: owner?.full_name ?? null, head: head.name, head_display: pub.head.display_name,
-    cabeza: person.is_head ? null : pub.cabeza?.name ?? null,
+    cabeza: person.is_head ? null : pub.cabeza?.name ?? null, direct: !!person.is_direct,
     invite_token: person.status === 'active'
       ? (await q(`SELECT token FROM invite_links WHERE owner_person_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1`).get(person.id))?.token ?? null
       : null,

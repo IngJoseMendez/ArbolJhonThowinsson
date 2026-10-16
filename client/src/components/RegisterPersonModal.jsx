@@ -75,7 +75,9 @@ export default function RegisterPersonModal({ onClose, onCreated, defaultHeadId,
     } catch (ex) { setErr(ex); setFieldErrors((x) => ({ ...x, ...serverFieldError(ex.body?.error) })); } finally { setBusy(false); }
   };
 
-  const canSubmit = headId && (isLeader || inviter) && !(isHead && head?.cabeza_name) && !busy;
+  // Directo con John: sin invitador, cuelga de él (sea persona o líder). No tiene cabeza: lo encabeza John.
+  const direct = !!head?.is_direct;
+  const canSubmit = headId && (isLeader || inviter || direct) && !(isHead && (head?.cabeza_name || direct)) && !busy;
 
   return (
     <Modal wide title="Registrar persona" subtitle={`Registro manual realizado por ${a.user.display_name}. Quedará constancia en el historial.`} onClose={onClose}
@@ -92,6 +94,7 @@ export default function RegisterPersonModal({ onClose, onCreated, defaultHeadId,
               {heads.map((h) => <option key={h.id} value={h.id}>{h.cabeza_name ? `${h.cabeza_name} (cabeza)` : h.name}</option>)}
             </select>
             {isHead && head?.cabeza_name && <span className="err">Esta estructura ya tiene cabeza: {head.cabeza_name}.</span>}
+            {direct && isHead && <span className="err">Directo con John no tiene cabeza: lo encabeza John.</span>}
           </div>
           <div className="field">
             <label>Tipo de registro</label>
@@ -116,14 +119,15 @@ export default function RegisterPersonModal({ onClose, onCreated, defaultHeadId,
         </div>
 
         {!isHead && <div className="field">
-          <label>Invitado directamente por {isLeader && <span className="muted">(opcional para líderes)</span>}</label>
+          <label>Invitado directamente por {(isLeader || direct) && <span className="muted">(opcional{direct ? '' : ' para líderes'})</span>}</label>
           <PersonPicker headId={headId || undefined} value={inviter} onChange={setInviter} disabled={!headId}
             filter={(p) => p.status === 'active'}
             placeholder={headId ? 'Buscar a quien lo invitó en esta estructura…' : 'Seleccione primero la estructura'} />
           <span className="hint">
-            {isLeader && !inviter
-              ? (head?.cabeza_name ? `Sin invitador: el líder quedará con la cabeza, ${head.cabeza_name}.` : 'Sin invitador: el líder colgará directamente de la estructura.')
-              : 'Aparecerá debajo de esta persona en el árbol de invitaciones.'}
+            {direct && !inviter ? 'Sin invitador: queda directo con John Thowinsson.'
+              : isLeader && !inviter
+                ? (head?.cabeza_name ? `Sin invitador: el líder quedará con la cabeza, ${head.cabeza_name}.` : 'Sin invitador: el líder colgará directamente de la estructura.')
+                : 'Aparecerá debajo de esta persona en el árbol de invitaciones.'}
           </span>
         </div>}
 

@@ -92,7 +92,7 @@ export default function Person() {
               </>}
               <button className="btn btn-sm" onClick={() => setModal('edit')}><Pencil size={14} />Editar datos</button>
               {p.status === 'active' && !p.is_leader && <button className="btn btn-sm" onClick={() => setModal('promote')}><Crown size={14} />Designar como líder</button>}
-              {perm.super && p.is_leader && !p.is_head && !inviter && !head.cabeza && p.status === 'active' && <button className="btn btn-sm" onClick={() => setModal('make-head')}><Mark size={13} />Designar como cabeza</button>}
+              {perm.super && p.is_leader && !p.is_head && !inviter && !head.cabeza && !head.is_direct && p.status === 'active' && <button className="btn btn-sm" onClick={() => setModal('make-head')}><Mark size={13} />Designar como cabeza</button>}
               {perm.super && p.is_head && <button className="btn btn-sm" onClick={() => setModal('unmake-head')}><Mark size={13} />Quitar como cabeza</button>}
               {p.is_leader && !p.is_head && <button className="btn btn-sm" onClick={() => setModal('demote')}><Crown size={14} />Retirar liderazgo</button>}
               {!p.is_head && <button className="btn btn-sm" onClick={() => setModal('leader')}><UserCheck size={14} />Cambiar líder responsable</button>}
@@ -109,7 +109,7 @@ export default function Person() {
 
       {/* Relaciones (no se confunden) */}
       <div className="grid g-4" style={{ marginBottom: 16 }}>
-        <Rel icon={Network} color={head.color} label="Estructura" sub={p.is_head ? 'La encabeza' : head.cabeza ? 'Su cabeza' : 'Sin cabeza asignada'}>
+        <Rel icon={Network} color={head.color} label="Estructura" sub={p.is_head ? 'La encabeza' : head.is_direct ? 'Sin cabeza: la encabeza John' : head.cabeza ? 'Su cabeza' : 'Sin cabeza asignada'}>
           {p.is_head ? `Equipo de ${p.full_name}` : !head.cabeza ? head.name : <PersonLink id={head.cabeza.id} name={head.cabeza.full_name} isHead />}
         </Rel>
         <Rel icon={Crown} color="var(--leader)" label="Responsabilidad · Líder"
@@ -117,8 +117,8 @@ export default function Person() {
           {leader ? <PersonLink id={leader.id} name={leader.full_name} isLeader isHead={leader.is_head} /> : '—'}
         </Rel>
         <Rel icon={Send} color="var(--series-1)" label="Invitación directa · Invitado por"
-          sub={p.is_head ? 'Es una de sus cabezas: cuelga de él' : data.via_link ? `Mediante el enlace ${data.via_link.token}` : p.registration_method === 'manual' ? 'Asignado en registro manual' : ''}>
-          {inviter ? <PersonLink id={inviter.id} name={inviter.full_name} isLeader={inviter.is_leader} isHead={inviter.is_head} /> : p.is_head ? <JohnLink locate={p.id} /> : 'Cuelga de la estructura'}
+          sub={p.is_head ? 'Es una de sus cabezas: cuelga de él' : p.is_direct ? 'Llegó directo con él' : data.via_link ? `Mediante el enlace ${data.via_link.token}` : p.registration_method === 'manual' ? 'Asignado en registro manual' : ''}>
+          {inviter ? <PersonLink id={inviter.id} name={inviter.full_name} isLeader={inviter.is_leader} isHead={inviter.is_head} /> : p.is_head || p.is_direct ? <JohnLink locate={p.id} /> : 'Cuelga de la estructura'}
         </Rel>
         <Rel icon={ClipboardList} color="var(--text-2)" label="Registro"
           sub={p.registration_method === 'manual' ? `Por ${data.registered_by?.display_name || '—'}` : 'Autorregistro con enlace'}>
@@ -135,7 +135,7 @@ export default function Person() {
               <div className="breadcrumb">
                 <Link to={`/arbol?persona=${p.id}`} className="crumb john"><span className="john-link__photo"><JohnPhoto sizes="20px" alt="" /></span>{CAMPAIGN}</Link>
                 {/* La cabeza ya es el primer eslabón; si el camino no empieza en ella (o no hay), se nombra el equipo. */}
-                {!(head.cabeza && chain[0]?.id === head.cabeza.id) && (
+                {!head.is_direct && !(head.cabeza && chain[0]?.id === head.cabeza.id) && (
                   <span className="row" style={{ gap: 4 }}>
                     <ChevronRight size={14} className="sep" />
                     <span className="crumb" style={{ background: `color-mix(in srgb, ${head.color} 16%, transparent)` }}><Network size={12} />{head.cabeza ? `Equipo de ${head.cabeza.full_name}` : head.name}</span>

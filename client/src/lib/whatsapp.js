@@ -27,11 +27,12 @@ const hello = (name) => `Hola${name ? `, ${String(name).trim().split(/\s+/)[0]}`
 
 /**
  * Invitación personal de un solo uso para ser persona de confianza: de John (las cabezas, que arman su propio
- * equipo) o de quien encabeza un equipo (sus líderes).
+ * equipo, y quienes quedan directo con él: direct) o de quien encabeza un equipo (sus líderes).
  */
-export function inviteText({ role, name, cabeza, url }) {
+export function inviteText({ role, name, cabeza, direct, url }) {
   const what = role === 'head'
     ? `${CAMPAIGN} quiere contar contigo como una de sus personas de confianza: con tu registro nace tu propio equipo para sumar a tu gente.`
+    : direct ? `${CAMPAIGN} quiere contar contigo como una de sus personas de confianza.`
     : cabeza
       ? `${cabeza} quiere contar contigo como una de sus personas de confianza en el equipo de ${CAMPAIGN}.`
       : `Te invitamos a ser persona de confianza en el equipo de ${CAMPAIGN}.`;
@@ -39,10 +40,11 @@ export function inviteText({ role, name, cabeza, url }) {
 }
 
 /** Recordatorio de una invitación que aún no se ha usado (el mismo enlace). */
-export function reminderText({ role, name, cabeza, url }) {
-  const from = role === 'head' ? CAMPAIGN : cabeza;
+export function reminderText({ role, name, cabeza, direct, url }) {
+  const john = role === 'head' || direct;
+  const from = john ? CAMPAIGN : cabeza;
   const what = from ? `la invitación de ${from} para ser una de sus personas de confianza` : 'tu invitación para ser persona de confianza';
-  return `${hello(name)} Te recuerdo ${what}${role === 'head' ? '' : ` en el equipo de ${CAMPAIGN}`}. Es solo para ti: ${url}`;
+  return `${hello(name)} Te recuerdo ${what}${john ? '' : ` en el equipo de ${CAMPAIGN}`}. Es solo para ti: ${url}`;
 }
 
 /** El panel privado de un líder o una cabeza. */

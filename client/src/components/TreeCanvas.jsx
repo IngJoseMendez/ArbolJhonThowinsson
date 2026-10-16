@@ -232,7 +232,7 @@ const TreeCanvas = forwardRef(function TreeCanvas(
                 {detail && (
                   <>
                     <text className="node-sub" x={56} y={39}>
-                      {d.is_head ? 'Cabeza de la estructura' : d.is_leader ? trunc(d.leader_code, 26) : (d.leader_name ? `Líder: ${trunc(firstNames(d.leader_name), 20)}` : 'Sin líder asignado')}
+                      {d.is_head ? 'Cabeza de la estructura' : d.is_leader ? trunc(d.leader_code, 26) : d.is_direct ? 'Directo con John' : (d.leader_name ? `Líder: ${trunc(firstNames(d.leader_name), 20)}` : 'Sin líder asignado')}
                     </text>
                     <text className="node-sub" x={56} y={54}>
                       {d.status === 'pending' ? 'Pendiente de aprobación' : d.status === 'inactive' ? 'Inactiva' : `${fmtDate(d.created_at)} · ${d.registration_method === 'manual' ? 'manual' : 'enlace'}`}
@@ -333,7 +333,7 @@ function HeadNode({ it, n, color, detail, onToggle }) {
         <circle cx={12} cy={5} r={3} stroke="none" /><circle cx={5} cy={19} r={2.6} stroke="none" /><circle cx={12} cy={19} r={2.6} stroke="none" /><circle cx={19} cy={19} r={2.6} stroke="none" />
       </g>
       <text className="node-name" x={60} y={detail ? 30 : 42} fontSize={15}>{trunc(d.cabeza_name ? `Equipo de ${d.cabeza_name}` : d.name, 22)}</text>
-      {detail && <text className="node-sub" x={60} y={50}>{d.cabeza_name ? 'Estructura' : 'Estructura sin cabeza'}{d.people != null ? ` · ${fmtNum(d.people)} ${d.people === 1 ? 'persona' : 'personas'}` : ''}</text>}
+      {detail && <text className="node-sub" x={60} y={50}>{d.is_direct ? 'Llegaron directo' : d.cabeza_name ? 'Estructura' : 'Estructura sin cabeza'}{d.people != null ? ` · ${fmtNum(d.people)} ${d.people === 1 ? 'persona' : 'personas'}` : ''}</text>}
       <g className="node-toggle" transform={`translate(${NODE_W - 2},${it.h / 2})`} onClick={onToggle} role="button" aria-label={n.expanded ? 'Contraer' : 'Expandir'}>
         <rect x={-2} y={-12} width={30} height={24} rx={12} fill={n.expanded ? color : 'var(--surface)'} stroke={color} />
         <text x={13} y={4} textAnchor="middle" fontSize={12} fontWeight={700} fill={n.expanded ? '#fff' : color}>{n.loading ? '…' : n.expanded ? '−' : '+'}</text>

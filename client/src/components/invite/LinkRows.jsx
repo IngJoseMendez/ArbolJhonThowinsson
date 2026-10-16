@@ -33,7 +33,7 @@ export function linkTitle(l, teams) {
   // «¿Para quién?» lo escribe quien invita desde la coordinación; las del panel de la cabeza traen su propia etiqueta.
   if (l.one_time && l.label && l.created_by) return `Para ${l.label}`;
   if (l.type_role === 'head') return 'Invitación de cabeza';
-  if (l.type_role === 'leader') return team ? `Líder con ${team}` : 'Invitación de líder';
+  if (l.type_role === 'leader') return teams.byId.get(l.head_id)?.is_direct ? 'Líder directo con John' : team ? `Líder con ${team}` : 'Invitación de líder';
   if (l.kind === 'register') return `${l.type_name}${l.owner_name ? `, con ${l.owner_name}` : ''}`;
   if (l.kind === 'leader') return `Enlace de ${l.owner_name}`;
   return `Invitación personal de ${l.owner_name}`;
@@ -42,8 +42,9 @@ export function linkTitle(l, teams) {
 /** Detalle de un enlace en palabras: cuándo se envió, quién, cuándo vence, quién se registró. */
 export function linkMeta(l, teams) {
   if (l.used_at && l.used_by_name) {
-    const team = l.head_id && teams ? teamName(teams.byId.get(l.head_id)) || l.head_name : null;
-    const as = l.type_role === 'head' ? 'Entró como cabeza' : l.type_role === 'leader' ? `Entró como líder${team ? ` con ${team}` : ''}` : 'Se registró';
+    const h = l.head_id && teams ? teams.byId.get(l.head_id) : null;
+    const team = h?.is_direct ? 'directo con John' : l.head_id && teams ? `con ${teamName(h) || l.head_name}` : null;
+    const as = l.type_role === 'head' ? 'Entró como cabeza' : l.type_role === 'leader' ? `Entró como líder${team ? ` ${team}` : ''}` : 'Se registró';
     return `${as}, ${relTime(l.used_at)}`;
   }
   if (l.one_time) {
@@ -96,10 +97,11 @@ export function LinkMenu({ link: l, title, onClose, onLimits, onChanged }) {
   const sub = useRef(null);
   const setSheet = (v) => { sub.current = v; setSheetState(v); };
   const url = inviteUrl(l.token);
-  const cabeza = l.head_id ? teams.byId.get(l.head_id)?.cabeza_name : null;
+  const team = l.head_id ? teams.byId.get(l.head_id) : null;
+  const cabeza = team?.cabeza_name ?? null;
   const open = l.status === 'active' && !l.used_at;
   const text = l.one_time
-    ? reminderText({ role: l.type_role, name: l.label, cabeza, url })
+    ? reminderText({ role: l.type_role, name: l.label, cabeza, direct: !!team?.is_direct, url })
     : inviteMessage({ url, ownerName: l.owner_name });
   const done = (msg) => { invalidate('links:'); onChanged?.(); toast(msg); };
   if (sheet === 'disable') {

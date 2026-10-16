@@ -40,6 +40,7 @@ async function withInviteMeta(html, token) {
   if (photo) html = html.replace('</head>', `${preloadImage(photoAt(photo, 160))}</head>`);
   // Lo lee quien recibe el link (vista previa de WhatsApp): sin «cabeza» ni «líder», como en el formulario.
   const title = role === 'head' ? 'John Thowinsson te invita a ser una de sus personas de confianza'
+    : !owner && head?.is_direct ? `John Thowinsson te invita a ${role === 'leader' ? 'ser una de sus personas de confianza' : 'sumarte a su equipo'}`
     : host ? `${host} te invita a ${role === 'leader' ? 'ser una de sus personas de confianza en el' : 'sumarte al'} equipo de John Thowinsson`
       : role === 'leader' ? 'Te invitamos a ser persona de confianza en el equipo de John Thowinsson' : 'Súmate al equipo de John Thowinsson';
   const t = esc(title);

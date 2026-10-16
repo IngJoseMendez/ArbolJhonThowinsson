@@ -35,6 +35,8 @@ function heroCopy(inv) {
       sub: 'a ser una de sus personas de confianza. Con tu registro nace tu propio equipo para sumar a tu gente.',
     };
   }
+  // Directo con John: quien se registra queda con él, sin nadie en medio.
+  if (inv.direct) return { kicker: 'Te invita', title: CAMPAIGN, sub: role === 'leader' ? 'a ser una de sus personas de confianza.' : 'a sumarte a su equipo.' };
   const host = inviter || (role === 'leader' && cabeza ? { name: cabeza.name, photo: cabeza.photo } : null);
   if (host) {
     return {
@@ -224,8 +226,8 @@ export default function Register() {
 
   // ---- Registro completado
   if (done) {
-    // De quién es persona de confianza: de John (si encabeza su propio equipo) o de quien la invitó.
-    const host = done.is_head ? CAMPAIGN : done.inviter || done.cabeza;
+    // De quién es persona de confianza: de John (si encabeza su propio equipo o llegó directo con él) o de quien la invitó.
+    const host = done.is_head || done.direct ? CAMPAIGN : done.inviter || done.cabeza;
     const team = role === 'person' ? (done.cabeza ? `Equipo de ${done.cabeza}` : `Equipo ${CAMPAIGN}`) : host ? `de ${host}` : `Equipo ${CAMPAIGN}`;
     const pending = done.status === 'pending';
     const message = pending

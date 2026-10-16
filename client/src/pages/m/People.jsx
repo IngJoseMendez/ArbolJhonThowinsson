@@ -125,8 +125,8 @@ export default function People() {
     let m;
     if (r.is_head) m = `cabeza de ${CAMPAIGN}, ${nf.format(r.descendant_count)} en su equipo`;
     else if (r.is_leader) m = `líder, ${nf.format(r.descendant_count)} en su red`;
-    else m = [r.inviter_name ? `con ${r.inviter_name}` : null, place].filter(Boolean).join(', ') || 'Persona';
-    const out = team && !r.is_head ? `${m}, equipo de ${team}` : m;
+    else m = [r.inviter_name ? `con ${r.inviter_name}` : r.is_direct ? `con ${CAMPAIGN}` : null, place].filter(Boolean).join(', ') || 'Persona';
+    const out = team && !r.is_head && !r.is_direct ? `${m}, equipo de ${team}` : m;
     return out.charAt(0).toUpperCase() + out.slice(1);
   };
 

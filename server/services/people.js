@@ -64,6 +64,14 @@ export async function getHead(id) {
   return await q('SELECT * FROM heads WHERE id = ?').get(id);
 }
 
+/**
+ * «Directo con John»: la estructura de las personas que llegan directo con él (sin pasar por una cabeza ni por un
+ * líder). Mismas reglas que cualquier equipo, salvo que no tiene cabeza: la encabeza John.
+ */
+export const directHead = () => q('SELECT * FROM heads WHERE is_direct = 1').get();
+
+const directNoHead = () => badRequest('DIRECT_NO_HEAD', 'Directo con John no tiene cabeza: lo encabeza John.', { field: 'head_id' });
+
 /** La cabeza (persona) de una estructura: su líder raíz, de quien cuelgan sus líderes y personas. */
 export async function headPerson(headId) {
   return await q(`SELECT id, code, full_name, first_names, status, path, leader_code, photo_url FROM people
@@ -284,7 +292,7 @@ export async function createRegisterLink(body, user, ip) {
         if (!owner || owner.head_id !== head.id || owner.status !== 'active') {
           throw badRequest('VALIDATION', 'Quien invita debe ser una persona activa de la misma cabeza.', { field: 'owner_person_id' });
         }
-      } else if (type.role === 'person') {
+      } else if (type.role === 'person' && !head.is_direct) {
         throw badRequest('VALIDATION', 'Indique de quién cuelgan las personas que se registren con este enlace.', { field: 'owner_person_id' });
       }
     }
@@ -539,6 +547,7 @@ export async function createPerson(opts) {
     const head = await getHead(headId);
     if (!head) throw badRequest('VALIDATION', 'Debe seleccionar una cabeza válida.', { field: 'head_id' });
     if (head.status !== 'active') throw badRequest('HEAD_ARCHIVED', 'La cabeza está archivada y no admite registros.');
+    if (head.is_direct && isHead) throw directNoHead();
 
     if (isHead) {
       if (inviterId) throw badRequest('HEAD_ROOT', 'La cabeza es la raíz de su estructura: no la invita nadie.', { field: 'inviter_id' });
@@ -557,9 +566,11 @@ export async function createPerson(opts) {
         throw badRequest('INVITER_OTHER_HEAD', 'La persona que invita pertenece a otra cabeza. Una persona no puede pertenecer a dos cabezas.', { field: 'inviter_id' });
       }
       if (inviter.status !== 'active') throw badRequest('INVITER_INACTIVE', 'La persona que invita no está activa.', { field: 'inviter_id' });
-    } else if (!isLeader) {
+    } else if (!isLeader && !head.is_direct) {
       throw badRequest('INVITER_REQUIRED', 'Debe indicar quién invitó a la persona. Sólo un líder puede colgar directamente de la cabeza.', { field: 'inviter_id' });
     }
+    // Sin invitador en «Directo con John»: cuelga de John (sea persona o persona de confianza).
+    const direct = !!head.is_direct && !inviter;
 
     await assertNoDuplicate(data);
 
@@ -585,14 +596,15 @@ export async function createPerson(opts) {
                    leader_id, leader_mode, is_leader, leader_code, leader_since, registration_method, registered_by_user_id,
                    invite_link_id, status, path, depth, consent_at, registration_ip, created_at, updated_at,
                    address, geo_localidad_id, geo_comuna_id, geo_barrio_id, geo_localidad_text, geo_comuna_text, geo_barrio_text, geo_status,
-                   first_names, last_names, supports, reg_type_id, secure_vote, is_head)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+                   first_names, last_names, supports, reg_type_id, secure_vote, is_head, is_direct)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
       code, data.full_name, normalizeText(data.full_name), data.phone, data.email, data.document_id, data.city, data.notes,
       head.id, inviter?.id ?? null, leaderId, leaderMode, isLeader ? 1 : 0, leaderCode, isLeader ? ts : null,
       method, method === 'manual' ? user?.id ?? null : null, linkId, status, '/', inviter ? inviter.depth + 1 : 0,
       opts.consent ? ts : null, ip, opts.createdAt || ts, opts.createdAt || ts,
       data.address, geo.geo_localidad_id, geo.geo_comuna_id, geo.geo_barrio_id, geo.geo_localidad_text, geo.geo_comuna_text,
       geo.geo_barrio_text, geo.geo_status, data.first_names, data.last_names, data.supports, regType.id, data.secure_vote, isHead ? 1 : 0,
+      direct ? 1 : 0,
     );
     const id = Number(r.lastInsertRowid);
     const path = `${inviter ? inviter.path : '/'}${id}/`;
@@ -611,7 +623,7 @@ export async function createPerson(opts) {
 
     await history(id, 'registered', {
       method, head_id: head.id, head: head.name, inviter_id: inviter?.id ?? null, inviter: inviter?.full_name ?? null,
-      leader_id: leaderId, leader_mode: leaderMode, is_leader: !!isLeader, is_head: !!isHead, leader_code: leaderCode, status,
+      leader_id: leaderId, leader_mode: leaderMode, is_leader: !!isLeader, is_head: !!isHead, is_direct: direct, leader_code: leaderCode, status,
       invite_link_id: linkId, reg_type: regType.name,
     }, user?.id, opts.reason || null);
     await audit(user, method === 'manual' ? 'person.create_manual' : 'person.register_invite', 'person', id,
@@ -750,7 +762,8 @@ export async function demoteLeader(personId, user, reason, ip) {
     if (!p) throw notFound();
     if (!p.is_leader) throw badRequest('NOT_LEADER', 'La persona no es líder.');
     if (p.is_head) throw badRequest('HEAD_PERSON', 'Es la cabeza de su estructura: primero quítele el papel de cabeza.');
-    if (!p.inviter_id) {
+    // Directo con John vuelve a ser una persona directa con él; un líder raíz de otra estructura necesita de quién colgar.
+    if (!p.inviter_id && !p.is_direct) {
       throw badRequest('ROOT_LEADER', 'Es un líder raíz de la cabeza: antes de retirarle el liderazgo debe moverlo debajo de otra persona.');
     }
     await q(`UPDATE people SET is_leader = 0, leader_since = NULL, updated_at = ?, panel_token_hash = NULL, panel_created_at = NULL,
@@ -814,6 +827,7 @@ export async function setHeadRole(personId, makeHead, user, reason, ip) {
     }
     if (p.is_head) throw badRequest('ALREADY_HEAD', 'Ya es la cabeza de su estructura.');
     if (p.status !== 'active') throw badRequest('NOT_ACTIVE', 'Sólo una persona activa puede ser cabeza.');
+    if ((await getHead(p.head_id)).is_direct) throw directNoHead();
     if (!p.is_leader || p.inviter_id) {
       throw badRequest('NOT_ROOT', 'La cabeza es la raíz de su estructura: elija un líder que cuelgue directamente de ella (puede moverlo antes).');
     }
@@ -862,8 +876,8 @@ export async function movePerson(personId, { newInviterId = null, newHeadId = nu
       headId = target.head_id;
       if (newHeadId && Number(newHeadId) !== headId) throw badRequest('INVITER_OTHER_HEAD', 'El nuevo invitador no pertenece a la cabeza indicada.');
     } else {
-      if (!p.is_leader) throw badRequest('INVITER_REQUIRED', 'Sólo un líder puede colgar directamente de una cabeza.');
       headId = Number(newHeadId || p.head_id);
+      if (!p.is_leader && !(await getHead(headId))?.is_direct) throw badRequest('INVITER_REQUIRED', 'Sólo un líder puede colgar directamente de una cabeza.');
     }
     const head = await getHead(headId);
     if (!head || head.status !== 'active') throw badRequest('VALIDATION', 'La cabeza destino no es válida.');
@@ -883,7 +897,7 @@ export async function movePerson(personId, { newInviterId = null, newHeadId = nu
 
     await q(`UPDATE people SET path = CONCAT(?::text, substr(path, ?::int)), depth = depth + ?::int, head_id = ?, updated_at = ?
         WHERE path >= ? AND path < ?`).run(newPath, oldPath.length + 1, deltaDepth, headId, now(), oldPath, pathUpper(oldPath));
-    await q('UPDATE people SET inviter_id = ? WHERE id = ?').run(target?.id ?? null, p.id);
+    await q('UPDATE people SET inviter_id = ?, is_direct = ? WHERE id = ?').run(target?.id ?? null, !target && head.is_direct ? 1 : 0, p.id);
 
     await history(p.id, crossHead ? 'moved_head' : 'moved', {
       from_head_id: p.head_id, to_head_id: headId, from_inviter_id: p.inviter_id, to_inviter_id: target?.id ?? null,
@@ -1030,8 +1044,11 @@ export async function integrityReport() {
     'Pertenece a una cabeza distinta de la de su invitador');
   add('leader', await q(`SELECT c.id FROM people c JOIN people l ON l.id = c.leader_id
                    WHERE l.is_leader = 0 OR l.head_id <> c.head_id`).all(), 'Líder responsable inválido');
-  add('root', await q(`SELECT id FROM people WHERE inviter_id IS NULL AND is_leader = 0 AND status <> 'rejected'`).all(),
-    'Persona sin invitador que no es líder');
+  add('root', await q(`SELECT id FROM people WHERE inviter_id IS NULL AND is_leader = 0 AND is_direct = 0 AND status <> 'rejected'`).all(),
+    'Persona sin invitador que no es líder (ni está directo con John)');
+  add('direct', await q(`SELECT p.id FROM people p JOIN heads h ON h.id = p.head_id
+                   WHERE p.inviter_id IS NULL AND p.status <> 'rejected' AND (p.is_direct = 1) <> (h.is_direct = 1)`).all(),
+    'Marca «directo con John» que no corresponde con su estructura');
   add('dup_phone', await q(`SELECT MIN(id) id FROM people WHERE status <> 'rejected' GROUP BY phone HAVING COUNT(*) > 1`).all(), 'Teléfono duplicado');
   // Auto-asignación: el líder debe coincidir con el líder más cercano en la cadena.
   const autos = await q(`SELECT id, path, leader_id FROM people WHERE leader_mode = 'auto'`).all();

@@ -73,18 +73,24 @@ export function distinctTeamLabels(list) {
   return out;
 }
 
-/** Las cabezas visibles (en caché): lista, búsqueda por id y nombres de equipo. */
+/**
+ * Las cabezas visibles (en caché): lista, búsqueda por id y nombres de equipo. «Directo con John» (las personas que
+ * llegan directo con él) no es una cabeza: no va en las listas de cabezas, pero sí en `byId` y en `direct`.
+ */
 export function useTeams() {
   const heads = useCached('heads', () => api.get('/heads'), { ttl: 60000 });
   return useMemo(() => {
-    const list = heads.data || [];
-    const byId = new Map(list.map((h) => [h.id, h]));
+    const all = heads.data || [];
+    const list = all.filter((h) => !h.is_direct);
+    const direct = all.find((h) => h.is_direct && h.status === 'active' && h.can_manage) || null;
+    const byId = new Map(all.map((h) => [h.id, h]));
     const counts = new Map();
     for (const h of list) counts.set(teamName(h), (counts.get(teamName(h)) || 0) + 1);
     const shorts = distinctTeamLabels(list);
     return {
       ...heads,
       list,
+      direct,
       active: list.filter((h) => h.status === 'active'),
       manageable: list.filter((h) => h.status === 'active' && h.can_manage),
       byId,

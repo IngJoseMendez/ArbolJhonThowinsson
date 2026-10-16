@@ -203,18 +203,24 @@ export function TypesTab() {
 const remember = (k, v) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch { /* sin almacenamiento */ } };
 const recall = (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
 
-/** Tarjeta de un tipo: su enlace general con botones directos (WhatsApp, Copiar, Abrir). */
-function GeneralLinkCard({ type, heads }) {
+/**
+ * Tarjeta de un tipo: su enlace general con botones directos (WhatsApp, Copiar, Abrir). En la cuenta de John, las
+ * personas pueden quedar «directo con él» (sin cabeza ni líder): es la opción de partida.
+ */
+function GeneralLinkCard({ type, heads: all }) {
   const toast = useToast();
-  const onlyHead = heads.length === 1 ? String(heads[0].id) : '';
-  const [headId, setHeadId] = useState(() => recall(`gl:${type.id}:head`) || onlyHead);
+  const direct = all.find((h) => h.is_direct) || null;
+  const heads = [...all].sort((a, b) => Number(b.is_direct) - Number(a.is_direct));
+  const fallback = direct ? String(direct.id) : heads.length === 1 ? String(heads[0].id) : '';
+  const [headId, setHeadId] = useState(() => recall(`gl:${type.id}:head`) || fallback);
   const [ownerId, setOwnerId] = useState(() => recall(`gl:${type.id}:owner`));
   const [leaders, setLeaders] = useState([]);
   const [link, setLink] = useState(null);
   const [err, setErr] = useState(null);
   const needsHead = type.role !== 'head';
-  const needsOwner = type.role === 'person';
-  const validHead = heads.some((h) => String(h.id) === String(headId)) ? headId : onlyHead;
+  const validHead = heads.some((h) => String(h.id) === String(headId)) ? headId : fallback;
+  const isDirect = !!direct && String(validHead) === String(direct.id);
+  const needsOwner = type.role === 'person' && !isDirect;
 
   useEffect(() => {
     if (!needsOwner || !validHead) { setLeaders([]); return; }
@@ -244,11 +250,13 @@ function GeneralLinkCard({ type, heads }) {
       </div>
       <div className="glink-body">
         {needsHead && heads.length > 1 && (
-          <select className="select" value={validHead} aria-label={`Cabeza para ${type.name}`}
+          <select className="select" value={validHead} aria-label={`De quién cuelgan quienes se registren con ${type.name}`}
             onChange={(e) => { setHeadId(e.target.value); remember(`gl:${type.id}:head`, e.target.value); setOwnerId(''); }}>
-            <option value="">¿Con qué cabeza?</option>{heads.map((h) => <option key={h.id} value={h.id}>{h.cabeza_name || h.name}</option>)}
+            <option value="">{direct ? '¿Con quién?' : '¿Con qué cabeza?'}</option>
+            {heads.map((h) => <option key={h.id} value={h.id}>{h.is_direct ? `Directo con ${CAMPAIGN}` : h.cabeza_name || h.name}</option>)}
           </select>
         )}
+        {isDirect && <span className="small text-2">Quienes se registren quedan directo con {CAMPAIGN}.</span>}
         {needsHead && heads.length === 1 && <span className="small text-2 row" style={{ gap: 6 }}><span className="dot" style={{ background: heads[0].color }} />{heads[0].cabeza_name || heads[0].name}</span>}
         {needsOwner && validHead && (
           <LeaderPicker id={`gl-owner-${type.id}`} leaders={leaders} compact value={ownerId} placeholder="¿De qué líder cuelgan?"
@@ -273,19 +281,23 @@ function GeneralLinkCard({ type, heads }) {
 /**
  * Tarjeta de un tipo de cabeza o de líder: cada envío es un enlace personal de un solo uso (caduca a los 7 días).
  * La invitación ya está preparada, así el botón de WhatsApp es un enlace real (abre WhatsApp al primer clic) y al
- * enviarla se prepara la siguiente. Si la persona la reenvía, nadie más puede registrarse con ella.
+ * enviarla se prepara la siguiente. Si la persona la reenvía, nadie más puede registrarse con ella. Un líder puede
+ * quedar con una cabeza o, en la cuenta de John, directo con él.
  */
 export function OneTimeLinkCard({ type, heads, cabezaName }) {
   const toast = useToast();
-  const onlyHead = heads.length === 1 ? String(heads[0].id) : '';
+  // Con una sola cabeza, lista para ella (aunque también se pueda elegir «Directo con John»).
+  const cabezas = heads.filter((h) => !h.is_direct);
+  const onlyHead = cabezas.length === 1 ? String(cabezas[0].id) : heads.length === 1 ? String(heads[0].id) : '';
   const [headId, setHeadId] = useState(() => recall(`gl:${type.id}:head`) || onlyHead);
   const needsHead = type.role === 'leader';
   const validHead = !needsHead ? '' : heads.some((h) => String(h.id) === String(headId)) ? headId : onlyHead;
   const head = heads.find((h) => String(h.id) === String(validHead));
   const ready = !needsHead || !!validHead;
   const cabeza = cabezaName ?? head?.cabeza_name ?? null;
+  const direct = !!head?.is_direct;
   const [confirm, setConfirm] = useState(false);
-  const makeText = useCallback(({ url, name }) => inviteText({ role: type.role, name, cabeza, url }), [type.role, cabeza]);
+  const makeText = useCallback(({ url, name }) => inviteText({ role: type.role, name, cabeza, direct, url }), [type.role, cabeza, direct]);
   const invite = useOneTimeInvite({ typeId: type.id, headId: needsHead ? Number(validHead) : null, role: type.role, cabeza, makeText, enabled: ready });
   const stats = invite.stats;
 
@@ -294,16 +306,17 @@ export function OneTimeLinkCard({ type, heads, cabezaName }) {
       <div className="glink-head">
         <Mark duo />
         <b>{type.role === 'head' ? `Invitar ${type.name === 'Cabeza' ? 'una cabeza' : `«${type.name}»`}` : `Invitar ${type.name === 'Líder' ? 'un líder' : `«${type.name}»`}`}</b>
-        <span className="small">{type.role === 'head' ? 'Crea su propio equipo' : cabeza ? `Quedará con ${cabeza}` : 'Registra líderes'} · un solo uso</span>
+        <span className="small">{type.role === 'head' ? 'Crea su propio equipo' : direct ? `Quedará directo con ${CAMPAIGN}` : cabeza ? `Quedará con ${cabeza}` : 'Registra líderes'} · un solo uso</span>
       </div>
       <div className="glink-body">
         {needsHead && heads.length > 1 && (
-          <select className="select" value={validHead} aria-label={`Cabeza para ${type.name}`}
+          <select className="select" value={validHead} aria-label={`Con quién queda ${type.name}`}
             onChange={(e) => { setHeadId(e.target.value); remember(`gl:${type.id}:head`, e.target.value); }}>
-            <option value="">¿Con qué cabeza?</option>{heads.map((h) => <option key={h.id} value={h.id}>{h.cabeza_name || h.name}</option>)}
+            <option value="">{cabezas.length < heads.length ? '¿Con quién?' : '¿Con qué cabeza?'}</option>
+            {heads.map((h) => <option key={h.id} value={h.id}>{h.is_direct ? `Directo con ${CAMPAIGN}` : h.cabeza_name || h.name}</option>)}
           </select>
         )}
-        {needsHead && heads.length === 1 && <span className="small text-2 row" style={{ gap: 6 }}><span className="dot" style={{ background: heads[0].color }} />{heads[0].cabeza_name || heads[0].name}</span>}
+        {needsHead && heads.length === 1 && <span className="small text-2 row" style={{ gap: 6 }}><span className="dot" style={{ background: heads[0].color }} />{heads[0].is_direct ? `Directo con ${CAMPAIGN}` : heads[0].cabeza_name || heads[0].name}</span>}
         {ready && (
           <>
             <div className="row-wrap" style={{ gap: 6 }}>
@@ -352,7 +365,7 @@ function GeneralLinks() {
       </div>
       <div className="glink-grid">{list.map((t) => (t.role === 'person'
         ? <GeneralLinkCard key={t.id} type={t} heads={manageable} />
-        : <OneTimeLinkCard key={t.id} type={t} heads={manageable} />))}</div>
+        : <OneTimeLinkCard key={t.id} type={t} heads={t.role === 'leader' ? [...manageable].sort((a, b) => Number(b.is_direct) - Number(a.is_direct)) : []} />))}</div>
     </div>
   );
 }

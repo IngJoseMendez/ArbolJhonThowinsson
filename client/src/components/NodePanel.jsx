@@ -38,7 +38,7 @@ export default function NodePanel({ personId, onClose, onFocus, onHighlight, onR
               <dt>Identificador</dt><dd className="mono">{p.code}</dd>
               {p.is_leader && <><dt>Código</dt><dd className="mono">{p.leader_code}</dd></>}
               <dt>Estructura</dt><dd>{data.head.cabeza ? <PersonLink id={data.head.cabeza.id} name={data.head.cabeza.full_name} isHead /> : data.head.name}</dd>
-              <dt>Invitado por</dt><dd>{data.inviter ? <PersonLink id={data.inviter.id} name={data.inviter.full_name} isLeader={data.inviter.is_leader} isHead={data.inviter.is_head} /> : p.is_head ? <JohnLink plain /> : <span className="muted">Cuelga de la estructura</span>}</dd>
+              <dt>Invitado por</dt><dd>{data.inviter ? <PersonLink id={data.inviter.id} name={data.inviter.full_name} isLeader={data.inviter.is_leader} isHead={data.inviter.is_head} /> : p.is_head || p.is_direct ? <JohnLink plain /> : <span className="muted">Cuelga de la estructura</span>}</dd>
               <dt>Líder responsable</dt><dd>{data.leader ? <><PersonLink id={data.leader.id} name={data.leader.full_name} isLeader />{p.leader_mode === 'manual' && <span className="small muted"> (asignado)</span>}</> : <span className="muted">—</span>}</dd>
               <dt>Registro</dt><dd>{fmtDate(p.created_at)} · {METHOD[p.registration_method]}</dd>
               <dt>Ubicación</dt><dd><LocationText loc={data.location} /></dd>

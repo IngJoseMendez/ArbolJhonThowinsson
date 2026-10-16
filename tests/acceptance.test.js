@@ -33,7 +33,8 @@ test('1. Se pueden crear varias cabezas y cada una tiene su propio árbol', asyn
   const dup = await admin.post('/api/heads', { name: 'cabeza norte' });
   assert.equal(dup.status, 400);
   const list = await admin.get('/api/heads');
-  assert.equal(list.data.length, 2);
+  assert.equal(list.data.filter((h) => !h.is_direct).length, 2);
+  assert.equal(list.data.filter((h) => h.is_direct).length, 1, 'y «Directo con John», que no es una cabeza');
   const tN = await admin.get(`/api/tree/${ids.norte}/children`);
   const tS = await admin.get(`/api/tree/${ids.sur}/children`);
   assert.deepEqual([tN.data.total, tS.data.total], [0, 0]);

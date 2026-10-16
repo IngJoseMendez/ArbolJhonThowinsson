@@ -188,8 +188,9 @@ export default function Panel() {
   const total = data.people.total;
   const leaders = data.leaders || [];
   const view = isHead ? tab : 'red';
-  // De quién es persona de confianza: quien encabeza un equipo, de John; los demás, de quien encabeza el suyo.
-  const trustOf = isHead ? CAMPAIGN : head?.cabeza;
+  // De quién es persona de confianza: quien encabeza un equipo (o está directo con John), de John; los demás, de quien
+  // encabeza el suyo.
+  const trustOf = isHead || head?.is_direct ? CAMPAIGN : head?.cabeza;
   const team = trustOf ? `de ${trustOf}` : `Equipo ${CAMPAIGN}`;
   const peopleList = (
     <>

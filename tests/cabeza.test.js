@@ -238,3 +238,86 @@ test('Manifiesto instalable del panel: abre directo el panel', async () => {
   assert.equal(m.data.display, 'standalone');
   assert.equal((await anon.get('/api/public/manifest?start=https://otro.sitio/x')).data.start_url, '/');
 });
+
+test('Directo con John: quien John invita sin pasar por una cabeza cuelga de él, con las mismas reglas que en cualquier equipo', async () => {
+  const direct = (await admin.get('/api/heads')).data.find((h) => h.is_direct);
+  assert.ok(direct, 'existe «Directo con John»');
+  const link = await admin.post('/api/links/general', { reg_type_id: ids.types.person.id, head_id: direct.id, owner_person_id: null });
+  assert.equal(link.status, 200, JSON.stringify(link.data));
+  assert.equal(link.data.owner_person_id, null);
+  const inv = (await anon.get(`/api/public/invite/${link.data.token}`)).data;
+  assert.equal(inv.valid, true);
+  assert.equal(inv.direct, true, 'el formulario dice «Te invita John Thowinsson»');
+  const r = await anon.post(`/api/public/register/${link.data.token}`, form('Carmen', 'Directa John'));
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const carmen = await find('carmen directa');
+  assert.equal(carmen.is_direct, true);
+  assert.equal(carmen.inviter_id, null);
+  assert.equal(carmen.head_id, direct.id);
+  // Quien ella invite cuelga de ella.
+  const hijo = await anon.post(`/api/public/register/${r.data.invite_token}`, form('Hijo', 'De Carmen'));
+  assert.equal(hijo.status, 201, JSON.stringify(hijo.data));
+  const h = await find('hijo de carmen');
+  assert.equal(h.inviter_id, carmen.id);
+  assert.equal(h.is_direct, false);
+  // En la red va primero, bajo John, y no cuenta como cabeza.
+  const net = (await admin.get('/api/tree/network')).data;
+  assert.equal(net.nodes[0].kind, 'head');
+  assert.equal(net.nodes[0].is_direct, true);
+  assert.equal(net.nodes[0].people, 2);
+  assert.equal(net.root.heads, net.nodes.filter((n) => !n.is_direct).length);
+  // Mismas reglas que en cualquier equipo: Carmen puede ser persona de confianza (líder) y su gente queda a su cargo.
+  const prom = await admin.post(`/api/people/${carmen.id}/promote`, { reason: 'Suma mucha gente' });
+  assert.equal(prom.status, 200, JSON.stringify(prom.data));
+  assert.equal(prom.data.person.is_leader, 1);
+  assert.equal(prom.data.person.is_direct, 1, 'sigue directo con John');
+  assert.equal((await admin.get(`/api/people/${h.id}`)).data.person.leader_id, carmen.id);
+  // Desde el panel la nombran persona de confianza de John (no hay cabeza en medio).
+  const panel = await admin.post(`/api/people/${carmen.id}/panel`);
+  assert.equal(panel.status, 200, JSON.stringify(panel.data));
+  const pd = (await anon.post(`/api/public/panel/${panel.data.token}`, { pin: await pinOf(carmen.id) })).data;
+  assert.equal(pd.head.is_direct, true);
+  assert.equal(pd.head.cabeza, null);
+  // Al retirarle el liderazgo vuelve a ser una persona directa con John (no hace falta moverla).
+  const dem = await admin.post(`/api/people/${carmen.id}/demote`, { reason: 'Lo pidió' });
+  assert.equal(dem.status, 200, JSON.stringify(dem.data));
+  assert.equal(dem.data.person.is_leader, 0);
+  assert.equal(dem.data.person.is_direct, 1);
+  assert.equal((await admin.get(`/api/people/${h.id}`)).data.person.leader_id, null);
+  // John invita a una persona de confianza directo con él: el formulario dice que le invita John.
+  const lead = await admin.post('/api/links/one-time', { reg_type_id: ids.types.leader.id, head_id: direct.id });
+  assert.equal(lead.status, 201, JSON.stringify(lead.data));
+  const linv = (await anon.get(`/api/public/invite/${lead.data.token}`)).data;
+  assert.equal(linv.role, 'leader');
+  assert.equal(linv.direct, true);
+  const lr = await anon.post(`/api/public/register/${lead.data.token}`, form('Lucía', 'Confianza John'));
+  assert.equal(lr.status, 201, JSON.stringify(lr.data));
+  assert.equal(lr.data.is_leader, true);
+  assert.equal(lr.data.direct, true);
+  assert.ok(lr.data.panel_token, 'tiene su panel');
+  const lucia = await find('lucia confianza');
+  assert.equal(lucia.is_direct, true);
+  assert.equal(lucia.inviter_id, null);
+  // No tiene cabeza: lo encabeza John.
+  assert.equal((await admin.post(`/api/people/${lucia.id}/head-role`, { is_head: true, reason: 'Prueba' })).data.error.code, 'DIRECT_NO_HEAD');
+  assert.equal((await admin.post('/api/people', { ...form('Cabeza', 'Directa John'), head_id: direct.id, is_head: true })).data.error.code, 'DIRECT_NO_HEAD');
+  // Un líder registrado a mano también puede quedar directo con John.
+  const ml = await admin.post('/api/people', { ...form('Líder', 'Manual Directo'), head_id: direct.id, is_leader: true });
+  assert.equal(ml.status, 201, JSON.stringify(ml.data));
+  assert.equal(ml.data.is_direct, 1);
+  assert.equal(ml.data.is_leader, 1);
+  // Registro manual directo; se puede mover al equipo de una cabeza y volver directo con John.
+  const m = await admin.post('/api/people', { ...form('Manual', 'Directo John'), head_id: direct.id });
+  assert.equal(m.status, 201, JSON.stringify(m.data));
+  assert.equal(m.data.is_direct, 1);
+  const mv = await admin.post(`/api/people/${m.data.id}/move`, { inviter_id: ids.cabeza.id, reason: 'Pasa al equipo de Juan Carlos' });
+  assert.equal(mv.status, 200, JSON.stringify(mv.data));
+  assert.equal((await admin.get(`/api/people/${m.data.id}`)).data.person.is_direct, false);
+  const back = await admin.post(`/api/people/${m.data.id}/move`, { head_id: direct.id, reason: 'Vuelve directo con John' });
+  assert.equal(back.status, 200, JSON.stringify(back.data));
+  const again = (await admin.get(`/api/people/${m.data.id}`)).data;
+  assert.equal(again.person.is_direct, true);
+  assert.equal(again.inviter, null);
+  assert.equal(again.head.is_direct, true);
+  assert.equal((await admin.get('/api/admin/integrity')).data.ok, true, JSON.stringify((await admin.get('/api/admin/integrity')).data.issues));
+});

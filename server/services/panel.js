@@ -83,7 +83,7 @@ export async function panelData(token, pin, { q: term = '', page = 1 } = {}) {
   }
 
   const type = p.reg_type_id ? await q('SELECT name, color, role FROM reg_types WHERE id = ?').get(p.reg_type_id) : null;
-  const head = await q('SELECT name, color FROM heads WHERE id = ?').get(p.head_id);
+  const head = await q('SELECT name, color, is_direct FROM heads WHERE id = ?').get(p.head_id);
   const cabeza = p.is_head ? null : await headPerson(p.head_id);
   const link = await q(`SELECT token FROM invite_links WHERE owner_person_id = ? AND kind IN ('leader','person') AND status = 'active'
                         ORDER BY id DESC LIMIT 1`).get(p.id);
@@ -94,7 +94,7 @@ export async function panelData(token, pin, { q: term = '', page = 1 } = {}) {
     },
     // Con Cloudinary configurado, la persona puede poner su foto tocando su círculo.
     photos_enabled: photosEnabled(),
-    type, head: head && { ...head, cabeza: cabeza && cabeza.status !== 'rejected' ? cabeza.full_name : null },
+    type, head: head && { ...head, is_direct: !!head.is_direct, cabeza: cabeza && cabeza.status !== 'rejected' ? cabeza.full_name : null },
     invite_token: link?.token ?? null,
     leader_invites: p.is_head ? await headInviteStats(p.id) : null,
     leaders,

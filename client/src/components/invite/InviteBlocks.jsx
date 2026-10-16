@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { ChevronRight, Copy, RotateCw, Share, Share2, UserRound } from 'lucide-react';
-import { Mark } from '../../brand/Brand.jsx';
+import { CAMPAIGN, Mark } from '../../brand/Brand.jsx';
 import { useAuth } from '../../auth.jsx';
 import { api, qs } from '../../api.js';
 import { osName } from '../../lib/device.js';
@@ -12,7 +12,7 @@ import { extLinkProps, inviteText, waUrl } from '../../lib/whatsapp.js';
 import { teamName, useTeams } from '../../lib/teams.js';
 import { Chip, Chips } from '../m/List.jsx';
 import Sheet from '../m/Sheet.jsx';
-import { PersonAvatar, TeamAvatar } from '../m/Spark.jsx';
+import { JohnAvatar, PersonAvatar, TeamAvatar } from '../m/Spark.jsx';
 
 const ShareIcon = () => (osName() === 'ios' ? <Share size={17} aria-hidden="true" /> : <Share2 size={17} aria-hidden="true" />);
 const time = new Intl.DateTimeFormat('es', { hour: 'numeric', minute: '2-digit' });
@@ -148,19 +148,22 @@ export function InviteHeadBlock({ hero = true, compact, type: fixedType, id = 'i
   );
 }
 
-/** Elegir con qué cabeza queda el líder invitado: fichas con las más usadas y «Ver todas» en una hoja con búsqueda. */
+/**
+ * Elegir con quién queda el líder invitado: fichas con las cabezas más usadas (y «Directo con John», primero, en su
+ * cuenta) y «Ver todas» en una hoja con búsqueda.
+ */
 function HeadChips({ heads, value, onChange }) {
   const teams = useTeams();
   const [all, setAll] = useState(false);
   const top = useMemo(() => {
-    const sorted = [...heads].sort((a, b) => (b.people || 0) - (a.people || 0));
+    const sorted = [...heads].sort((a, b) => Number(!!b.is_direct) - Number(!!a.is_direct) || (b.people || 0) - (a.people || 0));
     const chosen = sorted.find((h) => String(h.id) === String(value));
     const rest = sorted.filter((h) => h !== chosen);
     return chosen ? [chosen, ...rest].slice(0, 6) : rest.slice(0, 6);
   }, [heads, value]);
   return (
     <>
-      <Chips label="Cabeza con la que quedará">
+      <Chips label="Con quién quedará">
         {top.map((h) => (
           <Chip key={h.id} active={String(h.id) === String(value)} onClick={() => onChange(h.id)}>
             <TeamAvatar head={h} size={24} />{teams.short(h)}
@@ -189,7 +192,7 @@ export function HeadPickerSheet({ heads, value, onPick, onClose, title = '¿Con 
                 <span className="m-row__lead"><TeamAvatar head={h} size={40} /></span>
                 <span className="m-row__main">
                   <span className="m-row__title">{teamName(h)}</span>
-                  <span className="m-row__meta">{h.cabeza_name ? '' : 'Sin cabeza asignada, '}{h.people ?? 0} {h.people === 1 ? 'persona' : 'personas'}</span>
+                  <span className="m-row__meta">{h.is_direct ? 'Sin pasar por una cabeza, ' : h.cabeza_name ? '' : 'Sin cabeza asignada, '}{h.people ?? 0} {h.people === 1 ? 'persona' : 'personas'}</span>
                 </span>
                 {String(h.id) === String(value) && <span className="m-row__trail" aria-hidden="true">✓</span>}
               </button>
@@ -203,7 +206,8 @@ export function HeadPickerSheet({ heads, value, onPick, onClose, title = '¿Con 
 }
 
 /**
- * Bloque «Invitar un líder». Con una sola cabeza posible no pregunta; con varias, fichas para elegir.
+ * Bloque «Invitar un líder». Con una sola cabeza posible no pregunta; con varias, fichas para elegir. En la cuenta de
+ * John también puede quedar directo con él (sin pasar por una cabeza), con las mismas reglas que en cualquier equipo.
  * fixedHead: en la pantalla de una cabeza, la invitación ya es para ella.
  */
 export function InviteLeaderBlock({ fixedHead, hero = false, type: fixedType, id = 'invitar-lider' }) {
@@ -212,26 +216,29 @@ export function InviteLeaderBlock({ fixedHead, hero = false, type: fixedType, id
   const base = fixedType || roleTypes.base;
   const leaderTypes = fixedType ? [fixedType] : roleTypes.list;
   const heads = teams.manageable;
+  const options = teams.direct ? [teams.direct, ...heads] : heads;
   const remembered = (() => { try { return localStorage.getItem(`gl:${base?.id}:head`) || ''; } catch { return ''; } })();
   const [headId, setHeadId] = useState(fixedHead?.id || '');
   const [typeId, setTypeId] = useState(null);
   const type = leaderTypes.find((t) => t.id === typeId) || base;
-  const only = heads.length === 1 ? heads[0] : null;
-  const chosenId = fixedHead?.id || headId || (heads.some((h) => String(h.id) === remembered) ? remembered : '') || only?.id || '';
-  const head = fixedHead || heads.find((h) => String(h.id) === String(chosenId)) || null;
+  // Con una sola cabeza, la invitación sale lista para ella (un toque), aunque también se pueda elegir «Directo con John».
+  const only = heads.length === 1 ? heads[0] : !heads.length && teams.direct ? teams.direct : null;
+  const chosenId = fixedHead?.id || headId || (options.some((h) => String(h.id) === remembered) ? remembered : '') || only?.id || '';
+  const head = fixedHead || options.find((h) => String(h.id) === String(chosenId)) || null;
+  const direct = !!head?.is_direct;
   const cabeza = head?.cabeza_name || null;
-  const makeText = useCallback(({ url, name }) => inviteText({ role: 'leader', name, cabeza, url }), [cabeza]);
+  const makeText = useCallback(({ url, name }) => inviteText({ role: 'leader', name, cabeza, direct, url }), [cabeza, direct]);
   const invite = useOneTimeInvite({ typeId: type?.id, headId: head?.id, role: 'leader', cabeza, makeText, enabled: !!type && !!head });
   const pick = (id) => { setHeadId(id); try { localStorage.setItem(`gl:${base?.id}:head`, String(id)); } catch { /* */ } };
   return (
     <section className={`m-invite ${hero ? 'm-invite--hero' : ''} ${fixedType ? 'm-invite--type' : ''}`} id={id} aria-labelledby={`${id}-title`} style={typeVars(type?.color)}>
       {fixedType && <TypeTag type={type} />}
       <h2 className="m-invite__title" id={`${id}-title`}>{inviteTitle(type, 'leader')}</h2>
-      <p className="m-invite__desc">{head ? (cabeza ? `Quedará en el equipo de ${cabeza}.` : `Quedará en ${head.name}.`) : 'Cada líder suma a su propia gente.'}</p>
-      {!fixedHead && heads.length > 1 && (
+      <p className="m-invite__desc">{head ? (direct ? `Quedará directo con ${CAMPAIGN}.` : cabeza ? `Quedará en el equipo de ${cabeza}.` : `Quedará en ${head.name}.`) : 'Cada líder suma a su propia gente.'}</p>
+      {!fixedHead && options.length > 1 && (
         <div className="stack" style={{ gap: 8 }}>
-          <span className="m-invite__desc" style={{ margin: 0, fontWeight: 600 }}>¿Con qué cabeza quedará?</span>
-          <HeadChips heads={heads} value={chosenId} onChange={pick} />
+          <span className="m-invite__desc" style={{ margin: 0, fontWeight: 600 }}>{teams.direct ? '¿Con quién quedará?' : '¿Con qué cabeza quedará?'}</span>
+          <HeadChips heads={options} value={chosenId} onChange={pick} />
         </div>
       )}
       {leaderTypes.length > 1 && (
@@ -246,14 +253,15 @@ export function InviteLeaderBlock({ fixedHead, hero = false, type: fixedType, id
           <SentLine role="leader" headId={head.id} typeId={fixedType ? type.id : undefined} />
           <InviteCounts stats={invite.stats} to={`/enlaces?estado=sin-usar&tipo=${type?.id || ''}&cabeza=${head.id}`} />
         </>
-      ) : <p className="m-note" style={{ margin: 0 }}>{heads.length ? 'Elija la cabeza con la que quedará.' : 'Aún no hay cabezas activas que usted administre.'}</p>}
+      ) : <p className="m-note" style={{ margin: 0 }}>{options.length ? 'Elija con quién quedará.' : 'Aún no hay cabezas activas que usted administre.'}</p>}
     </section>
   );
 }
 
 /**
  * Enlace para personas (reutilizable): uno solo para compartir con todos. Se recuerda la última elección
- * (cabeza y de quién cuelgan) en este dispositivo.
+ * (cabeza y de quién cuelgan) en este dispositivo. John (el administrador general) puede invitar «directo con él»:
+ * quienes se registren quedan con él, sin cabeza ni líder; es la opción de partida en su cuenta.
  */
 export function PersonLinkBlock({ type: fixedType, id = 'invitar-personas' }) {
   const teams = useTeams();
@@ -261,6 +269,7 @@ export function PersonLinkBlock({ type: fixedType, id = 'invitar-personas' }) {
   const roleTypes = useRoleTypes('person');
   const types = fixedType ? { list: [fixedType], base: fixedType } : roleTypes;
   const heads = teams.manageable;
+  const direct = teams.direct;
   const base = types.base;
   const recall = (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
   const [typeId, setTypeId] = useState(null);
@@ -268,18 +277,19 @@ export function PersonLinkBlock({ type: fixedType, id = 'invitar-personas' }) {
   const [headId, setHeadId] = useState('');
   const [ownerId, setOwnerId] = useState('');
   const [picking, setPicking] = useState(false);
-  const hId = headId || recall(`gl:${type?.id}:head`) || (heads.length === 1 ? String(heads[0].id) : '');
-  const head = heads.find((h) => String(h.id) === String(hId)) || null;
-  const oId = ownerId || recall(`gl:${type?.id}:owner`) || (head?.cabeza_id ? String(head.cabeza_id) : '');
+  const hId = headId || recall(`gl:${type?.id}:head`) || (direct ? String(direct.id) : heads.length === 1 ? String(heads[0].id) : '');
+  const isDirect = !!direct && String(hId) === String(direct.id);
+  const head = isDirect ? direct : heads.find((h) => String(h.id) === String(hId)) || null;
+  const oId = isDirect ? '' : ownerId || recall(`gl:${type?.id}:owner`) || (head?.cabeza_id ? String(head.cabeza_id) : '');
   const [owner, setOwner] = useState(null);
   useEffect(() => {
-    if (!oId || !head) { setOwner(null); return undefined; }
+    if (!oId || !head || isDirect) { setOwner(null); return undefined; }
     let alive = true;
     api.get(`/leaders${qs({ head_id: head.id })}`).then((ls) => alive && setOwner(ls.find((l) => String(l.id) === String(oId)) || null)).catch(() => alive && setOwner(null));
     return () => { alive = false; };
-  }, [oId, head]);
-  const link = useGeneralLink({ typeId: type?.id, headId: head?.id, ownerId: owner?.id });
-  const message = link.url ? inviteMessage({ url: link.url, ownerName: owner?.full_name }) : '';
+  }, [oId, head, isDirect]);
+  const link = useGeneralLink({ typeId: type?.id, headId: head?.id, ownerId: owner?.id, direct: isDirect });
+  const message = link.url ? inviteMessage({ url: link.url, ownerName: isDirect ? undefined : owner?.full_name }) : '';
   const save = (h, o) => {
     setHeadId(String(h)); setOwnerId(String(o));
     try { localStorage.setItem(`gl:${type?.id}:head`, String(h)); localStorage.setItem(`gl:${type?.id}:owner`, String(o)); } catch { /* */ }
@@ -292,9 +302,10 @@ export function PersonLinkBlock({ type: fixedType, id = 'invitar-personas' }) {
       <p className="m-invite__desc">Uno solo para compartir con todos. Quienes se registren quedan con quien usted elija.</p>
       <div className="m-pick">
         <span className="m-pick__text">
-          {head && owner ? <><b>{head.cabeza_name ? `Equipo de ${teams.short(head)}` : head.name}</b>, cuelgan de <b>{owner.full_name}</b></> : 'Elija el equipo y de quién cuelgan.'}
+          {isDirect ? <><b>Directo con {CAMPAIGN}</b>: quienes se registren quedan con él.</>
+            : head && owner ? <><b>{head.cabeza_name ? `Equipo de ${teams.short(head)}` : head.name}</b>, cuelgan de <b>{owner.full_name}</b></> : 'Elija el equipo y de quién cuelgan.'}
         </span>
-        <button type="button" className="btn btn-sm" onClick={() => setPicking(true)}>{head && owner ? 'Cambiar' : 'Elegir'}</button>
+        <button type="button" className="btn btn-sm" onClick={() => setPicking(true)}>{isDirect || (head && owner) ? 'Cambiar' : 'Elegir'}</button>
       </div>
       {ready && (
         <>
@@ -312,16 +323,19 @@ export function PersonLinkBlock({ type: fixedType, id = 'invitar-personas' }) {
       )}
       {link.loading && <p className="m-note" style={{ margin: 0 }}>Preparando enlace…</p>}
       {link.error && <p className="m-note" style={{ margin: 0, color: 'var(--critical-text)' }}>{link.error.message}</p>}
-      {picking && <PersonLinkSheet heads={heads} types={types.list} type={type} head={head} ownerId={owner?.id}
+      {picking && <PersonLinkSheet heads={heads} direct={direct} isDirect={isDirect} types={types.list} type={type} head={head} ownerId={owner?.id}
         onType={setTypeId} onDone={(h, o) => save(h, o)} onClose={() => setPicking(false)} />}
     </section>
   );
 }
 
-/** Pasos del enlace de personas: equipo y de quién cuelgan (la cabeza primero), y el tipo si hay varios. */
-function PersonLinkSheet({ heads, types, type, head, ownerId, onType, onDone, onClose }) {
+/**
+ * Pasos del enlace de personas: directo con John (si es su cuenta) o un equipo y de quién cuelgan (la cabeza primero),
+ * y el tipo si hay varios.
+ */
+function PersonLinkSheet({ heads, direct, isDirect, types, type, head, ownerId, onType, onDone, onClose }) {
   const teams = useTeams();
-  const [h, setH] = useState(head?.id || (heads.length === 1 ? heads[0].id : ''));
+  const [h, setH] = useState(isDirect ? '' : head?.id || (heads.length === 1 ? heads[0].id : ''));
   const [leaders, setLeaders] = useState(null);
   useEffect(() => {
     if (!h) { setLeaders(null); return undefined; }
@@ -333,7 +347,7 @@ function PersonLinkSheet({ heads, types, type, head, ownerId, onType, onDone, on
   const hh = heads.find((x) => String(x.id) === String(h));
   const ordered = leaders ? [...leaders].sort((a, b) => (b.is_head ? 1 : 0) - (a.is_head ? 1 : 0)) : null;
   return (
-    <Sheet title="Enlace para personas" subtitle="¿De qué equipo son y de quién cuelgan?" onClose={onClose} size="large">
+    <Sheet title="Enlace para personas" subtitle="¿De quién cuelgan quienes se registren?" onClose={onClose} size="large">
       {({ close }) => (
         <div className="stack">
           {types.length > 1 && (
@@ -341,7 +355,22 @@ function PersonLinkSheet({ heads, types, type, head, ownerId, onType, onDone, on
               {types.map((t) => <Chip key={t.id} active={t.id === type?.id} onClick={() => onType(t.id)}>{t.name}</Chip>)}
             </Chips>
           )}
-          {heads.length > 1 && (
+          {direct && (
+            <>
+              <div className="card list-card m-group">
+                <button type="button" className="m-row" aria-pressed={isDirect} onClick={() => { onDone(direct.id, ''); close(); }}>
+                  <span className="m-row__lead"><JohnAvatar /></span>
+                  <span className="m-row__main">
+                    <span className="m-row__title">Directo con {CAMPAIGN}</span>
+                    <span className="m-row__meta">Sin pasar por una cabeza ni por un líder</span>
+                  </span>
+                  {isDirect && <span className="m-row__trail" aria-hidden="true">✓</span>}
+                </button>
+              </div>
+              {heads.length > 0 && <p className="m-hint" style={{ margin: '2px 0 -6px' }}>O con el equipo de una cabeza:</p>}
+            </>
+          )}
+          {(heads.length > 1 || (direct && heads.length > 0)) && (
             <Chips label="Equipo">
               {heads.map((x) => <Chip key={x.id} active={String(x.id) === String(h)} onClick={() => setH(x.id)}><TeamAvatar head={x} size={24} />{teams.short(x)}</Chip>)}
             </Chips>

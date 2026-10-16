@@ -253,7 +253,7 @@ export default function Home() {
               const team = teams.name(r.head_id) || r.head_name;
               const meta = r.inviter_name
                 ? (r.inviter_name === team ? `con ${r.inviter_name}` : `con ${r.inviter_name}, equipo de ${team}`)
-                : r.is_head ? `Nueva cabeza, con ${CAMPAIGN}` : `Líder de ${team}`;
+                : r.is_head ? `Nueva cabeza, con ${CAMPAIGN}` : r.is_direct ? `Directo con ${CAMPAIGN}` : `Líder de ${team}`;
               return (
                 <Row key={r.id} className={lastVisitAt && Date.parse(r.created_at) > lastVisitAt ? 'is-new' : ''} to={`/personas/${r.id}`}
                   lead={<PersonAvatar name={r.full_name} leader={r.is_leader} head={r.is_head} photo={r.photo_url} />}

@@ -116,9 +116,9 @@ export default function Heads() {
       </div>
       {loading && <Loading />}
       <ErrorBox error={error} />
-      {data && data.length === 0 && <div className="card"><Empty icon={Network} title="Aún no hay cabezas">{a.isSuper && <Link className="btn btn-primary" to="/enlaces">Invitar la primera</Link>}</Empty></div>}
+      {data && !data.some((h) => !h.is_direct) && <div className="card"><Empty icon={Network} title="Aún no hay cabezas">{a.isSuper && <Link className="btn btn-primary" to="/enlaces">Invitar la primera</Link>}</Empty></div>}
       <div className="grid g-auto">
-        {data?.map((h) => <HeadCard key={h.id} h={h} onOpen={() => nav(`/cabezas/${h.id}`)} />)}
+        {data?.filter((h) => !h.is_direct).map((h) => <HeadCard key={h.id} h={h} onOpen={() => nav(`/cabezas/${h.id}`)} />)}
       </div>
       {creating && <HeadFormModal usedColors={(data || []).map((h) => h.color)} onClose={() => setCreating(false)} onSaved={(h) => { reload(); if (h?.id) nav(`/cabezas/${h.id}`); }} />}
     </div>

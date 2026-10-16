@@ -43,7 +43,7 @@ export function HistoryDetail({ h, names }) {
   const hn = (id) => names.heads[id] || `#${id}`;
   switch (h.change_type) {
     case 'registered':
-      return <>{METHOD[d.method]} en {d.head || hn(d.head_id)}. {d.inviter_id ? <>Invitado por <b>{pn(d.inviter_id)}</b>. </> : d.is_head ? <>Invitada por <b>{CAMPAIGN}</b>: cuelga de él. </> : 'Cuelga directamente de la estructura. '}
+      return <>{METHOD[d.method]} en {d.head || hn(d.head_id)}. {d.inviter_id ? <>Invitado por <b>{pn(d.inviter_id)}</b>. </> : d.is_head ? <>Invitada por <b>{CAMPAIGN}</b>: cuelga de él. </> : d.is_direct ? <>Directo con <b>{CAMPAIGN}</b>. </> : 'Cuelga directamente de la estructura. '}
         {d.leader_id ? <>Líder responsable: <b>{pn(d.leader_id)}</b>{d.leader_mode === 'manual' ? ' (asignado)' : ''}.</> : ''}{d.is_head ? ' Registrada como cabeza de la estructura.' : d.is_leader ? ` Registrado como líder (${d.leader_code}).` : ''}</>;
     case 'promoted_leader': return <>Código asignado: <span className="mono">{d.leader_code}</span></>;
     case 'head_assigned': return d.adopted ? <>{d.adopted} líderes que colgaban de la estructura pasaron a colgar de ella.</> : null;
@@ -171,29 +171,36 @@ export function MoveModal({ p, head, onClose, onDone }) {
   const [reason, setReason] = useState('');
   const [err, setErr] = useState(null);
   const heads = useAsync(() => api.get('/heads'), []);
+  const options = heads.data?.filter((h) => h.can_manage && h.status === 'active') || [];
+  // Sin invitador: un líder cuelga de la cabeza de la estructura; cualquiera puede quedar directo con John.
+  const direct = options.find((h) => h.is_direct) || null;
+  const dest = toHead ? (p.is_leader ? Number(headId) : direct?.id) : null;
+  const destHead = options.find((h) => h.id === dest);
   const save = async () => {
     try {
-      const r = await api.post(`/people/${p.id}/move`, toHead ? { inviter_id: null, head_id: Number(headId), reason } : { inviter_id: target.id, reason });
+      const r = await api.post(`/people/${p.id}/move`, toHead ? { inviter_id: null, head_id: dest, reason } : { inviter_id: target.id, reason });
       onDone(`Rama movida (${r.branchSize} personas)`); onClose();
     } catch (e) { setErr(e); }
   };
-  const cross = toHead ? Number(headId) !== p.head_id : target && target.head_id !== p.head_id;
+  const cross = toHead ? dest !== p.head_id : target && target.head_id !== p.head_id;
   return (
     <Modal title="Mover persona y su rama" subtitle="Procedimiento autorizado: la persona se mueve con todas las personas que invitó. Queda registrado en el historial." onClose={onClose}
       footer={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn btn-primary" disabled={(!toHead && !target) || reason.trim().length < 5} onClick={save}>Mover</button></>}>
       <div className="stack">
-        {p.is_leader && (
+        {(p.is_leader || (direct && !p.is_direct)) && (
           <div className="seg">
             <button className={!toHead ? 'active' : ''} onClick={() => setToHead(false)}>Debajo de otra persona</button>
-            <button className={toHead ? 'active' : ''} onClick={() => setToHead(true)}>Con la cabeza de una estructura</button>
+            <button className={toHead ? 'active' : ''} onClick={() => setToHead(true)}>{p.is_leader ? 'Con la cabeza de una estructura' : `Directo con ${CAMPAIGN}`}</button>
           </div>
         )}
-        {toHead ? (
+        {toHead && p.is_leader ? (
           <div className="field"><label>Estructura destino</label>
             <select className="select" value={headId} onChange={(e) => setHeadId(e.target.value)}>
-              {heads.data?.filter((h) => h.can_manage && h.status === 'active').map((h) => <option key={h.id} value={h.id}>{h.cabeza_name ? `${h.cabeza_name} (cabeza)` : h.name}</option>)}
+              {options.map((h) => <option key={h.id} value={h.id}>{h.is_direct ? `Directo con ${CAMPAIGN}` : h.cabeza_name ? `${h.cabeza_name} (cabeza)` : h.name}</option>)}
             </select>
-            <span className="hint">Si la estructura tiene cabeza, el líder quedará colgando de ella.</span></div>
+            <span className="hint">{destHead?.is_direct ? `Quedará directo con ${CAMPAIGN}, con toda su rama.` : 'Si la estructura tiene cabeza, el líder quedará colgando de ella.'}</span></div>
+        ) : toHead ? (
+          <p className="hint" style={{ margin: 0 }}>Quedará directo con {CAMPAIGN}, sin pasar por una cabeza, con toda su rama.</p>
         ) : (
           <div className="field"><label>Nuevo invitador</label>
             <PersonPicker headId={a.isSuper ? undefined : p.head_id} value={target} onChange={setTarget} filter={(x) => x.id !== p.id && x.status === 'active'} />

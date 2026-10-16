@@ -137,12 +137,12 @@ export default function Person() {
       <Section title="En la red">
         <dl className="card list-card m-group" style={{ margin: 0 }}>
           <Kv label="Cabeza" action={!p.is_head && head.cabeza ? <button type="button" className="m-link-btn" onClick={() => go(`/cabezas/${head.id}`)}>Ver</button> : null}>
-            {p.is_head ? 'Encabeza su equipo' : head.cabeza ? head.cabeza.full_name : `${head.name} (sin cabeza)`}
+            {p.is_head ? 'Encabeza su equipo' : head.is_direct ? 'Ninguna: directo con John' : head.cabeza ? head.cabeza.full_name : `${head.name} (sin cabeza)`}
           </Kv>
           <Kv label="Llegó con" action={inviter
             ? <button type="button" className="m-link-btn" onClick={() => go(`/personas/${inviter.id}`)}>Ver</button>
-            : p.is_head ? <button type="button" className="m-link-btn" onClick={() => go(`/arbol?persona=${p.id}`)}>Ver</button> : null}>
-            {inviter ? inviter.full_name : p.is_head ? <JohnLink plain /> : 'Directo con la estructura'}
+            : p.is_head || p.is_direct ? <button type="button" className="m-link-btn" onClick={() => go(`/arbol?persona=${p.id}`)}>Ver</button> : null}>
+            {inviter ? inviter.full_name : p.is_head || p.is_direct ? <JohnLink plain /> : 'Directo con la estructura'}
           </Kv>
           {!p.is_head && <Kv label="Líder a cargo" action={leader && leader.id !== inviter?.id ? <button type="button" className="m-link-btn" onClick={() => go(`/personas/${leader.id}`)}>Ver</button> : null}>
             {leader ? leader.full_name : 'Sin líder por encima'}
@@ -197,7 +197,7 @@ export default function Person() {
             { label: 'Retirar liderazgo', icon: Crown, hidden: !perm.manage || !p.is_leader || p.is_head, onSelect: () => setModal('demote') },
             { label: 'Cambiar líder a cargo', icon: UserCheck, hidden: !perm.manage || p.is_head, onSelect: () => setModal('leader') },
             { label: 'Mover con su rama', icon: MoveRight, hidden: !perm.manage || p.is_head || p.status === 'rejected', onSelect: () => setModal('move') },
-            { label: 'Designar como cabeza', icon: Mark, hidden: !(perm.super && p.is_leader && !p.is_head && !inviter && !head.cabeza && p.status === 'active'), onSelect: () => setModal('make-head') },
+            { label: 'Designar como cabeza', icon: Mark, hidden: !(perm.super && p.is_leader && !p.is_head && !inviter && !head.cabeza && !head.is_direct && p.status === 'active'), onSelect: () => setModal('make-head') },
             { label: 'Quitar como cabeza', icon: Mark, hidden: !(perm.super && p.is_head), onSelect: () => setModal('unmake-head') },
           ],
           [

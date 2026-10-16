@@ -138,7 +138,7 @@ export default function People() {
                     </td>
                     <td><span className="row nowrap"><span className="dot" style={{ background: r.head_color }} />{teams.name(r.head_id) || r.head_name}</span></td>
                     <td><PersonLink id={r.leader_id} name={r.leader_name} isLeader /></td>
-                    <td>{r.inviter_id ? <PersonLink id={r.inviter_id} name={r.inviter_name} /> : r.is_head ? <JohnLink locate={r.id} /> : <span className="muted small">La estructura</span>}</td>
+                    <td>{r.inviter_id ? <PersonLink id={r.inviter_id} name={r.inviter_name} /> : r.is_head || r.is_direct ? <JohnLink locate={r.id} /> : <span className="muted small">La estructura</span>}</td>
                     <td className="small">
                       {r.localidad_name ? (
                         <>

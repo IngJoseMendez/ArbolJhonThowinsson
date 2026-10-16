@@ -369,6 +369,30 @@ ALTER TABLE people ADD COLUMN IF NOT EXISTS photo_public_id VARCHAR(200);
 ALTER TABLE people ADD COLUMN IF NOT EXISTS photo_updated_at TEXT;
 `;
 
+// v13: \u00abDirecto con John\u00bb. Las personas que John invita sin pasar por una cabeza ni por un l\u00edder cuelgan de \u00e9l: van en
+// una estructura propia (heads.is_direct, una sola) y no tienen invitador (people.is_direct). Por lo demás, las mismas
+// reglas que en cualquier equipo: quienes ellas inviten cuelgan de ellas y pueden ser personas de confianza (líderes).
+// La estructura no tiene cabeza: la encabeza John.
+const MIGRATION_13 = `
+ALTER TABLE heads ADD COLUMN IF NOT EXISTS is_direct SMALLINT NOT NULL DEFAULT 0;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_heads_direct ON heads (is_direct) WHERE is_direct = 1;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS is_direct SMALLINT NOT NULL DEFAULT 0;
+DO $$ DECLARE c text; BEGIN
+  SELECT conname INTO c FROM pg_constraint WHERE conrelid = 'people'::regclass AND contype = 'c'
+     AND pg_get_constraintdef(oid) LIKE '%inviter_id IS NOT NULL%is_leader = 1%' AND pg_get_constraintdef(oid) NOT LIKE '%is_direct%';
+  IF c IS NOT NULL THEN EXECUTE format('ALTER TABLE people DROP CONSTRAINT %I', c); END IF;
+END $$;
+DO $$ BEGIN
+  ALTER TABLE people ADD CONSTRAINT ck_people_root CHECK (inviter_id IS NOT NULL OR is_leader = 1 OR is_direct = 1 OR status = 'rejected');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE people ADD CONSTRAINT ck_people_direct CHECK (is_direct = 0 OR (inviter_id IS NULL AND is_head = 0));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+INSERT INTO heads (name, slug, description, color, is_direct)
+VALUES ('Directo con John', 'directo-con-john', 'Personas que llegan directo con John Thowinsson, sin pasar por una cabeza ni por un l\u00edder.', '#1c6fae', 1)
+ON CONFLICT DO NOTHING;
+`;
+
 /**
  * Cuelga de la cabeza `head` (persona ra\u00edz) los dem\u00e1s l\u00edderes ra\u00edz de su estructura, con sus ramas completas.
  * `exec(sql, params)` ejecuta con par\u00e1metros $1\u2026; sirve tanto en la migraci\u00f3n como dentro de una transacci\u00f3n.
@@ -430,6 +454,7 @@ const MIGRATIONS = [
   { version: 10, sql: MIGRATION_10 },
   { version: 11, sql: MIGRATION_11 },
   { version: 12, sql: MIGRATION_12 },
+  { version: 13, sql: MIGRATION_13 },
 ];
 
 let pool = null;

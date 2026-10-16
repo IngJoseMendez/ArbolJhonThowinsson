@@ -82,6 +82,12 @@ export default function HeadDetail() {
                 <Link className="btn btn-sm btn-sky" to={`/cabezas/${h.id}?tab=arbol&foco=${c.id}`}><GitBranch size={15} />Su árbol</Link>
               </div>
             </div>
+          ) : h.is_direct ? (
+            <div className="alert alert-info" style={{ marginBottom: 16 }}>
+              <Mark size={16} />
+              <span>Aquí quedan las personas que llegan directo con {CAMPAIGN}, sin pasar por una cabeza. Mismas reglas que en cualquier
+                equipo: suman a su gente y pueden ser líderes.</span>
+            </div>
           ) : (
             <div className="alert alert-info" style={{ marginBottom: 16 }}>
               <Mark size={16} />
@@ -117,7 +123,7 @@ export default function HeadDetail() {
                     {data.leaders.filter((l) => !l.is_head).map((l) => (
                       <tr key={l.id} className="clickable" onClick={() => nav(`/personas/${l.id}`)}>
                         <td><div className="row"><Avatar name={l.full_name} leader photo={l.photo_url} /><div><b>{l.full_name}</b><div className="small muted mono">{l.leader_code}</div></div></div></td>
-                        <td>{l.inviter_name || <span className="muted">La estructura</span>}</td>
+                        <td>{l.inviter_name || (h.is_direct ? CAMPAIGN : <span className="muted">La estructura</span>)}</td>
                         <td className="tnum">{fmtNum(l.assigned)}</td>
                         <td className="tnum">{fmtNum(l.branch)}</td>
                         <td className="small muted">{fmtDate(l.created_at)}</td>
