@@ -15,22 +15,52 @@ export async function getArea(id) {
   return q(`SELECT ${AREA_COLS} FROM geo_areas WHERE id = ?`).get(id);
 }
 
+/**
+ * Corregimientos (Bonda, Taganga, Minca…) como opciones del buscador de barrios del formulario: quien vive en uno lo
+ * elige como su barrio aunque el catálogo aún no tenga sus veredas. Se guarda el corregimiento, sin vereda.
+ */
+async function corregimientosAsBarrios(localidadId) {
+  return q(`SELECT ${AREA_COLS.split(', ').map((c) => `c.${c}`).join(', ')}, l.name AS parent_name, l.kind AS parent_kind, l.alias AS parent_alias,
+             l.id AS localidad_id, l.name AS localidad_name, l.alias AS localidad_alias
+             FROM geo_areas c JOIN geo_areas l ON l.id = c.parent_id
+            WHERE c.level = 'comuna' AND c.kind = 'corregimiento' AND c.active = 1 AND l.active = 1 ${localidadId ? 'AND l.id = ?' : ''}`)
+    .all(...(localidadId ? [localidadId] : []));
+}
+
+const byName = (a, b) => normalizeText(a.name).localeCompare(normalizeText(b.name), 'es');
+
 /** Opciones de un nivel, opcionalmente filtradas por padre y texto (para los selectores). */
-export async function listAreas({ level, parentId = null, localidadId = null, allBarrios = false, term = '', includeInactive = false, limit = 500 } = {}) {
+export async function listAreas({
+  level, parentId = null, localidadId = null, allBarrios = false, withCorregimientos = false, term = '', includeInactive = false, limit = 500,
+} = {}) {
   if (allBarrios) {
     // Todos los barrios y veredas con su comuna y su localidad: permite elegir el barrio sin elegir antes la localidad.
-    return q(`SELECT ${AREA_COLS.split(', ').map((c) => `b.${c}`).join(', ')}, c.name AS parent_name, c.kind AS parent_kind, c.alias AS parent_alias,
+    const rows = await q(`SELECT ${AREA_COLS.split(', ').map((c) => `b.${c}`).join(', ')}, c.name AS parent_name, c.kind AS parent_kind, c.alias AS parent_alias,
                l.id AS localidad_id, l.name AS localidad_name, l.alias AS localidad_alias
                FROM geo_areas b JOIN geo_areas c ON c.id = b.parent_id JOIN geo_areas l ON l.id = c.parent_id
               WHERE b.level = 'barrio' AND b.active = 1 AND c.active = 1 AND l.active = 1
               ORDER BY b.name_key, l.name_key LIMIT ?`).all(limit);
+    return withCorregimientos ? [...rows, ...await corregimientosAsBarrios()].sort(byName) : rows;
   }
   if (localidadId) {
     // Barrios y veredas de una localidad, con su comuna o corregimiento (que se deduce al elegir el barrio).
-    return q(`SELECT ${AREA_COLS.split(', ').map((c) => `b.${c}`).join(', ')}, c.name AS parent_name, c.kind AS parent_kind, c.alias AS parent_alias
+    const rows = await q(`SELECT ${AREA_COLS.split(', ').map((c) => `b.${c}`).join(', ')}, c.name AS parent_name, c.kind AS parent_kind, c.alias AS parent_alias
                FROM geo_areas b JOIN geo_areas c ON c.id = b.parent_id
               WHERE b.level = 'barrio' AND c.parent_id = ? ${includeInactive ? '' : 'AND b.active = 1 AND c.active = 1'}
               ORDER BY b.name_key, c.name_key LIMIT ?`).all(localidadId, limit);
+    return withCorregimientos ? [...rows, ...await corregimientosAsBarrios(localidadId)].sort(byName) : rows;
+  }
+  if (level === 'localidad' && !parentId && !term) {
+    // Cada localidad con los sectores que la gente reconoce (sus comunas y corregimientos): «Mamatoco, Bonda…».
+    const rows = await q(`SELECT ${AREA_COLS} FROM geo_areas WHERE level = 'localidad' ${includeInactive ? '' : 'AND active = 1'}
+               ORDER BY (CASE WHEN code ~ '^L[0-9]+$' THEN substr(code, 2)::int ELSE 999 END), name_key LIMIT ?`).all(limit);
+    const kids = await q(`SELECT parent_id, kind, name, alias FROM geo_areas WHERE level = 'comuna' AND active = 1
+               ORDER BY kind, (CASE WHEN code ~ '^C[0-9]+$' THEN substr(code, 2)::int ELSE 999 END), name_key`).all();
+    for (const r of rows) {
+      r.sectors = kids.filter((k) => k.parent_id === r.id)
+        .flatMap((k) => (k.kind === 'corregimiento' || !k.alias ? [k.name] : k.alias.split(/\s+[–-]\s+/))).join(', ');
+    }
+    return rows;
   }
   const where = [];
   const params = [];

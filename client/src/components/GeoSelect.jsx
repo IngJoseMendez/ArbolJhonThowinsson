@@ -14,10 +14,13 @@ export async function fetchAreas(level, parentId) {
 }
 export const clearGeoCache = () => cache.clear();
 
-/** Todos los barrios y veredas, con su comuna y su localidad (para elegir el barrio sin elegir antes la localidad). */
+/**
+ * Todos los barrios y veredas, con su comuna y su localidad (para elegir el barrio sin elegir antes la localidad).
+ * Incluye los corregimientos (Bonda, Taganga…): quien vive en uno lo elige como su barrio.
+ */
 export async function fetchAllBarrios() {
   const key = 'barrios-todos';
-  if (!cache.has(key)) cache.set(key, api.get('/geo/areas?level=barrio&todos=1').catch((e) => { cache.delete(key); throw e; }));
+  if (!cache.has(key)) cache.set(key, api.get('/geo/areas?level=barrio&todos=1&corregimientos=1').catch((e) => { cache.delete(key); throw e; }));
   return cache.get(key);
 }
 
@@ -33,23 +36,26 @@ function useAllBarrios(enabled) {
   return state;
 }
 
-/** Barrios y veredas de toda una localidad (formulario sin comuna), con su comuna o corregimiento. */
+/** Barrios y veredas de toda una localidad (formulario sin comuna), con su comuna o corregimiento, y sus corregimientos. */
 export async function fetchBarriosOfLocalidad(localidadId) {
   const key = `barrios-de:${localidadId}`;
   if (!cache.has(key)) {
-    cache.set(key, api.get(`/geo/areas${qs({ level: 'barrio', localidad_id: localidadId })}`).catch((e) => { cache.delete(key); throw e; }));
+    cache.set(key, api.get(`/geo/areas${qs({ level: 'barrio', localidad_id: localidadId, corregimientos: 1 })}`).catch((e) => { cache.delete(key); throw e; }));
   }
   return cache.get(key);
 }
 
 export const emptyGeo = { localidad: null, comuna: null, barrio: null };
 
+// En el formulario, un corregimiento se puede elegir en el campo del barrio: queda guardado como su corregimiento.
+const isCorregimiento = (x) => x?.kind === 'corregimiento';
+
 /** Convierte la selección en el formato que espera la API. */
 export function geoToApi(v) {
   const out = {};
   for (const level of ['localidad', 'comuna', 'barrio']) {
     const x = v?.[level];
-    if (!x) continue;
+    if (!x || (level === 'barrio' && isCorregimiento(x))) continue;
     if (x.manual !== undefined) { if (x.manual.trim()) out[`${level}_text`] = x.manual.trim(); } else out[`${level}_id`] = x.id;
   }
   return out;
@@ -84,12 +90,14 @@ export function geoLabel(v) {
     .map((x) => (isManual(x) ? `${x.manual} (escrita)` : x.alias && x.kind === 'comuna' ? `${x.name} · ${x.alias}` : x.name));
 }
 
-const describeBarrio = (o) => (o.parent_kind === 'corregimiento' ? `Vereda · Corregimiento ${o.parent_name}`
-  : `${o.parent_name}${o.parent_alias ? ` · ${o.parent_alias}` : ''}`);
+const describeBarrio = (o) => (isCorregimiento(o) ? 'Corregimiento (zona rural)'
+  : o.parent_kind === 'corregimiento' ? `Vereda · Corregimiento ${o.parent_name}`
+    : `${o.parent_name}${o.parent_alias ? ` · ${o.parent_alias}` : ''}`);
 
 /**
  * Formulario de registro: sólo Localidad → Barrio/Vereda. La comuna o el corregimiento se deducen del barrio elegido
  * (se guardan igual, para filtros y conteos); si el barrio se escribe a mano queda pendiente de verificación.
+ * Los corregimientos (Bonda, Taganga…) también se eligen en el campo del barrio.
  */
 function SimpleGeoSelect({ value, onChange, errors, idPrefix }) {
   const loc = useOptions('localidad', null);
@@ -97,20 +105,26 @@ function SimpleGeoSelect({ value, onChange, errors, idPrefix }) {
   // Sin localidad elegida, el barrio se busca entre todos y la localidad se completa sola.
   const all = useAllBarrios(!value.localidad);
   const bar = value.localidad ? byLoc : all;
+  // Quien quedó en un corregimiento sin vereda (al editar su ficha) lo ve en el campo del barrio.
+  const barrio = value.barrio || (isCorregimiento(value.comuna) ? value.comuna : null);
   const setLocalidad = (v) => {
-    const same = v && value.localidad && !isManual(v) && v.id === value.localidad.id;
-    onChange(same ? { ...value, localidad: v } : { localidad: v, comuna: null, barrio: null });
+    const same = v && value.localidad && !isManual(v) && !isManual(value.localidad) && v.id === value.localidad.id;
+    if (same) { onChange({ ...value, localidad: v }); return; }
+    // Un barrio escrito a mano no depende del listado: se conserva al elegir o al escribir la localidad. Uno del listado
+    // (o un corregimiento) es de su localidad: al cambiarla, se quita.
+    onChange({ localidad: v, comuna: null, barrio: isManual(value.barrio) ? value.barrio : null });
   };
   const setBarrio = (o) => {
-    if (!o || isManual(o)) onChange({ ...value, comuna: null, barrio: o });
-    else {
-      const localidad = value.localidad || (o.localidad_id ? { id: o.localidad_id, name: o.localidad_name, alias: o.localidad_alias, kind: 'localidad' } : null);
-      onChange({ localidad, comuna: { id: o.parent_id, name: o.parent_name, kind: o.parent_kind, alias: o.parent_alias }, barrio: o });
-    }
+    if (!o || isManual(o)) { onChange({ ...value, comuna: null, barrio: o }); return; }
+    const localidad = value.localidad || (o.localidad_id ? { id: o.localidad_id, name: o.localidad_name, alias: o.localidad_alias, kind: 'localidad' } : null);
+    const comuna = isCorregimiento(o)
+      ? { id: o.id, name: o.name, kind: o.kind, alias: o.alias }
+      : { id: o.parent_id, name: o.parent_name, kind: o.parent_kind, alias: o.parent_alias };
+    onChange({ localidad, comuna, barrio: o });
   };
   const describe = (o) => (value.localidad ? describeBarrio(o) : `${describeBarrio(o)} · ${o.localidad_name}`);
   const upperManual = isManual(value.localidad);
-  const path = [value.localidad, value.barrio].filter(Boolean).map((x) => (isManual(x) ? `${x.manual} (escrito)` : x.name));
+  const path = [value.localidad, barrio].filter(Boolean).map((x) => (isManual(x) ? `${x.manual} (escrito)` : x.name));
   const pending = [value.localidad, value.barrio].some((x) => isManual(x) && x.manual.trim());
   return (
     <div className="geo-select stack">
@@ -123,13 +137,15 @@ function SimpleGeoSelect({ value, onChange, errors, idPrefix }) {
             {errors.barrio && <span className="err">{errors.barrio}</span>}
           </div>
         ) : (
-          <Combobox id={`${idPrefix}-barrio`} label="Barrio o vereda" options={bar.list} loading={bar.loading} value={value.barrio}
+          <Combobox id={`${idPrefix}-barrio`} label="Barrio o vereda" options={bar.list} loading={bar.loading} value={barrio}
             onChange={setBarrio} describe={describe} error={errors.barrio}
             placeholder="Buscar barrio o vereda…" hint={!value.localidad ? 'Si eliges el barrio, la localidad se completa sola.' : undefined}
             manualLabel="¿Tu barrio no está aquí? Escríbelo" manualPlaceholder="Nombre del barrio o vereda" />
         )}
+        {/* Pocos saben su número de localidad: cada una muestra sus sectores (Gaira, Mamatoco, Taganga…) y se busca por ellos. */}
         <Combobox id={`${idPrefix}-localidad`} label="Localidad" required options={loc.list} loading={loc.loading} value={value.localidad}
-          onChange={setLocalidad} placeholder="Buscar localidad…" error={errors.localidad}
+          onChange={setLocalidad} placeholder="Busca tu sector: Gaira, Mamatoco…" error={errors.localidad}
+          describe={(o) => o.sectors || o.alias}
           manualLabel="¿Tu localidad no está aquí? Escríbela" manualPlaceholder="Nombre de la localidad" />
       </div>
       {path.length > 0 && (
@@ -161,13 +177,16 @@ function FullGeoSelect({ value = emptyGeo, onChange, errors = {}, mode = 'form',
   const com = useOptions('comuna', value.localidad);
   const bar = useOptions('barrio', value.comuna);
 
+  // Elegir otra opción del listado quita lo de abajo (ya no le corresponde); escribir a mano no borra lo de abajo.
   const setLocalidad = (v) => {
     const same = v && value.localidad && !isManual(v) && v.id === value.localidad.id;
-    onChange(same ? { ...value, localidad: v } : { localidad: v, comuna: null, barrio: null });
+    const typing = isManual(v) && isManual(value.localidad);
+    onChange(same || typing ? { ...value, localidad: v } : { localidad: v, comuna: null, barrio: null });
   };
   const setComuna = (v) => {
     const same = v && value.comuna && !isManual(v) && v.id === value.comuna.id;
-    onChange(same ? { ...value, comuna: v } : { ...value, comuna: v, barrio: null });
+    const typing = isManual(v) && isManual(value.comuna);
+    onChange(same || typing ? { ...value, comuna: v } : { ...value, comuna: v, barrio: null });
   };
   const setBarrio = (v) => onChange({ ...value, barrio: v });
 

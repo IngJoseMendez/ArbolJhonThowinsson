@@ -1,4 +1,4 @@
-import { CheckCircle2 } from 'lucide-react';
+import { Check, CheckCircle2 } from 'lucide-react';
 import GeoSelect, { emptyGeo, geoToApi } from './GeoSelect.jsx';
 import { Mark, SLOGAN } from '../brand/Brand.jsx';
 import { cedulaError, formatCedula, formatMobile, formatName, mobileError, normalizeCedula, normalizeMobile } from '../lib/validators.js';
@@ -139,6 +139,7 @@ export default function PersonFields({ value, onChange, errors = {}, onBlurField
                 onChange={() => setRaw(qk, v)} />
               {v === 'yes' && <Mark size={20} />}
               {l}
+              {value[qk] === v && <Check size={v === 'yes' ? 20 : 17} strokeWidth={3} className="supports-check" aria-hidden="true" />}
             </label>
           ))}
         </div>

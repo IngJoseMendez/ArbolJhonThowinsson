@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Navigate, useParams } from 'react-router-dom';
+import { Navigate, useLocation, useParams } from 'react-router-dom';
 import { Crown, MoreHorizontal, MoreVertical, Pencil, UserCircle, UserPlus, Users } from 'lucide-react';
 import { api } from '../../api.js';
 import { useAuth } from '../../auth.jsx';
@@ -42,6 +42,7 @@ function StatusBar({ t }) {
 
 export default function Head() {
   const { id } = useParams();
+  const loc = useLocation();
   const a = useAuth();
   const go = useGo();
   const [params, setParams] = useQueryState();
@@ -65,8 +66,13 @@ export default function Head() {
 
   const changed = () => { reload(); invalidate('heads'); invalidate('dash'); };
   if (error) return <Screen title="Cabeza" back="/cabezas" noHero><ErrorBox error={error} /></Screen>;
-  // Quienes John invita directamente no tienen página aparte: son ramas suyas en la red completa.
-  if (h?.is_direct) return <Navigate to="/arbol" replace />;
+  // Quienes John invita directamente no tienen página aparte: son ramas suyas en la red completa. Se conserva a quién
+  // mostrar y desde qué pestaña se llegó (así «atrás» vuelve allí y no a «Más»).
+  if (h?.is_direct) {
+    const keep = new URLSearchParams();
+    for (const k of ['persona', 'foco']) if (params[k]) keep.set(k, params[k]);
+    return <Navigate to={`/arbol${keep.toString() ? `?${keep}` : ''}`} replace state={loc.state} />;
+  }
 
   const header = (ref) => (
     <div className="m-detail">

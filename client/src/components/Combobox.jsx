@@ -24,7 +24,8 @@ export default function Combobox({
 
   const filtered = useMemo(() => {
     const t = norm(term);
-    const list = t ? options.filter((o) => norm(`${o.name} ${o.alias || ''}`).includes(t)) : options;
+    // sectors: otros nombres con que se busca una opción (una localidad por sus barrios y corregimientos conocidos).
+    const list = t ? options.filter((o) => norm(`${o.name} ${o.alias || ''} ${o.sectors || ''}`).includes(t)) : options;
     return list;
   }, [options, term]);
   const items = manualLabel ? [...filtered, { id: '__manual', manual: true }] : filtered;

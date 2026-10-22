@@ -150,7 +150,9 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
       setParams({ expandir: null }, true);
       runExpandAll(s, s.rootKey);
     }
-    if (target) setTimeout(() => locateIn(s, target), 50);
+    // Al llegar desde la ficha de alguien, en el celular se resalta y se centra en el árbol, sin abrirle encima
+    // otra ficha (taparía el árbol que se vino a ver).
+    if (target) setTimeout(() => locateIn(s, target, { select: !compact }), 50);
     else if (!keepView) setTimeout(() => canvas.current?.fit(), 50);
   };
 
@@ -184,7 +186,7 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
     saveTreeState(cacheKey, { tree: store.snapshot(), ui: store.ui });
   }, [store, cacheKey]);
 
-  const locateIn = async (s, personId) => {
+  const locateIn = async (s, personId, { select = true } = {}) => {
     try {
       const chain = await s.locate(personId);
       if (!chain) {
@@ -194,7 +196,7 @@ export default function TreeExplorerView({ heads, params, setParams, lockHead, c
       }
       setPathIds(new Set(chain.map((c) => c.id)));
       setFoundId(personId);
-      setSelected(personId);
+      if (select) setSelected(personId);
       setScrollToId(personId);
       setTimeout(() => canvas.current?.centerOn(`p${personId}`), 180);
     } catch (e) { toast(e.message, 'error'); }

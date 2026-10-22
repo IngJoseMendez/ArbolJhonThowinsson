@@ -299,3 +299,32 @@ test('Formulario actual: nombres y apellidos, sin comuna y «¿Contamos contigo?
   assert.equal(e.data.supports, 'no');
   assert.equal((await admin.get('/api/admin/integrity')).data.ok, true);
 });
+
+test('Formulario: los corregimientos se eligen como barrio y cada localidad dice sus sectores', async () => {
+  // Cada localidad con los sectores que la gente reconoce (para quien no sabe su número de localidad).
+  const locs = await areas('localidad');
+  assert.match(locs[0].sectors, /Mamatoco/);
+  assert.match(locs[0].sectors, /Bonda/);
+  assert.match(locs[1].sectors, /Taganga/);
+  assert.match(locs[2].sectors, /Rodadero/);
+  // Bonda, Taganga, Minca y Guachaca no tienen veredas en el catálogo: el formulario los ofrece como barrio.
+  const all = (await anon.get('/api/geo/areas?level=barrio&todos=1&corregimientos=1')).data;
+  const bonda = all.find((b) => b.name === 'Bonda');
+  assert.equal(bonda.kind, 'corregimiento');
+  assert.equal(bonda.localidad_name, 'Localidad 1');
+  assert.ok(['Taganga', 'Minca', 'Guachaca'].every((n) => all.some((b) => b.name === n && b.kind === 'corregimiento')));
+  assert.ok(!(await anon.get('/api/geo/areas?level=barrio&todos=1')).data.some((b) => b.kind === 'corregimiento'), 'sólo si se piden');
+  const ofL2 = (await anon.get(`/api/geo/areas?level=barrio&localidad_id=${g.L2.id}&corregimientos=1`)).data;
+  assert.ok(ofL2.some((b) => b.name === 'Taganga') && !ofL2.some((b) => b.name === 'Bonda'));
+  // Quien vive en Bonda queda con su localidad y su corregimiento, sin vereda.
+  const link = (await admin.get(`/api/people/${ids.leader}`)).data.links[0].token;
+  const { full_name, ...rest } = person();
+  const r = await anon.post(`/api/public/register/${link}`, {
+    ...rest, first_names: 'Rosa', last_names: 'De Bonda', consent: true, location: { localidad_id: bonda.localidad_id, comuna_id: bonda.id },
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const p = (await admin.get('/api/people?q=rosa de bonda')).data.rows[0];
+  assert.equal(p.localidad_name, 'Localidad 1');
+  assert.equal(p.comuna_name, 'Bonda');
+  assert.equal(p.barrio_name, null);
+});

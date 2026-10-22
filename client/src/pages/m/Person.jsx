@@ -99,7 +99,8 @@ export default function Person() {
         <Quick icon="wa" label="WhatsApp" wa href={canCall ? waUrl('', p.phone) : undefined} disabled={!canCall} linkProps={extLinkProps()} />
         <Quick icon={Phone} label="Llamar" href={canCall ? `tel:+${normalizePhone57(p.phone)}` : undefined} disabled={!canCall} />
         {p.is_head && perm.manage ? <HeadInviteQuick p={p} /> : <Quick icon={Link2} label="Su enlace" onClick={() => setModal('link')} disabled={!activeLink && !canRegen} />}
-        <Quick icon={GitBranch} label="Árbol" onClick={() => go(`/cabezas/${p.head_id}?tab=arbol&persona=${p.id}`)} />
+        {/* Su árbol: su rama (quienes cuelgan de la persona) o, si aún no tiene a nadie, dónde está en la red. */}
+        <Quick icon={GitBranch} label="Árbol" onClick={() => go(stats.total > 0 ? `/arbol?foco=${p.id}` : `/arbol?persona=${p.id}`)} />
       </div>
     </div>
   );

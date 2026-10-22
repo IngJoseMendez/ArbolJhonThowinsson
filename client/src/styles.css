@@ -669,16 +669,22 @@ table.table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .supports-option input { position: absolute; opacity: 0; pointer-events: none; }
 .supports-option:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
 .supports-option.active { border-color: var(--strong-bg); background: var(--strong-bg); color: var(--strong-ink); }
-/* «Sí»: el botón protagonista (tinte de la marca, borde fuerte y la marca de Thowinsson); al elegirlo, azul lleno y
-   la marca dorada sube. «No»: discreto, texto gris y borde fino. */
-.supports-option.is-yes { height: 56px; border: 2px solid var(--strong-bg); background: var(--accent-soft); color: var(--ink-strong); font-weight: 700; font-size: 20px; }
+/* «Sí»: el botón protagonista (más grande, con la marca de Thowinsson) pero, sin elegir, blanco como «No»: así nunca
+   parece ya marcado. Al elegirlo: azul lleno, la marca dorada sube y aparece el visto. «No»: discreto; elegido, borde
+   oscuro y visto. */
+.supports-option:hover { border-color: var(--icon-accent); }
+.supports-option.is-yes { height: 56px; border: 1.5px solid var(--border-strong); background: var(--surface); color: var(--ink-strong); font-weight: 700; font-size: 20px; }
 .supports-option.is-yes .mark { width: 20px; height: 20px; color: var(--icon-accent); }
-.supports-option.is-yes.active { background: var(--strong-bg); color: var(--strong-ink); box-shadow: 0 6px 18px rgba(5, 32, 74, 0.25); }
+.supports-option.is-yes.active { border: 2px solid var(--strong-bg); background: var(--strong-bg); color: var(--strong-ink); box-shadow: 0 6px 18px rgba(5, 32, 74, 0.25); }
 .supports-option.is-yes.active .mark { color: var(--gold); }
 .supports-option.is-yes.active .mark-b, .supports-option.is-yes.active .mark-a { animation: rise 0.7s cubic-bezier(0.2, 0.9, 0.3, 1.25) both; transform-box: fill-box; }
 .supports-option.is-yes.active .mark-a { animation-delay: 0.12s; }
 .supports-option.is-no { align-self: center; height: 48px; border-width: 1px; color: var(--muted); font-weight: 500; font-size: 16px; }
-.supports-option.is-no.active { background: var(--surface-2); border-color: var(--border-strong); color: var(--text); }
+.supports-option.is-no.active { background: var(--surface-2); border: 2px solid var(--text-2); color: var(--text); font-weight: 600; }
+.supports-check { flex: none; }
+.supports-option.active .supports-check { animation: check-in 0.25s var(--ease-out) both; }
+@keyframes check-in { from { opacity: 0; transform: scale(0.4); } }
+@media (prefers-reduced-motion: reduce) { .supports-option.active .supports-check { animation: none; } }
 .supports .err { display: block; margin-top: 8px; }
 .slogan { margin: 16px 0 0; text-align: center; font: 600 17px/1.3 var(--font-display); color: var(--text); display: flex; align-items: center; justify-content: center; gap: 8px; }
 .slogan .mark { color: var(--icon-accent); }

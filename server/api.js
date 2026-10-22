@@ -882,7 +882,11 @@ api.get('/geo/areas', geoLimiter, async (req, res) => {
   const allBarrios = level === 'barrio' && req.query.todos === '1';
   if (level && level !== 'localidad' && !parentId && !localidadId && !allBarrios && !req.user) throw badRequest('VALIDATION', 'Indique el nivel superior.');
   const all = req.query.all === '1' && req.user?.role === 'super_admin';
-  res.json(await listAreas({ level, parentId, localidadId, allBarrios, term: String(req.query.q || '').slice(0, 60), includeInactive: all, limit: all ? 20000 : 1000 }));
+  // corregimientos=1 (formulario de registro): los corregimientos también se ofrecen como barrio.
+  const withCorregimientos = req.query.corregimientos === '1';
+  res.json(await listAreas({
+    level, parentId, localidadId, allBarrios, withCorregimientos, term: String(req.query.q || '').slice(0, 60), includeInactive: all, limit: all ? 20000 : 1000,
+  }));
 });
 
 api.post('/geo/areas', requireRole('super_admin'), async (req, res) => res.status(201).json(await createArea(req.body, req.user, ip(req))));
